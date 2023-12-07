@@ -1,0 +1,16 @@
+**/__pycache__
+*.h5
+*.xdmf
+
+**/_minted*
+*.log
+*.fls
+*.aux
+*.fdb_latexmk
+*.synctex.gz
+*.tdo
+*.toc
+_build
+.DS_Store
+dist
+*.egg-info/
