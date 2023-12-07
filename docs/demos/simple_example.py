@@ -1,11 +1,12 @@
 # %% [markdown]
-# # A simple example of an external operator
+# # Simple example
 #
 # Authors: Andrey Latyshev (University of Luxembourg, Sorbonne Univeristé, andrey.latyshev@uni.lu)
 #
 # In order to show how an external operator can be used in a variational setting in FEniCSx/DOLFINx, we want to start with a simple example.
 #
-# Let us denote an external operator that is not expressible through UFL by $N = N(u)$, where $u$ is its single operand existing in a functional space $V$. In these terms, we consider the following linear form $F$
+# Let us denote an external operator that is not expressible through UFL by $N = N(u)$, where $u$ is its single operand existing in a functional space $V$. In these terms, we consider the following linear form $F$.
+#
 # $$
 #   F(u;v) = \int N(u)v dx
 # $$
@@ -18,6 +19,7 @@
 # where $\hat{N}(u;\tilde{u}) = N^\prime(u;\tilde{u}) = 2u\tilde{u}$.
 #
 # In other words:
+#
 # $$
 #   J(u;\tilde{u},v) = F^\prime(u; \hat{N}(u;\tilde{u}),v) = (F^\prime \circ \hat{N})(u;\tilde{u},v)
 # $$
@@ -49,7 +51,7 @@ from ufl.algorithms import expand_derivatives
 import numpy as np
 
 import sys
-sys.path.append("../..")
+sys.path.append("../../src/dolfinx_ExternalOperator")
 
 nx = 2
 domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nx)

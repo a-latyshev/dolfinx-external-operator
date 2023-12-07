@@ -1,0 +1,50 @@
+# Simple workflow for deploying static content to GitHub Pages
+name: Build documentation
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: "[main]"
+  pull_request:
+    branches: [main]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  # Directory that will be published on github pages
+  PUBLISH_DIR: docs/_build/html
+  DEB_PYTHON_INSTALL_LAYOUT: deb_system
+
+jobs:
+  build-docs:
+    env:
+      PYTHONPATH: /usr/local/lib/python3/dist-packages:/usr/local/lib:/usr/local/dolfinx-real/lib/python3.10/dist-packages
+      DEB_PYTHON_INSTALL_LAYOUT: deb_system
+      PYVISTA_JUPYTER_BACKEND: "static"
+    runs-on: ubuntu-22.04
+    container: dolfinx/dolfinx:nightly
+    steps:
+      # This action sets the current path to the root of your github repo
+      - uses: actions/checkout@v4
+
+      - name: Update pip
+        # Pin setuptools for old dolfinx due to https://github.com/FEniCS/ffcx/issues/553
+        run: python3 -m pip install --upgrade pip setuptools==65.5.1
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Build book
+        run: jupyter book build docs/
+      
+      - name: Upload documentation as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: webpage
+          path: ${{ env.PUBLISH_DIR }}
+          if-no-files-found: error
