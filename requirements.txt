@@ -1,6 +1,3 @@
 jupyter-book
-matplotlib
 numpy
-numba
-jax
 ghp-import
