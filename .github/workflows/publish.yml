@@ -1,13 +1,12 @@
 name: Publish book
 
 on:
+  push:
+    branches: [main]
+  
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
   workflow_call:
-  push:
-    branches: "!*"
-  pull_request:
-    branches: [main]
   
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
