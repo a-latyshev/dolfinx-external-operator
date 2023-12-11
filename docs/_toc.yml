@@ -5,3 +5,6 @@ parts:
   - caption: "Introduction"
     chapters:
       - file: "demos/simple_example.py"
+  - caption: "Fundamentals"
+    chapters:
+      - file: "demos/nonlinear_heat_equation.py"
