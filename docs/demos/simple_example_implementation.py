@@ -1,70 +1,21 @@
 # %% [markdown]
-# # Simple example
+# # Simple example: implementation
 #
-# Authors: Andrey Latyshev (University of Luxembourg, Sorbonne Univeristé, andrey.latyshev@uni.lu)
+# Authors: Andrey Latyshev (University of Luxembourg, Sorbonne Université, andrey.latyshev@uni.lu)
 #
-# In order to show how an external operator can be used in a variational setting in FEniCSx/DOLFINx, we want to start with a simple example.
+# In this notebook, we implement the simple example of the external operator $N = N(u)$ with one operand in the FEniCSx environment.
 #
-# Let us denote an external operator that is not expressible through UFL by $N = N(u)$, where $u$ is its single operand from functional space $V$. In these terms, we consider the following linear form $F$.
+# The external operator is defined through the new UFL-like object `femExternalOperator` developed as a part of this framework. The object combines features of symbolic UFL objects, i.e. we can use it natively within the symbolic representation of finite element forms, and a globally allocated `fem.Function` coefficient holding a vector with degrees-of-freedom. The vector data is accessible through the `ref_coefficient` attribute of the `femExternalOperator` object.
 #
-# $$
-#   F(N(u);v) = \int N(u)v \, dx
-# $$
+# Once the form containing an external operator is defined it can be successfully derivated using the UFL function `expand_derivatives`. It recursively applies automatic differentiation of UFL and calculates Gateau derivatives of an external operator according to the chain rule. During this procedure, the algorithm creates new `femExternalOperator` objects representing derivatives of external operators of the original form. It preserves appropriate local shapes of new symbolic objects (the `ufl_shape` attribute) and changes the multi-index `derivatives`, an attribute of `femExternalOperator`. The latter helps to define the direction to which operand the derivative was taken, with respect to
 #
-# In a variational setting, we quite often need to compute the Jacobian of the Form $F$. In other words, we need to take the Gateau derivative of the functional $F$ in the direction of $\hat{u}$. Denoting the full and partial Gateau derivatives of a functional through $\frac{d }{d u}(\cdot)$ and $\frac{\partial}{\partial u}(\cdot)$ respectively, applying the chain rule and omitting the operand of $N$, we can express the Jacobian of $F$ as following:
+# The behaviour of both external operator $N$ and its derivative $\frac{d N}{d u}$ is managed by a callable Python function (the `external_function` argument of the `femExternalOperator` constructor). It must be defined by the user and contain subfunctions computing values of the external operator and its derivative respectively. The signature is the same for all subfunctions and consists of `ndarray` (Numpy-like) array representing the degrees-of-freedom of the operand $u$ of the external operator. The framework uses the multi-index `derivatives` of the `femExternalOperator` object to pick up an appropriate subfunction evaluating, in our case, values of either $N$ or $\frac{d N}{d u}$.
 #
-# $$
-#   J(N;\hat{u}, v) = \frac{dF}{du}(N;\hat{u}, v) = \frac{\partial F}{\partial N}(N; \hat{N}, v) = \int \hat{N}(u;\hat{u})v \, dx,
-# $$
+# Once both linear and bilinear forms are defined we can apply `replace_external_operators` to them, the function of this framework. It replaces `femExternalOperator` objects with their finite element representatives, the `ref_coefficient`. The new "replaced" forms can be easily assembled and
 #
-# where $\hat{N}(u;\hat{u})$ is a new trial function, which behaviour is defined by the Gateau derivative $\frac{\partial N}{\partial u}(u;\hat{u})$.
-# ___
-# or
-#
-# $$
-#   J(N;\hat{u}, v) = \frac{dF}{du}(N;\hat{u}, v) = \frac{\partial F}{\partial N}(N; \hat{N}, v) \circ \left( \hat{N} = \frac{\partial N}{\partial u}(u;\hat{u}) \right) = \int \hat{N}(u;\hat{u})v \, dx,
-# $$
-#
-# where $\hat{N}(u;\hat{u}) = \frac{\partial N}{\partial u}(u;\hat{u})$ is a Gateau derivative of the external operator $\hat{N}$.
-# ___
-# or
-#
-# $$
-#   J(N;\hat{u}, v) = \frac{dF}{du}(N;\hat{u}, v) = \frac{\partial F}{\partial N}(N; \frac{\partial N}{\partial u}(u;\hat{u}), v) = \int \hat{N}(u;\hat{u})v \, dx,
-# $$
-#
-# where $\hat{N}(u;\hat{u}) = \frac{\partial N}{\partial u}(u;\hat{u})$ is a Gateau derivative of the external operator $\hat{N}$.
-# ___
-# or
-#
-# $$
-#   J(N;\hat{u},v) = F^\prime(N; \hat{N}(u;\hat{u}),v) = (F^\prime \circ \hat{N})(u;\hat{u},v)
-# $$
-#
-# ___
-#
-# Chain rule (according to [wiki](https://en.wikipedia.org/wiki/Gateaux_derivative)):
-#
-# \begin{align*}
-#   & H(u) = (G \circ F)(u) = G(F(u)) \\
-#   & H^\prime(u; \hat{u}) = (G \circ F)^\prime(u; \hat{u}) = G^\prime(F(u); \hat{F}(u; \hat{u})),
-# \end{align*}
-# where $\hat{G}(u; \hat{u}) = G^\prime(u; \hat{u})$.
-#
-# May we write ?
-#
-# $$
-# H^\prime(u; \hat{u}) = (G \circ F)^\prime(u; \hat{u}) = G^\prime(F(u); \hat{F}(u; \hat{u})) = (G^\prime \circ \hat{F})(u; \hat{u}),
-# $$
-# ___
-#
-# Thus, the Jacobian $J$ is presented as an action of the functional $\frac{\partial F}{\partial N}$ on the trial function $\hat{N}$....
-#
-# The behaviour of both external operators $N$ and $\frac{d N}{d u}$ must be defined by a user via any callable Python function.
 #
 # Here below we demonstrate how the described above linear and bilinear forms can be easily defined in UFL using its automatic differentiation tool and the new object `femExternalOperator`.
-
-# %% [markdown]
+#
 # For the sake of simplicity, we chose the following definition of the external operator $N$
 #
 # $$
@@ -79,20 +30,17 @@
 # Here we import the required Python packages, build a simple square mesh and define the finite element functional space $V$, where the main variable $u$, test and trial functions exist.
 
 # %%
-import external_operator as ex_op_env
 from mpi4py import MPI
 from petsc4py import PETSc
 
 import basix
 import ufl
-from dolfinx import fem, mesh, common
+from dolfinx import fem, mesh
 import dolfinx.fem.petsc  # there is an error without it, why?
-from ufl.algorithms import expand_derivatives
 
 import numpy as np
 
-import sys
-sys.path.append("../../src/dolfinx_ExternalOperator")
+import dolfinx_ExternalOperator.external_operator as ex_op_env
 
 nx = 2
 domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nx)
@@ -232,3 +180,5 @@ N.ref_coefficient.x.array
 # %%
 dNdu = J_ex_ops_list[0]
 dNdu.ref_coefficient.x.array
+
+# %%
