@@ -1,14 +1,12 @@
-# import ufl
-from dolfinx import fem
 import basix
-
 from ufl import Action, ExternalOperator
 from ufl.form import Form, FormSum
 from ufl.algorithms import replace
 from ufl.core.ufl_type import ufl_type
 from ufl.constantvalue import as_ufl
+from dolfinx import fem
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Callable
 import numpy as np
 
 """
@@ -24,6 +22,7 @@ Several improvements can be made:
         2. Several external operators in one form.
         3. Combination of the previous tests.
     7. Provide operands with an appropriate functional space, where they are evaluated.
+    8. If the derivation does not chage the shape, use the same functional space.
 """
 
 
@@ -52,7 +51,7 @@ class femExternalOperator(ExternalOperator):
                  *operands,
                  function_space: fem.function.FunctionSpace,
                  external_function=None,
-                 derivatives=None,
+                 derivatives: Tuple[int, ...] = None,
                  argument_slots=(),
                  hidden_operands: Optional[List[fem.function.Function]] = None) -> None:
         """Initializes `femExternalOperator`.
