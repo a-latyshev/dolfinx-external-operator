@@ -34,6 +34,8 @@
 #
 # where through $d \cdot / dT$ we denote the Gateau derivative.
 #
+# ## External operator
+#
 # In this example, we treat the heat flux $\boldsymbol{j}$ as an external operator with two operands $T$ and $\boldsymbol{\sigma}(T) = \nabla T$. In this regard, by applying the chain rule, let us write out the explicit expression of the Gateau derivative of $\boldsymbol{j}$ here below
 #
 # $$
@@ -49,14 +51,12 @@
 # In general, the same function can be presented in numerous variations by selecting different operands as sub-expressions of this function. In our case, for example, we could have presented the heat flux $\boldsymbol{j}$ as a function of $K(T)$ and $\sigma(T)$ operands, but this decision would have led to more midterms due to the chain rule and therefore to more computation costs. Thus, it is important to choose wisely the operands of the external operators, which you want to use.
 # ```
 #
-# Despite the function can be explicitly expressed via UFL, we are going to define the heat flux through `femExternalOperator` object and calls of an external function.
-#
 # In order to start the numerical algorithm we initialize variable `T` with the following initial guess:
 #
 # $$
 #     T(\boldsymbol{x}) = x + 2y,
 # $$
-# where  $\bm{x} = (x, y)^T$ is the space variable.
+# where  $\boldsymbol{x} = (x, y)^T$ is the space variable.
 #
 # ## Defining the external operator
 #
@@ -70,7 +70,7 @@
 
 # %%
 import solvers
-import external_operator as ex_op_env
+import dolfinx_ExternalOperator.external_operator as ex_op_env
 import sys
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -87,7 +87,6 @@ import jax
 from jax import config
 config.update("jax_enable_x64", True)
 
-sys.path.append("../../src/dolfinx_ExternalOperator")
 
 # %% [markdown]
 # Here we build the mesh, construct the finite functional space and define main variables and zero boundary conditions.
@@ -214,11 +213,11 @@ def j_external_numba(derivatives):
 # %% [markdown]
 # ### JAX
 #
-# In some applications, explicit expression of derivatives of quantity of interest either is difficult to derive or is not possible due to different causes. Automatic differentiation may help to solve this issue. In the context of Python, the JAX package provides the ne
+# In some applications, explicit expression of derivatives of quantity of interest either is difficult to derive or is not possible due to different causes. Automatic differentiation may help to solve this issue. In the context of Python, the JAX package provides this feature.
 #
 # Moreover, JAX supports the just-in-time compilation and vectorization feature
 #
-# Note: Numba supports the vectorisation feature as well (through the `@guvectorize` decorator), but does not have the AD tool.
+# Note: Numba supports the vectorization feature as well (through the `@guvectorize` decorator), but does not have the AD tool.
 
 # %%
 
