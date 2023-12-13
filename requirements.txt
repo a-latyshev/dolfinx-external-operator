@@ -2,4 +2,4 @@ jupyter-book
 numpy
 ghp-import
 numba
--U "jax[cpu]"
+jax[cpu]
