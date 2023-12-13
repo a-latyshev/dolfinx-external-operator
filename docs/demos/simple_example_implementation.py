@@ -131,9 +131,6 @@ def f_external(derivatives):
 
 
 # %%
-type(ufl.grad(u_hat))
-
-# %%
 N = ex_op_env.femExternalOperator(
     u, function_space=Q, external_function=f_external)
 
