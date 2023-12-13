@@ -4,7 +4,9 @@ root: intro
 parts:
   - caption: "Introduction"
     chapters:
-      - file: "demos/simple_example.py"
+      - file: "demos/simple_example.md"
+        sections:
+          - file: demos/simple_example_implementation
   - caption: "Fundamentals"
     chapters:
       - file: "demos/nonlinear_heat_equation.py"

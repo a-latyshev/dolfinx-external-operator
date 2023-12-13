@@ -1,3 +1,5 @@
 jupyter-book
 numpy
 ghp-import
+jax
+numba
