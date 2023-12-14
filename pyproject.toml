@@ -33,3 +33,32 @@ ci = [
     "dolfinx-external-operator[demos]",
     "dolfinx-external-operator[lint]"
 ]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+    # "B",
+    # "D", # pydocstyle
+    "E",   # pycodestyle
+    "W",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "RUF", # Ruff-specific rules
+    "UP",  # pyupgrade
+    # "ANN",
+    "ICN",
+    # "SIM",
+    # "PL",
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["basix", "dolfinx", "ffcx", "ufl", "dolfinx_external_operator"]
+known-third-party = ["gmsh", "numba", "numpy", "pytest", "pyvista"]
+section-order = ["future", "standard-library", "mpi", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.isort.sections]
+"mpi" = ["mpi4py", "petsc4py"]

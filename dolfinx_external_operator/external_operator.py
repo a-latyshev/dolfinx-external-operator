@@ -50,9 +50,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         """
         ufl_element = function_space.ufl_element()
         if ufl_element.family_name != "quadrature":
-            raise TypeError(
-                "FEMExternalOperator currently only supports Quadrature elements."
-            )
+            raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
 
         super().__init__(
             *operands,
@@ -118,9 +116,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 # TODO: more elegant solution is required
                 hidden_operands_eval.append(operand.x.array)
         all_operands_eval = operands_eval + hidden_operands_eval
-        external_operator_eval = self.external_function(self.derivatives)(
-            *all_operands_eval
-        )
+        external_operator_eval = self.external_function(self.derivatives)(*all_operands_eval)
         np.copyto(self.ref_coefficient.x.array, external_operator_eval)
 
 
@@ -138,9 +134,9 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]):
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
-    quadrature_points = basix.make_quadrature(
-        ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default
-    )[0]
+    quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[
+        0
+    ]
     map_c = mesh.topology.index_map(mesh.topology.dim)
     num_cells = map_c.size_local + map_c.num_ghosts
     cells = np.arange(0, num_cells, dtype=np.int32)
@@ -166,15 +162,11 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]):
             except KeyError:
                 expr = fem.Expression(operand, quadrature_points)
                 evaluated_operand = expr.eval(mesh, cells)
-                evaluated_operands[
-                    (quadrature_triple, operand)
-                ] = evaluated_operand  # TODO: to optimize!
+                evaluated_operands[(quadrature_triple, operand)] = evaluated_operand  # TODO: to optimize!
     return evaluated_operands
 
 
-def evaluate_external_operators(
-    external_operators: List[FEMExternalOperator], evaluated_operands
-) -> None:
+def evaluate_external_operators(external_operators: List[FEMExternalOperator], evaluated_operands) -> None:
     """Evaluates external operators and updates their reference coefficients.
 
     Args:
@@ -193,9 +185,7 @@ def evaluate_external_operators(
             int(ufl_element.cell_type),
             ufl_element.degree,
         )
-        basix.make_quadrature(
-            ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default
-        )[0]
+        basix.make_quadrature(ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[0]
 
         operands_eval = []
         for operand in external_operator.ufl_operands:
@@ -236,9 +226,7 @@ def replace_external_operators(form):
             replaced_form, ex_op = replace_action(form)
             external_operators += [ex_op]
         else:
-            raise RuntimeError(
-                "Expected an ExternalOperator in the right part of the Action."
-            )
+            raise RuntimeError("Expected an ExternalOperator in the right part of the Action.")
     elif isinstance(form, ufl.FormSum):
         components = form.components()
         # TODO: Modify this loop so it runs from range(0, len(components))

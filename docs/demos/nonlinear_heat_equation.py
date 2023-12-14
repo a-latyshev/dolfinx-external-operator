@@ -119,6 +119,7 @@ import numpy as np
 import numba
 import jax
 from jax import config
+
 config.update("jax_enable_x64", True)
 
 
@@ -140,7 +141,7 @@ dT = dolfinx.fem.Function(V, name="dT")
 
 
 def non_zero_guess(x):
-    return x[0, :] + 2.0*x[1, :]
+    return x[0, :] + 2.0 * x[1, :]
 
 
 A = 1.0
@@ -163,10 +164,8 @@ bc = fem.dirichletbc(PETSc.ScalarType(0), boundary_dofs, V)
 
 # %%
 quadrature_degree = 2
-dx = ufl.Measure("dx", metadata={
-                 "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
-Qe = basix.ufl.quadrature_element(
-    domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
+dx = ufl.Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
 Q = dolfinx.fem.functionspace(domain, Qe)
 num_cells = domain.topology.index_map(domain.topology.dim).size_local
 num_gauss_points = Qe.custom_quadrature()[0].shape[0]
@@ -191,7 +190,7 @@ I = np.eye(2)
 
 @numba.njit
 def K(T):
-    return 1.0/(A + B*T)
+    return 1.0 / (A + B * T)
 
 
 @numba.njit
@@ -215,7 +214,7 @@ def func_djdT_numba(T, sigma):
 
     for i in range(0, num_cells):
         for j in range(0, num_gauss_points):
-            djdT[i, j] = B * K(T_[i, j])**2 * sigma_[i, j]
+            djdT[i, j] = B * K(T_[i, j]) ** 2 * sigma_[i, j]
     return djdT.reshape(-1)
 
 
@@ -223,13 +222,13 @@ def func_djdT_numba(T, sigma):
 def func_djdsigma_numba(T, sigma):
     # djdsigma : scalar x vector -> tensor
     T_ = T.reshape((num_cells, num_gauss_points))
-    djdsigma_ = np.empty((num_cells, num_gauss_points, 2, 2),
-                         dtype=PETSc.ScalarType)
+    djdsigma_ = np.empty((num_cells, num_gauss_points, 2, 2), dtype=PETSc.ScalarType)
 
     for i in range(0, num_cells):
         for j in range(0, num_gauss_points):
-            djdsigma_[i, j] = -K(T_[i, j])*I
+            djdsigma_[i, j] = -K(T_[i, j]) * I
     return djdsigma_.reshape(-1)
+
 
 # %%
 
@@ -245,6 +244,7 @@ def j_external_numba(derivatives):
     else:
         return NotImplementedError
 
+
 # %% [markdown]
 # ### JAX
 #
@@ -259,7 +259,7 @@ def j_external_numba(derivatives):
 
 @jax.jit
 def K(T):
-    return 1.0/(A + B*T)
+    return 1.0 / (A + B * T)
 
 
 @jax.jit
@@ -278,26 +278,27 @@ djdsigma_vec = jax.jit(jax.vmap(djdsigma, in_axes=(0, 0)))
 
 @jax.jit
 def func_j_jax(T, sigma):
-    T_ = T.reshape((num_cells*num_gauss_points))
-    sigma_ = sigma.reshape((num_cells*num_gauss_points, 2))
+    T_ = T.reshape((num_cells * num_gauss_points))
+    sigma_ = sigma.reshape((num_cells * num_gauss_points, 2))
     j_ = j_vec(T_, sigma_)
     return j_.reshape(-1)
 
 
 @jax.jit
 def func_djdT_jax(T, sigma):
-    T_ = T.reshape((num_cells*num_gauss_points))
-    sigma_ = sigma.reshape((num_cells*num_gauss_points, 2))
+    T_ = T.reshape((num_cells * num_gauss_points))
+    sigma_ = sigma.reshape((num_cells * num_gauss_points, 2))
     j_ = djdT_vec(T_, sigma_)
     return j_.reshape(-1)
 
 
 @jax.jit
 def func_djdsigma_jax(T, sigma):
-    T_ = T.reshape((num_cells*num_gauss_points))
-    sigma_ = sigma.reshape((num_cells*num_gauss_points, 2))
+    T_ = T.reshape((num_cells * num_gauss_points))
+    sigma_ = sigma.reshape((num_cells * num_gauss_points, 2))
     j_ = djdsigma_vec(T_, sigma_)
     return j_.reshape(-1)
+
 
 # sigma_zero_ = jnp.array([0.0, 0.0])
 # @jax.jit
@@ -339,15 +340,15 @@ def j_external_jax(derivatives):
     else:
         return NotImplementedError
 
+
 # %% [markdown]
 # ## Solving the problem using external operators
 
 
 # %%
-j = ex_op_env.femExternalOperator(
-    T, sigma, function_space=Q, external_function=j_external_jax)
+j = ex_op_env.femExternalOperator(T, sigma, function_space=Q, external_function=j_external_jax)
 
-F_ext = ufl.inner(j, ufl.grad(T_tilde))*dx
+F_ext = ufl.inner(j, ufl.grad(T_tilde)) * dx
 J_ext = ufl.derivative(F_ext, T, T_hat)
 
 # %%
@@ -410,7 +411,7 @@ start = MPI.Wtime()
 timer3.start()
 
 print(f"Residue0: {norm_residue_0}")
-while norm_residue/norm_residue_0 > tol and n_iter < n_iter_max:
+while norm_residue / norm_residue_0 > tol and n_iter < n_iter_max:
     linear_problem.assemble_matrix()
     linear_problem.solve(dT)
     T.vector.axpy(1, dT.vector)
@@ -440,9 +441,9 @@ total_time_ex_op = end - start
 # ## Solving the problem using only UFL
 
 # %%
-K = 1.0/(A + B*T)
-j = -K*sigma
-F = ufl.inner(j, ufl.grad(T_tilde))*dx
+K = 1.0 / (A + B * T)
+j = -K * sigma
+F = ufl.inner(j, ufl.grad(T_tilde)) * dx
 J = ufl.derivative(F, T, T_hat)
 T.interpolate(non_zero_guess)
 
@@ -462,7 +463,7 @@ dT_values_pure_ufl = []
 # %%
 start = MPI.Wtime()
 
-while norm_residue/norm_residue_0 > tol and n_iter < n_iter_max:
+while norm_residue / norm_residue_0 > tol and n_iter < n_iter_max:
     linear_problem.assemble_matrix()
     linear_problem.solve(dT)
     T.vector.axpy(1, dT.vector)
@@ -478,7 +479,7 @@ while norm_residue/norm_residue_0 > tol and n_iter < n_iter_max:
 end = MPI.Wtime()
 
 total_time_pure_ufl = end - start
-print(f'rank#{MPI.COMM_WORLD.rank}: Total time: {total_time_pure_ufl} s')
+print(f"rank#{MPI.COMM_WORLD.rank}: Total time: {total_time_pure_ufl} s")
 
 # %%
 for i in range(len(dT_values_pure_ufl)):

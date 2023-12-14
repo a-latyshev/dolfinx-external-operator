@@ -105,7 +105,7 @@ V = fem.functionspace(domain, ("CG", 1, ()))
 v = ufl.TestFunction(V)
 u_hat = ufl.TrialFunction(V)
 u = fem.Function(V)
-u.x.array[:] = 1.  # in order to get non-zero forms after assembling
+u.x.array[:] = 1.0  # in order to get non-zero forms after assembling
 
 # %% [markdown]
 # ## Defining the external operator
@@ -118,8 +118,7 @@ u.x.array[:] = 1.  # in order to get non-zero forms after assembling
 # %%
 Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1)
 Q = dolfinx.fem.functionspace(domain, Qe)
-dx = ufl.Measure("dx", domain=domain, metadata={
-                 "quadrature_degree": 1, "quadrature_scheme": "default"})
+dx = ufl.Measure("dx", domain=domain, metadata={"quadrature_degree": 1, "quadrature_scheme": "default"})
 
 # %% [markdown]
 # Now we define the behaviour of the external operator $N = N(u)$ and its
@@ -152,7 +151,8 @@ def func_dNdu(u):
     Returns:
         A flatten numpy-array containing global values of the derivative of the external operator coefficient.
     """
-    return np.reshape(2*u, -1)
+    return np.reshape(2 * u, -1)
+
 
 # %% [markdown]
 # Then we combine both subfunctions `func_N` and `func_dNdu` in the function
@@ -179,13 +179,13 @@ def f_external(derivatives):
     else:
         return NotImplementedError
 
+
 # %% [markdown]
 # Now we have all the ingredients to define the external operator $N$.
 
 
 # %%
-N = ex_op_env.femExternalOperator(
-    u, function_space=Q, external_function=f_external)
+N = ex_op_env.femExternalOperator(u, function_space=Q, external_function=f_external)
 
 # %% [markdown]
 # ## Defining the linear and bilinear forms
@@ -197,7 +197,7 @@ N = ex_op_env.femExternalOperator(
 # differentiation will be performed.
 
 # %%
-F = N*v*dx
+F = N * v * dx
 J = ufl.derivative(F, u, u_hat)
 
 # %% [markdown]
@@ -299,12 +299,11 @@ V = fem.functionspace(domain, ("CG", 1, ()))
 v = ufl.TestFunction(V)
 u_hat = ufl.TrialFunction(V)
 u = fem.Function(V)
-u.x.array[:] = 1.  # in order to get non-zero forms after assembling
+u.x.array[:] = 1.0  # in order to get non-zero forms after assembling
 
 Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1)
 Q = dolfinx.fem.functionspace(domain, Qe)
-dx = ufl.Measure("dx", domain=domain, metadata={
-                 "quadrature_degree": 1, "quadrature_scheme": "default"})
+dx = ufl.Measure("dx", domain=domain, metadata={"quadrature_degree": 1, "quadrature_scheme": "default"})
 
 
 def func_N(u):
@@ -312,7 +311,7 @@ def func_N(u):
 
 
 def func_dNdu(u):
-    return np.reshape(2*u, -1)
+    return np.reshape(2 * u, -1)
 
 
 def f_external(derivatives):
@@ -324,9 +323,8 @@ def f_external(derivatives):
         return NotImplementedError
 
 
-N = ex_op_env.femExternalOperator(
-    u, function_space=Q, external_function=f_external)
-F = N*v*dx
+N = ex_op_env.femExternalOperator(u, function_space=Q, external_function=f_external)
+F = N * v * dx
 J = ufl.derivative(F, u, u_hat)
 
 F_replaced, F_ex_ops_list = ex_op_env.replace_external_operators(F)
