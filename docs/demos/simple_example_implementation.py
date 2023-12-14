@@ -103,9 +103,10 @@ domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nx)
 gdim = domain.geometry.dim
 V = fem.functionspace(domain, ("CG", 1))
 v = ufl.TestFunction(V)
+
 u_hat = ufl.TrialFunction(V)
 u = fem.Function(V)
-u.x.array[:] = 1.0  # in order to get non-zero forms after assembling
+u.x.array[:] = 2.0  # in order to get non-zero forms after assembling
 
 # %% [markdown]
 # ## Defining the external operator
@@ -128,11 +129,11 @@ dx = ufl.Measure("dx", domain=domain, metadata={"quadrature_degree": 1, "quadrat
 # %%
 
 
-def N(u):
+def N_external(u):
     return np.reshape(u**2, -1)
 
 
-def dNdu(u):
+def dNdu_external(u):
     return np.reshape(2 * u, -1)
 
 
@@ -145,11 +146,11 @@ def dNdu(u):
 # %%
 
 
-def f_external(derivatives):
+def Ns_external(derivatives):
     if derivatives == (0,):
-        return N
+        return N_external
     elif derivatives == (1,):
-        return dNdu
+        return dNdu_external
     else:
         return NotImplementedError
 
@@ -159,7 +160,7 @@ def f_external(derivatives):
 
 
 # %%
-N = FEMExternalOperator(u, function_space=Q, external_function=f_external)
+N = FEMExternalOperator(u, function_space=Q, external_function=Ns_external)
 
 # %% [markdown]
 # ## Defining the linear and bilinear forms
@@ -231,9 +232,3 @@ evaluate_external_operators(J_ex_ops_list, evaluated_operands)
 # %% [markdown]
 # Concrete values of external operators can be easily accessible through the
 # `ref_coefficient` attribute.
-
-# %%
-N.ref_coefficient.x.array
-
-# %%
-dNdu.ref_coefficient.x.array
