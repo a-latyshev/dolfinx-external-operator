@@ -30,6 +30,6 @@ lint = [
 ]
 ci = [
     "dolfinx-external-operator[docs]",
-    "dolfinx-external-operator[demos]"
+    "dolfinx-external-operator[demos]",
     "dolfinx-external-operator[lint]"
 ]

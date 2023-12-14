@@ -1,7 +1,7 @@
 import basix
-from ufl import Action, ExternalOperator
-from ufl.form import Form, FormSum
-from ufl.algorithms import replace
+import ufl
+import ufl.form
+import ufl.algorithms
 from ufl.core.ufl_type import ufl_type
 from ufl.constantvalue import as_ufl
 from dolfinx import fem
@@ -11,22 +11,12 @@ import numpy as np
 
 
 @ufl_type(num_ops="varying", is_differential=True)
-class femExternalOperator(ExternalOperator):
-    """Finite external operator.
+class FEMExternalOperator(ufl.ExternalOperator):
+    """Finite element external operator.
 
-    The `femExternalOperator` class extends the functionality of the original
+    The `FEMExternalOperator` class extends the functionality of the original
     `ufl.ExternalOperator` class, which symbolically represents operators that
-    are not straightforwardly expressible in UFL. The `femExternalOperator`
-    aims to represent an external operator globally in a certain functional
-    space in a form of a form coefficient.
-
-    Attributes:
-        ufl_operands:
-        ref_function_space: A `fem.FunctionSpace` on which the global representation of the operator exists.
-        ref_coefficient: A `fem.Function` coefficient representing the operator globally.
-        external_function: A callable Python function defining the behaviour of the external operator and its derivatives.
-        derivatives: A tuple specifiying the derivative multiindex with respect to operands.
-        hidden_operands: operands on which the external operator acts, but the differentiation with respect to which is not required.
+    are not straightforwardly expressible in UFL.
     """
 
     # Slots are disabled here because they cause trouble in PyDOLFIN
@@ -46,16 +36,21 @@ class femExternalOperator(ExternalOperator):
 
         Args:
             operands: operands on which the external operator acts.
-            function_space: the `FunctionSpace`, or `MixedFunctionSpace`(?) on which to build this Function.
-            external_function: A callable Python function defining the behaviour of the external operator and its derivatives.
-            derivatives: A tuple specifiying the derivative multiindex with respect to operands.
-            argument_slots: tuple composed containing expressions with `ufl.Argument` or `ufl.Coefficient` objects.
-            hidden_operands: operands on which the external operator acts, but the differentiation with respect to which is not required.
+            function_space: the `FunctionSpace`, or `MixedFunctionSpace`(?) on
+                which to build this Function.
+            external_function: A callable Python function defining the
+                behaviour of the external operator and its derivatives.
+            derivatives: A tuple specifiying the derivative multiindex with
+                respect to operands.
+            argument_slots: tuple composed containing expressions with
+                `ufl.Argument` or `ufl.Coefficient` objects.
+            hidden_operands: operands on which the external operator acts, but
+                the differentiation with respect to which is not required.
         """
         ufl_element = function_space.ufl_element()
         if ufl_element.family_name != "quadrature":
             raise TypeError(
-                "This implementation of ExternalOperator supports quadrature elements only."
+                "FEMExternalOperator currently only supports Quadrature elements."
             )
 
         super().__init__(
@@ -107,7 +102,9 @@ class femExternalOperator(ExternalOperator):
     def update(self, operands_eval: List[np.ndarray]) -> None:
         """Updates the global values of external operator.
 
-        Evaluates the external operator according to its definition in `external_function` and updates values in the reference coefficient, a globally allocated coefficient associated with the external operator.
+        Evaluates the external operator according to its definition in
+        `external_function` and updates values in the reference coefficient, a
+        globally allocated coefficient associated with the external operator.
 
         Args:
             operands_eval: A list with values of operands, on which the derivation is performed.
@@ -126,16 +123,6 @@ class femExternalOperator(ExternalOperator):
         np.copyto(self.ref_coefficient.x.array, external_operator_eval)
 
 
-# def copy_femExternalOperator(ex_op: femExternalOperator, function_space: fem.function.FunctionSpace):
-#     operands = ex_op.ufl_operands
-#     derivatives = ex_op.derivatives
-#     argument_slots = ex_op.argument_slots()
-#     return femExternalOperator(*operands,
-#                                 function_space=function_space,
-#                                 derivatives=derivatives,
-#                                 argument_slots=argument_slots)
-
-
 def evaluate_operands(external_operators: List[femExternalOperator]):
     """Evaluates operands of external operators.
 
@@ -143,8 +130,8 @@ def evaluate_operands(external_operators: List[femExternalOperator]):
         external_operators: A list with external operators required to be updated.
 
     Returns:
-        A map between quadrature type and UFL operand and the `ndarray`, the evaluation of the
-        operand.
+        A map between quadrature type and UFL operand and the `ndarray`, the
+        evaluation of the operand.
     """
     # TODO: Generalise to evaluate operands on subset of cells.
     ref_function_space = external_operators[0].ref_function_space
@@ -216,17 +203,18 @@ def evaluate_external_operators(
         external_operator.update(operands_eval)
 
 
-def replace_Action(form: Action):
+def replace_action(form: Action):
     # trial function associated with ExternalOperator
     N_tilde = form.left().arguments()[-1]
-    ex_op_argument = form.right().argument_slots()[-1]  # e.g. grad u_tilde
+    ex_op_argument = form.right().argument_slots()[-1]
+    # NOTE: Is this replace always appropriate?
     form_replaced = replace(
         form.left(), {N_tilde: form.right().ref_coefficient * ex_op_argument}
-    )  # TODO: Is it always like this ?
+    )
     return form_replaced, form.right()
 
 
-def replace_Form(form: Form):
+def replace_forms(form: ufl.Form):
     external_operators = form.base_form_operators()
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
     replaced_form = replace(form, ex_ops_map)
@@ -247,8 +235,8 @@ def replace_external_operators(form):
             replaced_form, ex_op = replace_Action(form)
             external_operators += [ex_op]
         else:
-            raise TypeError(
-                "A femExternalOperator is expected in the right part of the Action."
+            raise RuntimeError(
+                "Expected an ExternalOperator in the right part of the Action."
             )
     elif isinstance(form, FormSum):
         components = form.components()
