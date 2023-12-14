@@ -205,12 +205,12 @@ def evaluate_external_operators(
 
 
 def replace_action(action: ufl.Action):
-    # trial function associated with ExternalOperator
+    # Extract the trial function associated with ExternalOperator
     N_tilde = action.left().arguments()[-1]
-    ex_op_argument = action.right().argument_slots()[-1]
+    external_operator_argument = action.right().argument_slots()[-1]
     # NOTE: Is this replace always appropriate?
     form_replaced = ufl.algorithms.replace(
-        action.left(), {N_tilde: action.right().ref_coefficient * ex_op_argument}
+        action.left(), {N_tilde: action.right().ref_coefficient * external_operator_argument}
     )
     return form_replaced, action.right()
 
@@ -241,6 +241,7 @@ def replace_external_operators(form):
             )
     elif isinstance(form, ufl.FormSum):
         components = form.components()
+        # TODO: Modify this loop so it runs from range(0, len(components))
         replaced_form, ex_ops = replace_external_operators(components[0])
         external_operators += ex_ops
         for i in range(1, len(components)):
