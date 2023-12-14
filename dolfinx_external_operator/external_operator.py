@@ -6,33 +6,19 @@ from ufl.core.ufl_type import ufl_type
 from ufl.constantvalue import as_ufl
 from dolfinx import fem
 
-from typing import List, Tuple, Optional, Callable
+from typing import List, Tuple, Optional
 import numpy as np
-
-"""
-TODO: 
-Several improvements can be made:
-    1. How to update operands only once?
-    2. Create an ancestor for all derivatives?
-    3. Allocate memory once for all operands?
-    4. Inherit from both ufl.ExternalOperator and fem.Function?
-    5. IDEA: Let the femExOp derivatives inherit evaluated operands and then provide a map between external operators and their evaluated operands. Write a more general algorithm that will distinguish "families" of external operators in order to evaluate operands of a "family" only once.
-    6. Tests:
-        1. Evaluation of an external operator that depends on another external operator.
-        2. Several external operators in one form.
-        3. Combination of the previous tests.
-    7. Provide operands with an appropriate functional space, where they are evaluated.
-    8. If the derivation does not chage the shape, use the same functional space.
-"""
 
 
 @ufl_type(num_ops="varying", is_differential=True)
 class femExternalOperator(ExternalOperator):
     """Finite external operator.
 
-    The `femExternalOperator` class extends the functionality of the original `ufl.ExternalOperator` class, which symbolically represents operators that are not straightforwardly expressible in UFL. The `femExternalOperator` aims to represent an external operator globally in a certain functional space in a form of a form coefficient.
-
-    TODO: add example
+    The `femExternalOperator` class extends the functionality of the original
+    `ufl.ExternalOperator` class, which symbolically represents operators that
+    are not straightforwardly expressible in UFL. The `femExternalOperator`
+    aims to represent an external operator globally in a certain functional
+    space in a form of a form coefficient.
 
     Attributes:
         ufl_operands:
@@ -47,13 +33,15 @@ class femExternalOperator(ExternalOperator):
     # multiple inheritance pattern:
     _ufl_noslots_ = True
 
-    def __init__(self,
-                 *operands,
-                 function_space: fem.function.FunctionSpace,
-                 external_function=None,
-                 derivatives: Tuple[int, ...] = None,
-                 argument_slots=(),
-                 hidden_operands: Optional[List[fem.function.Function]] = None) -> None:
+    def __init__(
+        self,
+        *operands,
+        function_space: fem.function.FunctionSpace,
+        external_function=None,
+        derivatives: Tuple[int, ...] = None,
+        argument_slots=(),
+        hidden_operands: Optional[List[fem.function.Function]] = None,
+    ) -> None:
         """Initializes `femExternalOperator`.
 
         Args:
@@ -65,14 +53,17 @@ class femExternalOperator(ExternalOperator):
             hidden_operands: operands on which the external operator acts, but the differentiation with respect to which is not required.
         """
         ufl_element = function_space.ufl_element()
-        if ufl_element.family_name != 'quadrature':
+        if ufl_element.family_name != "quadrature":
             raise TypeError(
-                "This implementation of ExternalOperator supports quadrature elements only.")
+                "This implementation of ExternalOperator supports quadrature elements only."
+            )
 
-        super().__init__(*operands,
-                         function_space=function_space,
-                         derivatives=derivatives,
-                         argument_slots=argument_slots)
+        super().__init__(
+            *operands,
+            function_space=function_space,
+            derivatives=derivatives,
+            argument_slots=argument_slots,
+        )
 
         self.ufl_operands = tuple(map(as_ufl, operands))
         new_shape = self.ufl_shape
@@ -81,9 +72,11 @@ class femExternalOperator(ExternalOperator):
         if new_shape != self.ufl_shape:
             mesh = function_space.mesh
             quadrature_element = basix.ufl.quadrature_element(
-                mesh.topology.cell_name(), degree=ufl_element.degree, value_shape=new_shape)
-            self.ref_function_space = fem.functionspace(
-                mesh, quadrature_element)
+                mesh.topology.cell_name(),
+                degree=ufl_element.degree,
+                value_shape=new_shape,
+            )
+            self.ref_function_space = fem.functionspace(mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
         # Make the global coefficient associated to the external operator
@@ -92,23 +85,31 @@ class femExternalOperator(ExternalOperator):
         self.external_function = external_function
         self.hidden_operands = hidden_operands
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None,
-                               argument_slots=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(
+        self,
+        *operands,
+        function_space=None,
+        derivatives=None,
+        argument_slots=None,
+        add_kwargs={},
+    ):
         """Return a new object of the same type with new operands."""
-        return type(self)(*operands,
-                          function_space=function_space or self.ref_function_space,
-                          external_function=self.external_function,
-                          derivatives=derivatives or self.derivatives,
-                          argument_slots=argument_slots or self.argument_slots(),
-                          hidden_operands=self.hidden_operands,
-                          **add_kwargs)
+        return type(self)(
+            *operands,
+            function_space=function_space or self.ref_function_space,
+            external_function=self.external_function,
+            derivatives=derivatives or self.derivatives,
+            argument_slots=argument_slots or self.argument_slots(),
+            hidden_operands=self.hidden_operands,
+            **add_kwargs,
+        )
 
     def update(self, operands_eval: List[np.ndarray]) -> None:
         """Updates the global values of external operator.
 
-        Evaluates the external operator according to its definition in `external_function` and updates values in the reference coefficient, a globally allocated coefficient associated with the external operator. 
+        Evaluates the external operator according to its definition in `external_function` and updates values in the reference coefficient, a globally allocated coefficient associated with the external operator.
 
-        Args: 
+        Args:
             operands_eval: A list with values of operands, on which the derivation is performed.
         Returns:
             None
@@ -119,9 +120,11 @@ class femExternalOperator(ExternalOperator):
                 # TODO: more elegant solution is required
                 hidden_operands_eval.append(operand.x.array)
         all_operands_eval = operands_eval + hidden_operands_eval
-        external_operator_eval = self.external_function(
-            self.derivatives)(*all_operands_eval)
+        external_operator_eval = self.external_function(self.derivatives)(
+            *all_operands_eval
+        )
         np.copyto(self.ref_coefficient.x.array, external_operator_eval)
+
 
 # def copy_femExternalOperator(ex_op: femExternalOperator, function_space: fem.function.FunctionSpace):
 #     operands = ex_op.ufl_operands
@@ -148,7 +151,8 @@ def evaluate_operands(external_operators: List[femExternalOperator]):
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
     quadrature_points = basix.make_quadrature(
-        ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[0]
+        ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default
+    )[0]
     map_c = mesh.topology.index_map(mesh.topology.dim)
     num_cells = map_c.size_local + map_c.num_ghosts
     cells = np.arange(0, num_cells, dtype=np.int32)
@@ -159,10 +163,14 @@ def evaluate_operands(external_operators: List[femExternalOperator]):
         # TODO: Is it possible to get the basix information out here?
         ref_coefficient = external_operator.ref_coefficient
         ufl_element = ref_coefficient.ufl_function_space().ufl_element()
-        quadrature_triple = (int(basix.QuadratureType.Default), int(
-            ufl_element.cell_type), ufl_element.degree)
+        quadrature_triple = (
+            int(basix.QuadratureType.Default),
+            int(ufl_element.cell_type),
+            ufl_element.degree,
+        )
         quadrature_points = basix.make_quadrature(
-            ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[0]
+            ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default
+        )[0]
 
         for operand in external_operator.ufl_operands:
             try:
@@ -170,14 +178,14 @@ def evaluate_operands(external_operators: List[femExternalOperator]):
             except KeyError:
                 expr = fem.Expression(operand, quadrature_points)
                 evaluated_operand = expr.eval(mesh, cells)
-                evaluated_operands[(quadrature_triple, operand)
-                                   ] = evaluated_operand  # TODO: to optimize!
+                evaluated_operands[
+                    (quadrature_triple, operand)
+                ] = evaluated_operand  # TODO: to optimize!
     return evaluated_operands
 
 
 def evaluate_external_operators(
-    external_operators: List[femExternalOperator],
-    evaluated_operands
+    external_operators: List[femExternalOperator], evaluated_operands
 ) -> None:
     """Evaluates external operators and updates their reference coefficients.
 
@@ -192,15 +200,18 @@ def evaluate_external_operators(
         # TODO: Is it possible to get the basix information out here?
         ref_coefficient = external_operator.ref_coefficient
         ufl_element = ref_coefficient.ufl_function_space().ufl_element()
-        quadrature_triple = (int(basix.QuadratureType.Default), int(
-            ufl_element.cell_type), ufl_element.degree)
-        quadrature_points = basix.make_quadrature(
-            ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[0]
+        quadrature_triple = (
+            int(basix.QuadratureType.Default),
+            int(ufl_element.cell_type),
+            ufl_element.degree,
+        )
+        basix.make_quadrature(
+            ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default
+        )[0]
 
         operands_eval = []
         for operand in external_operator.ufl_operands:
-            operands_eval.append(
-                evaluated_operands[quadrature_triple, operand])
+            operands_eval.append(evaluated_operands[quadrature_triple, operand])
 
         external_operator.update(operands_eval)
 
@@ -209,8 +220,9 @@ def replace_Action(form: Action):
     # trial function associated with ExternalOperator
     N_tilde = form.left().arguments()[-1]
     ex_op_argument = form.right().argument_slots()[-1]  # e.g. grad u_tilde
-    form_replaced = replace(form.left(), {N_tilde: form.right(
-    ).ref_coefficient * ex_op_argument})  # TODO: Is it always like this ?
+    form_replaced = replace(
+        form.left(), {N_tilde: form.right().ref_coefficient * ex_op_argument}
+    )  # TODO: Is it always like this ?
     return form_replaced, form.right()
 
 
@@ -226,8 +238,7 @@ def replace_external_operators(form):
     external_operators = []
     if isinstance(form, Action):
         if isinstance(form.right(), Action):
-            replaced_right_part, ex_ops = replace_external_operators(
-                form.right())
+            replaced_right_part, ex_ops = replace_external_operators(form.right())
             external_operators += ex_ops
             interim_form = Action(form.left(), replaced_right_part)
             replaced_form, ex_ops = replace_external_operators(interim_form)
@@ -237,14 +248,14 @@ def replace_external_operators(form):
             external_operators += [ex_op]
         else:
             raise TypeError(
-                "A femExternalOperator is expected in the right part of the Action.")
+                "A femExternalOperator is expected in the right part of the Action."
+            )
     elif isinstance(form, FormSum):
         components = form.components()
         replaced_form, ex_ops = replace_external_operators(components[0])
         external_operators += ex_ops
         for i in range(1, len(components)):
-            replaced_form_term, ex_ops = replace_external_operators(
-                components[i])
+            replaced_form_term, ex_ops = replace_external_operators(components[i])
             replaced_form += replaced_form_term
             external_operators += ex_ops
     elif isinstance(form, Form):
