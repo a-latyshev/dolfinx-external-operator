@@ -195,7 +195,7 @@ def evaluate_external_operators(external_operators: List[FEMExternalOperator], e
         external_operator.update(operands_eval)
 
 
-def replace_action(action: ufl.Action):
+def _replace_action(action: ufl.Action):
     # Extract the trial function associated with ExternalOperator
     N_tilde = action.left().arguments()[-1]
     external_operator_argument = action.right().argument_slots()[-1]
@@ -206,7 +206,7 @@ def replace_action(action: ufl.Action):
     return form_replaced, action.right()
 
 
-def replace_form(form: ufl.Form):
+def _replace_form(form: ufl.Form):
     external_operators = form.base_form_operators()
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
     replaced_form = ufl.algorithms.replace(form, ex_ops_map)
@@ -224,7 +224,7 @@ def replace_external_operators(form):
             replaced_form, ex_ops = replace_external_operators(interim_form)
             external_operators += ex_ops
         elif isinstance(form.right(), FEMExternalOperator):
-            replaced_form, ex_op = replace_action(form)
+            replaced_form, ex_op = _replace_action(form)
             external_operators += [ex_op]
         else:
             raise RuntimeError("Expected an ExternalOperator in the right part of the Action.")
@@ -238,7 +238,7 @@ def replace_external_operators(form):
             replaced_form += replaced_form_term
             external_operators += ex_ops
     elif isinstance(form, ufl.Form):
-        replaced_form, ex_ops = replace_form(form)
+        replaced_form, ex_ops = _replace_form(form)
         external_operators += ex_ops
 
     return replaced_form, external_operators
