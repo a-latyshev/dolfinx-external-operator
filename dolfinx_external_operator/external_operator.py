@@ -1,4 +1,5 @@
 import basix
+import basix.ufl
 import ufl
 import ufl.form
 import ufl.algorithms
@@ -32,7 +33,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         argument_slots=(),
         hidden_operands: Optional[List[fem.function.Function]] = None,
     ) -> None:
-        """Initializes `femExternalOperator`.
+        """Initializes `FEMExternalOperator`.
 
         Args:
             operands: operands on which the external operator acts.
@@ -123,7 +124,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         np.copyto(self.ref_coefficient.x.array, external_operator_eval)
 
 
-def evaluate_operands(external_operators: List[femExternalOperator]):
+def evaluate_operands(external_operators: List[FEMExternalOperator]):
     """Evaluates operands of external operators.
 
     Args:
@@ -172,7 +173,7 @@ def evaluate_operands(external_operators: List[femExternalOperator]):
 
 
 def evaluate_external_operators(
-    external_operators: List[femExternalOperator], evaluated_operands
+    external_operators: List[FEMExternalOperator], evaluated_operands
 ) -> None:
     """Evaluates external operators and updates their reference coefficients.
 
@@ -203,42 +204,42 @@ def evaluate_external_operators(
         external_operator.update(operands_eval)
 
 
-def replace_action(form: Action):
+def replace_action(action: ufl.Action):
     # trial function associated with ExternalOperator
-    N_tilde = form.left().arguments()[-1]
-    ex_op_argument = form.right().argument_slots()[-1]
+    N_tilde = action.left().arguments()[-1]
+    ex_op_argument = action.right().argument_slots()[-1]
     # NOTE: Is this replace always appropriate?
-    form_replaced = replace(
-        form.left(), {N_tilde: form.right().ref_coefficient * ex_op_argument}
+    form_replaced = ufl.algorithms.replace(
+        action.left(), {N_tilde: action.right().ref_coefficient * ex_op_argument}
     )
-    return form_replaced, form.right()
+    return form_replaced, action.right()
 
 
-def replace_forms(form: ufl.Form):
+def replace_form(form: ufl.Form):
     external_operators = form.base_form_operators()
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
-    replaced_form = replace(form, ex_ops_map)
+    replaced_form = ufl.algorithms.replace(form, ex_ops_map)
     return replaced_form, external_operators
 
 
 def replace_external_operators(form):
     replaced_form = None
     external_operators = []
-    if isinstance(form, Action):
-        if isinstance(form.right(), Action):
+    if isinstance(form, ufl.Action):
+        if isinstance(form.right(), ufl.Action):
             replaced_right_part, ex_ops = replace_external_operators(form.right())
             external_operators += ex_ops
-            interim_form = Action(form.left(), replaced_right_part)
+            interim_form = ufl.Action(form.left(), replaced_right_part)
             replaced_form, ex_ops = replace_external_operators(interim_form)
             external_operators += ex_ops
-        elif isinstance(form.right(), femExternalOperator):
-            replaced_form, ex_op = replace_Action(form)
+        elif isinstance(form.right(), FEMExternalOperator):
+            replaced_form, ex_op = replace_action(form)
             external_operators += [ex_op]
         else:
             raise RuntimeError(
                 "Expected an ExternalOperator in the right part of the Action."
             )
-    elif isinstance(form, FormSum):
+    elif isinstance(form, ufl.FormSum):
         components = form.components()
         replaced_form, ex_ops = replace_external_operators(components[0])
         external_operators += ex_ops
@@ -246,8 +247,8 @@ def replace_external_operators(form):
             replaced_form_term, ex_ops = replace_external_operators(components[i])
             replaced_form += replaced_form_term
             external_operators += ex_ops
-    elif isinstance(form, Form):
-        replaced_form, ex_ops = replace_Form(form)
+    elif isinstance(form, ufl.Form):
+        replaced_form, ex_ops = replace_form(form)
         external_operators += ex_ops
 
     return replaced_form, external_operators
