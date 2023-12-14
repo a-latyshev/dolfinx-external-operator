@@ -95,13 +95,13 @@ import dolfinx.fem.petsc  # there is an error without it, why?
 
 import numpy as np
 
-import dolfinx_ExternalOperator.external_operator as ex_op_env
+from dolfinx_external_operator import FEMExternalOperator, replace_external_operators, evaluate_external_operators, evaluate_operands
 
 nx = 2
 domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nx)
 
 gdim = domain.geometry.dim
-V = fem.functionspace(domain, ("CG", 1, ()))
+V = fem.functionspace(domain, ("CG", 1))
 v = ufl.TestFunction(V)
 u_hat = ufl.TrialFunction(V)
 u = fem.Function(V)
@@ -122,35 +122,17 @@ dx = ufl.Measure("dx", domain=domain, metadata={"quadrature_degree": 1, "quadrat
 
 # %% [markdown]
 # Now we define the behaviour of the external operator $N = N(u)$ and its
-# Gateau derivative $\frac{dN}{du}(u; \hat{u})$ in subfunctions `func_N` and
-# `func_dNdu` respectively.
+# Gateau derivative $\frac{dN}{du}(u; \hat{u})$ in subfunctions `N` and `dNdu`
+# respectively.
 
 # %%
 
 
-def func_N(u):
-    """Defines the output of the external operator `N`.
-
-    Args:
-        u: A flatten numpy-array containing global values of the variable `u`.
-
-    Returns:
-        A flatten numpy-array containing global values of the external operator coefficient.
-    """
+def N(u):
     return np.reshape(u**2, -1)
 
 
-def func_dNdu(u):
-    """Defines the output of the derivative of the external operator `N`.
-
-    Computes the Gateau derivative of the external operator `N` with respect to the operand `u`.
-
-    Args:
-        u: A flatten numpy-array containing global values of the variable `u`.
-
-    Returns:
-        A flatten numpy-array containing global values of the derivative of the external operator coefficient.
-    """
+def dNdu(u):
     return np.reshape(2 * u, -1)
 
 
@@ -164,18 +146,10 @@ def func_dNdu(u):
 
 
 def f_external(derivatives):
-    """Defines the behaviour of the external operator and its derivative.
-
-    Args:
-        derivatives: A tuple of integer positive values, the multi-index of external operator.
-
-    Returns:
-        A callable function evaluating whether values of external operator or its derivatives.
-    """
     if derivatives == (0,):
-        return func_N
+        return N
     elif derivatives == (1,):
-        return func_dNdu
+        return dNdu
     else:
         return NotImplementedError
 
@@ -185,7 +159,7 @@ def f_external(derivatives):
 
 
 # %%
-N = ex_op_env.femExternalOperator(u, function_space=Q, external_function=f_external)
+N = FEMExternalOperator(u, function_space=Q, external_function=f_external)
 
 # %% [markdown]
 # ## Defining the linear and bilinear forms
@@ -206,12 +180,12 @@ J = ufl.derivative(F, u, u_hat)
 # coefficients.
 
 # %%
-F_replaced, F_ex_ops_list = ex_op_env.replace_external_operators(F)
+F_replaced, F_ex_ops_list = replace_external_operators(F)
 F_dolfinx = fem.form(F_replaced)
 
 # %%
 J_expanded = ufl.algorithms.expand_derivatives(J)
-J_replaced, J_ex_ops_list = ex_op_env.replace_external_operators(J_expanded)
+J_replaced, J_ex_ops_list = replace_external_operators(J_expanded)
 J_dolfinx = fem.form(J_replaced)
 
 # %% [markdown]
@@ -231,28 +205,12 @@ J_dolfinx = fem.form(J_replaced)
 # of `femExternalOperator`.
 
 # %% [markdown]
-# We ensure that the extracted operator corresponds to the object `N`.
-
-# %%
-N == F_ex_ops_list[0]
-
-# %% [markdown]
-# In this trivial example, the mathematical shape of the derivative $\frac{d
-# N}{d u}$ remains the same as the one of the scalar $N$. This is not the case
-# for more complex examples. Check out other tutorials from this website!
-
-# %%
-dNdu = J_ex_ops_list[0]
-print(f"Expression of N = {N} with shape = {N.ufl_shape}")
-print(f"Expression of dNdu = {dNdu} with shape = {dNdu.ufl_shape}")
-
-# %% [markdown]
 # Then we need to update the operand values of the external operator $N$, i.e.
 # the field $u$. In this case, we just project the values of variable $u$ from
 # the functional space $V$ onto the quadrature space $Q$.
 
 # %%
-evaluated_operands = ex_op_env.evaluate_operands(F_ex_ops_list)
+evaluated_operands = evaluate_operands(F_ex_ops_list)
 
 # %% [markdown]
 # As the operands of an external operand and its derivatives are the same, we
@@ -263,8 +221,8 @@ evaluated_operands = ex_op_env.evaluate_operands(F_ex_ops_list)
 # numpy-like arrays.
 
 # %%
-ex_op_env.evaluate_external_operators(F_ex_ops_list, evaluated_operands)
-ex_op_env.evaluate_external_operators(J_ex_ops_list, evaluated_operands)
+evaluate_external_operators(F_ex_ops_list, evaluated_operands)
+evaluate_external_operators(J_ex_ops_list, evaluated_operands)
 
 # %% [markdown]
 # The algorithm exploits the `f_external` to update coefficients representing
@@ -279,60 +237,3 @@ N.ref_coefficient.x.array
 
 # %%
 dNdu.ref_coefficient.x.array
-
-# %% [markdown]
-# ## Minimal implementation
-
-# %% [markdown]
-# Omitting additional information and comments, in the following cell, we
-# gathered a minimal implementation of our simple example. We may just conclude
-# that
-
-# %%
-
-
-nx = 2
-domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nx)
-
-gdim = domain.geometry.dim
-V = fem.functionspace(domain, ("CG", 1, ()))
-v = ufl.TestFunction(V)
-u_hat = ufl.TrialFunction(V)
-u = fem.Function(V)
-u.x.array[:] = 1.0  # in order to get non-zero forms after assembling
-
-Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1)
-Q = dolfinx.fem.functionspace(domain, Qe)
-dx = ufl.Measure("dx", domain=domain, metadata={"quadrature_degree": 1, "quadrature_scheme": "default"})
-
-
-def func_N(u):
-    return np.reshape(u**2, -1)
-
-
-def func_dNdu(u):
-    return np.reshape(2 * u, -1)
-
-
-def f_external(derivatives):
-    if derivatives == (0,):
-        return func_N
-    elif derivatives == (1,):
-        return func_dNdu
-    else:
-        return NotImplementedError
-
-
-N = ex_op_env.femExternalOperator(u, function_space=Q, external_function=f_external)
-F = N * v * dx
-J = ufl.derivative(F, u, u_hat)
-
-F_replaced, F_ex_ops_list = ex_op_env.replace_external_operators(F)
-F_dolfinx = fem.form(F_replaced)
-J_expanded = ufl.algorithms.expand_derivatives(J)
-J_replaced, J_ex_ops_list = ex_op_env.replace_external_operators(J_expanded)
-J_dolfinx = fem.form(J_replaced)
-
-evaluated_operands = ex_op_env.evaluate_operands(F_ex_ops_list)
-ex_op_env.evaluate_external_operators(F_ex_ops_list, evaluated_operands)
-ex_op_env.evaluate_external_operators(J_ex_ops_list, evaluated_operands)
