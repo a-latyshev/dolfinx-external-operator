@@ -4,47 +4,19 @@ name: Build documentation
 on:
   push:
     branches:
-      - main
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-  workflow_call:
-
-env:
-  # Directory that will be published on github pages
-  PUBLISH_DIR: docs/_build/html
-  DEB_PYTHON_INSTALL_LAYOUT: deb_system
+      - "!main"
+      - "**"
 
 jobs:
   build-docs:
-    env:
-      PYTHONPATH: /usr/local/lib/python3/dist-packages:/usr/local/lib:/usr/local/dolfinx-real/lib/python3.10/dist-packages
-      DEB_PYTHON_INSTALL_LAYOUT: deb_system
-      PYVISTA_JUPYTER_BACKEND: "static"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     container: dolfinx/dolfinx:nightly
     steps:
-      # This action sets the current path to the root of your github repo
       - uses: actions/checkout@v4
       
-      # - name: Install graphviz and pyvista deps
-      #   run: |
-      #     apt-get update 
-      #     apt-get install -y graphviz-dev libgl1-mesa-glx xvfb
-
-      - name: Update pip
-        # Pin setuptools for old dolfinx due to https://github.com/FEniCS/ffcx/issues/553
-        run: python3 -m pip install --upgrade pip setuptools==65.5.1
-
-      - name: Install dependencies
+      - name: Install package
         run: |
-          pip install -r requirements.txt && pip install .
-
-      # - name: Copy demos
-      #   run: cp -R demos/ docs/  
-
-      # - name: Check
-      #   run: ls docs/demos
+          pip install '.[ci]'
 
       - name: Build book
         run: jupyter book build docs/
@@ -53,5 +25,5 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: webpage
-          path: ${{ env.PUBLISH_DIR }}
+          path: docs/_build/html
           if-no-files-found: error

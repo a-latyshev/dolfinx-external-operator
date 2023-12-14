@@ -1,5 +1,0 @@
-jupyter-book
-numpy
-ghp-import
-numba
-jax[cpu]

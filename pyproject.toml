@@ -2,9 +2,9 @@
 requires = ["setuptools>=61.0.0", "pip>=23.1"]
 
 [project]
-name = "dolfinx_ExternalOperator"
-version = "0.8.0"
-description = "Extention of ufl.ExternalOperator"
+name = "dolfinx-external-operator"
+version = "0.8.0.dev0"
+description = "An implementation of ufl.ExternalOperator for DOLFINx"
 authors = [
     { name = "Andrey Latyshev", email = "andrey.latyshev@uni.lu" },
     { name = "Jeremy Bleyer", email = "jeremy.bleyer@enpc.fr" },
@@ -13,14 +13,21 @@ authors = [
 ]
 license = { file = "LICENSE" }
 readme = "README.md"
-# dependencies = [
-#     "fenics-dolfinx==0.8.0",
-# ]
+dependencies = [
+    "fenics-dolfinx>=0.8.0.dev0,<0.9.0",
+    "fenics-ufl>=2023.3.0.dev0,<2023.4.0",
+]
 
 [project.optional-dependencies]
-dev = [
-    "ipython",
+docs = [
     "jupyter-book",
-    "jupytext",
-    "jupyterlab",
+    "jupytext"
+]
+demos = [
+    "numba",
+    "jax"
+]
+ci = [
+    "dolfinx-external-operator[docs]",
+    "dolfinx-external-operator[demos]"
 ]
