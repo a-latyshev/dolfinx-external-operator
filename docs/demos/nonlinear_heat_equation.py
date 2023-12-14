@@ -3,52 +3,88 @@
 #
 # Authors: Andrey Latyshev (University of Luxembourg, Sorbonne Université, andrey.latyshev@uni.lu)
 #
-# In this notebook, we implement a numerical solution of a nonlinear steady-state heat equation using an external operator. Here we focus on the application of our framework to the problem, where the external operator has two operands. In addition, we leverage the flexibility of the framework to define the behaviour of the external operator using different 3rd-party libraries (here we use Numba and JAX). We strongly recommend taking a look at the simple example first in order to become familiar with the basic workflow of the application of external operators in FEniCSx.
+# In this notebook, we implement a numerical solution of a nonlinear
+# steady-state heat equation using an external operator. Here we focus on the
+# application of our framework to the problem, where the external operator has
+# two operands. In addition, we leverage the flexibility of the framework to
+# define the behaviour of the external operator using different 3rd-party
+# libraries (here we use Numba and JAX). We strongly recommend taking a look at
+# the simple example first in order to become familiar with the basic workflow
+# of the application of external operators in FEniCSx.
 #
 # ## Problem formulation
 #
-# Denoting the temperature field through $T$ we consider the following system on the square domain $\Omega$:
+# Denoting the temperature field through $T$ we consider the following system
+# on the square domain $\Omega$:
 #
 # \begin{align*}
 #     \Omega : \quad & \nabla \cdot (K(T) \nabla T) = 0 \\
 #     \partial\Omega : \quad & T = 0
 # \end{align*}
 #
-# where $K(T) = \frac{1}{A + BT}$ is a nonlinear thermal conductivity, $A$ and $B$ are some constants.
+# where $K(T) = \frac{1}{A + BT}$ is a nonlinear thermal conductivity, $A$ and
+# $B$ are some constants.
 #
-# Let $V = H^1_0(\Omega)$ be the functional space of admissible temperature fields then in a variational setting the problem can be written as follows.
+# Let $V = H^1_0(\Omega)$ be the functional space of admissible temperature
+# fields then in a variational setting the problem can be written as follows.
 #
 # Find $T \in V$ such that
 #
 # $$
-#     F(\boldsymbol{j}; \tilde{T}) = -\int\frac{1}{A + BT}\nabla T . \nabla\tilde{T} dx = \int\boldsymbol{j}(T,\boldsymbol{\sigma}(T)) . \nabla\tilde{T} dx = 0, \quad \forall T \in V,
+# F(\boldsymbol{j}; \tilde{T}) = -\int\frac{1}{A + BT}\nabla T . \nabla\tilde{T} dx = \int\boldsymbol{j}(T,\boldsymbol{\sigma}(T)) . \nabla\tilde{T} dx = 0, \quad \forall T \in V,
 # $$ (eqn:1)
 #
-# where $\boldsymbol{j} = -\frac{1}{A + BT}\nabla T = - K(T) \boldsymbol{\sigma}(T)$ is a nonlinear heat flux and through $\boldsymbol{\sigma}$ we denoted the gradient of the temperature field $\nabla T$.
+# where $\boldsymbol{j} = -\frac{1}{A + BT}\nabla T = - K(T)
+# \boldsymbol{\sigma}(T)$ is a nonlinear heat flux and through
+# $\boldsymbol{\sigma}$ we denoted the gradient of the temperature field
+# $\nabla T$.
 #
-# In order to solve the nonlinear equation {eq}`eqn:1` we apply the Newton method and calculate the Gateau derivative of the functional $F$ with respect to operand $T$ in the direction $\hat{T} \in V$ as follows:
+# In order to solve the nonlinear equation {eq}`eqn:1` we apply the Newton
+# method and calculate the Gateau derivative of the functional $F$ with respect
+# to operand $T$ in the direction $\hat{T} \in V$ as follows:
 #
 # $$
-#     J(\boldsymbol{j};\hat{T},\tilde{T}) = \frac{d F}{d T}(\boldsymbol{j}(T,\boldsymbol{\sigma}(T));\hat{T}, \tilde{T}) = \int\frac{d\boldsymbol{j}}{dT}(T,\boldsymbol{\sigma}(T);\hat{T}) \nabla\tilde{T} dx,
+# J(\boldsymbol{j};\hat{T},\tilde{T}) = \frac{d F}{d T}(\boldsymbol{j}(T,\boldsymbol{\sigma}(T));\hat{T}, \tilde{T}) = \int\frac{d\boldsymbol{j}}{dT}(T,\boldsymbol{\sigma}(T);\hat{T}) \nabla\tilde{T} dx,
 # $$
 #
 # where through $d \cdot / dT$ we denote the Gateau derivative.
 #
 # ## External operator
 #
-# In this example, we treat the heat flux $\boldsymbol{j}$ as an external operator with two operands $T$ and $\boldsymbol{\sigma}(T) = \nabla T$. In this regard, by applying the chain rule, let us write out the explicit expression of the Gateau derivative of $\boldsymbol{j}$ here below
+# In this example, we treat the heat flux $\boldsymbol{j}$ as an external
+# operator with two operands $T$ and $\boldsymbol{\sigma}(T) = \nabla T$. In
+# this regard, by applying the chain rule, let us write out the explicit
+# expression of the Gateau derivative of $\boldsymbol{j}$ here below
 #
 # $$
 #     \frac{d\boldsymbol{j}}{dT}(T,\boldsymbol{\sigma}(T);\hat{T}) = \frac{\partial\boldsymbol{j}}{\partial T} + \frac{\partial\boldsymbol{j}}{\partial\boldsymbol{\sigma}}\frac{\partial\boldsymbol{\sigma}}{\partial T} = BK^2(T)\boldsymbol{\sigma}(T)\hat{T} - K(T)\mathbb{I}:\nabla\hat{T},
 # $$
 # where $\mathbb{I}$ is a second-order identity tensor.
 #
-# According to the current version of the framework operands of an external operator may be any UFL expression. It is worth noting that derivatives of these expressions appear as terms of the full Gateaux derivative (as per the chain rule) and are computed by UFL. Consequently, the user must define evaluation only "partial derivatives" of the external operator and leave the operand differentiation to UFL. Thus, in our example by the evaluation of the external operator $\frac{\partial\boldsymbol{j}}{\partial\boldsymbol{\sigma}}$ we mean the computation of the expression $-K(T)\mathbb{I}$. The term $\nabla\hat{T}$ is derived automatically by the AD tool of UFL and will be natively incorporated into the bilinear form $J$ after application of the `replace_external_operators` function. The same rule applies to the "first" partial derivative $\frac{\partial\boldsymbol{j}}{\partial T}$. We evaluate it as following the expression $BK^2(T)\boldsymbol{\sigma}(T)$ without the term $\hat{T}$.
-#
-# TODO: Rewrite? Discuss this part!
+# According to the current version of the framework operands of an external
+# operator may be any UFL expression. It is worth noting that derivatives of
+# these expressions appear as terms of the full Gateaux derivative (as per the
+# chain rule) and are computed by UFL. Consequently, the user must define
+# evaluation only "partial derivatives" of the external operator and leave the
+# operand differentiation to UFL. Thus, in our example by the evaluation of the
+# external operator
+# $\frac{\partial\boldsymbol{j}}{\partial\boldsymbol{\sigma}}$ we mean the
+# computation of the expression $-K(T)\mathbb{I}$. The term $\nabla\hat{T}$ is
+# derived automatically by the AD tool of UFL and will be natively incorporated
+# into the bilinear form $J$ after application of the
+# `replace_external_operators` function. The same rule applies to the "first"
+# partial derivative $\frac{\partial\boldsymbol{j}}{\partial T}$. We evaluate
+# it as following the expression $BK^2(T)\boldsymbol{\sigma}(T)$ without the
+# term $\hat{T}$.
 #
 # ```{note}
-# In general, the same function can be presented in numerous variations by selecting different operands as sub-expressions of this function. In our case, for example, we could have presented the heat flux $\boldsymbol{j}$ as a function of $K(T)$ and $\sigma(T)$ operands, but this decision would have led to more midterms due to the chain rule and therefore to more computation costs. Thus, it is important to choose wisely the operands of the external operators, which you want to use.
+# In general, the same function can be presented in numerous variations by
+# selecting different operands as sub-expressions of this function. In our
+# case, for example, we could have presented the heat flux $\boldsymbol{j}$ as
+# a function of $K(T)$ and $\sigma(T)$ operands, but this decision would have
+# led to more midterms due to the chain rule and therefore to more computation
+# costs. Thus, it is important to choose wisely the operands of the external
+# operators, which you want to use.
 # ```
 #
 # In order to start the numerical algorithm we initialize variable `T` with the following initial guess:
@@ -60,7 +96,6 @@
 #
 # ## Defining the external operator
 #
-# FORTHEARTICLE: the framework takes care of the operands differentiation. (completely forgot to cover this!!!)
 
 # %% [markdown]
 # ## Preamble
@@ -83,13 +118,13 @@ import dolfinx.fem.petsc  # there is an error without it, why?
 import numpy as np
 import numba
 import jax
-# import jax.numpy as jnp
 from jax import config
 config.update("jax_enable_x64", True)
 
 
 # %% [markdown]
-# Here we build the mesh, construct the finite functional space and define main variables and zero boundary conditions.
+# Here we build the mesh, construct the finite functional space and define main
+# variables and zero boundary conditions.
 #
 
 # %%
