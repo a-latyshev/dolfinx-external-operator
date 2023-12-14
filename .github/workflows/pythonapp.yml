@@ -20,7 +20,7 @@ jobs:
 
       - name: Lint
         run: |
-          ruff --check .
+          ruff check .
 
       - name: Build book
         run: jupyter book build docs/
