@@ -7,9 +7,7 @@ version = "0.8.0.dev0"
 description = "An implementation of ufl.ExternalOperator for DOLFINx"
 authors = [
     { name = "Andrey Latyshev", email = "andrey.latyshev@uni.lu" },
-    { name = "Jeremy Bleyer", email = "jeremy.bleyer@enpc.fr" },
     { name = "Jack S. Hale", email = "jack.hale@uni.lu" },
-    { name = "Corrado Maurini", email = "corrado.maurini@sorbonne-universite.fr" },
 ]
 license = { file = "LICENSE" }
 readme = "README.md"
@@ -27,7 +25,11 @@ demos = [
     "numba",
     "jax"
 ]
+lint = [
+    "ruff"
+]
 ci = [
     "dolfinx-external-operator[docs]",
     "dolfinx-external-operator[demos]"
+    "dolfinx-external-operator[lint]"
 ]
