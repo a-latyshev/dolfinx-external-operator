@@ -18,6 +18,10 @@ jobs:
         run: |
           pip install '.[ci]'
 
+      - name: Lint
+        run: |
+          ruff --check .
+
       - name: Build book
         run: jupyter book build docs/
       

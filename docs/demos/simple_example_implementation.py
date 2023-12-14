@@ -86,16 +86,19 @@
 
 # %%
 from mpi4py import MPI
-from petsc4py import PETSc
-
-import basix
-import ufl
-from dolfinx import fem, mesh
-import dolfinx.fem.petsc  # there is an error without it, why?
 
 import numpy as np
 
-from dolfinx_external_operator import FEMExternalOperator, replace_external_operators, evaluate_external_operators, evaluate_operands
+import basix
+import dolfinx.fem.petsc  # there is an error without it, why?
+import ufl
+from dolfinx import fem, mesh
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
+    replace_external_operators,
+)
 
 nx = 2
 domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nx)

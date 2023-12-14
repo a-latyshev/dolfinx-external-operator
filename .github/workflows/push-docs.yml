@@ -17,12 +17,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:  
-  build-docs:
-    uses: ./.github/workflows/build_docs.yml
+  test-and-build-docs:
+    uses: ./.github/workflows/pythonapp.yml
 
   deploy:
     runs-on: ubuntu-latest
-    needs: [build-docs]
+    needs: [test-and-build-docs]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

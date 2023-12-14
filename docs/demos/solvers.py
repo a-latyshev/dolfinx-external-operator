@@ -1,11 +1,9 @@
-import ufl
-from dolfinx import fem, io, common
-from mpi4py import MPI
-from petsc4py import PETSc
-from slepc4py import SLEPc
-from typing import Any, List, Union, Dict, Optional, Callable
+from typing import List
 
-import numpy as np
+from petsc4py import PETSc
+
+import ufl
+from dolfinx import fem
 
 
 class LinearProblem:

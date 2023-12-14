@@ -1,14 +1,15 @@
+from typing import List, Optional, Tuple
+
+import numpy as np
+
 import basix
 import basix.ufl
 import ufl
-import ufl.form
 import ufl.algorithms
-from ufl.core.ufl_type import ufl_type
-from ufl.constantvalue import as_ufl
+import ufl.form
 from dolfinx import fem
-
-from typing import List, Tuple, Optional
-import numpy as np
+from ufl.constantvalue import as_ufl
+from ufl.core.ufl_type import ufl_type
 
 
 @ufl_type(num_ops="varying", is_differential=True)
@@ -29,7 +30,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         *operands,
         function_space: fem.function.FunctionSpace,
         external_function=None,
-        derivatives: Tuple[int, ...] = None,
+        derivatives: Optional[Tuple[int, ...]] = None,
         argument_slots=(),
         hidden_operands: Optional[List[fem.function.Function]] = None,
     ) -> None:
