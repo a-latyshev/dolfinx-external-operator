@@ -9,13 +9,15 @@
 #
 # - define a UFL form including an `ExternalOperator` which allows the
 #   symbolically representation of an external operator,
-# - define a concrete implementation of the `ExternalOperator` and its
-#   derivatives using `numpy`,
-# - how to assemble the Jacobian and residual operators for use inside
+# - define an external definition of the external operator using `numpy`,
+# - and assemble the Jacobian and residual operators for use inside
 #   e.g. Newton's method.
+# 
+# To keep the concepts simple we do not solve the non-linear problem, leaving
+# that to a subsequent demo.
 #
-# We assume some familiarity with finite element methods, non-linear mechanics
-# and FEniCS.
+# We assume some basic familiarity with finite element methods, non-linear
+# mechanics and FEniCS.
 #
 # ## Problem formulation
 #
@@ -45,9 +47,9 @@
 # \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V,
 # \end{equation*}
 # where the semi-colon denotes the split between arguments in which the form is
-# non-linear ($T$) and linear ($\tilde{T}$). In order to solve the nonlinear
-# system of equation we apply Newton's method which requires the computation of
-# Jacobian, or the Gateaux derivative of $F$. 
+# non-linear and linear. To solve the nonlinear system of equation we apply
+# Newton's method which requires the computation of Jacobian, or the Gateaux
+# derivative of $F$. 
 #
 # \begin{equation*}
 # D_{T} [ F(\boldsymbol{q}; \tilde{T}) ] \lbrace \hat{T} \rbrace := \int D_{T}[
@@ -77,13 +79,13 @@
 # D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace &=
 # [Bk(T)k(T)\boldsymbol{\sigma}(T)] \hat{T} \\
 # D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace &=
-# [-k(T) \boldsymbol{I}] : \nabla \hat{T}  
+# [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}  
 # \end{align*}
 # We now proceed to the definition of residual and Jacobian of this problem
 # using the `ExternalOperator` approach.
 # ```{note}
-# This simple example can also be implemented in pure UFL and the Jacobian
-# derived symbolically using UFL's usual `derivative` function.
+# This simple model can also be implemented in pure UFL and the Jacobian
+# derived symbolically using UFL's `derivative` function.
 # ```
 #
 # ## Implementation
@@ -99,7 +101,7 @@ from petsc4py import PETSc
 import numpy as np
 
 import basix
-from ufl import TrialFunction, TestFunction, grad
+from ufl import TrialFunction, TestFunction, grad, inner, Measure
 from dolfinx import fem, mesh
 
 from dolfinx_external_operator import FEMExternalOperator
@@ -110,19 +112,17 @@ V = fem.functionspace(domain, ("CG", 1))
 # %% [markdown]
 # ### Defining the external operator
 # We will begin by defining the input *operands* we need to specify the
-# external operator $\boldsymbol{q}(T, \boldsymbol{\sigma})$.
-# 
-# Our external operator is a function of $T$ and $\boldsymbol{\sigma} := \nabla
-# T$:
+# external operator $\boldsymbol{q}(T, \boldsymbol{\sigma}(T))$.
 # %%
 T = fem.Function(V)
 sigma = grad(T)
 
 # %% [markdown]
 # We also need to define a `FunctionSpace` on which the output of the external
-# operator $q$ should live. For optimal convergence it is important that $q$ is
-# evaluated directly at the Gauss points used in the integration of the weak
-# form.
+# operator $\boldsymbol{q}$ should live. For optimal convergence it is
+# necessary that $\boldsymbol{q}$ is evaluated directly at the Gauss points
+# used in the integration of the weak form. This can be enforced by
+# constructing a quadrature function space.
 # %%
 quadrature_degree = 2
 Qe = basix.ufl.quadrature_element(domain.topology.cell_name(),
@@ -130,61 +130,48 @@ Qe = basix.ufl.quadrature_element(domain.topology.cell_name(),
 Q = fem.functionspace(domain, Qe)
 
 # %% [markdown]
-# We now have the ingredients to define the external operator.
+# We now have all of the ingredients to define the external operator.
 # %%
-q = FEMExternalOperator(T, sigma, function_space=Q) 
-# %% [markdown]
-# Note that at this stage 
-# %%
-
-# %% Residual equation
-# We now have the algebraic
-# %%
-dx = ufl.Measure("dx", metadata={"quadrature_scheme": "default",
-                                 "quadrature_degree": quadrature_degree})
-
+q_ = FEMExternalOperator(T, sigma, function_space=Q) 
 
 # %% [markdown]
-# Now we need to define functions that will compute the exact values of the
-# external operator and its derivatives. The framework gives the complete
-# freedom of how these functions are implemented. The only constraints are: 1.
-# They recieve `ndarray` (Numpy-like) arrays on their input. 2. They return a
-# `ndarray` array, a vector holding degrees-of-freedom of the coefficient
-# representing an external operator. This coefficient is accessible through
-# `ref_coefficient` attribute of `femExternalOperator`.
-#
-# Thanks to the popularity of the Numpy package, there is plenty of other
-# Python libraries that support the integration of `ndarray` data. Thus, there
-# are numerous ways to define required functions. In this notebook, we focus on
-# leverage of two powerfull packages: Numba and JAX.
-# %% [markdown]
-# ### Numba
-#
-# The package Numba allows its users to write just-in-time (JIT) compilable
-# Python functions. Numba typically produces highly optimised machine code with
-# runtime performance on the level of traditional compiled languages. It is
-# strongly integrated with Numpy and supports its numerous features, including
-# `ndarray` data. Thus, NUmba package perfectly fits as tool to define the
-# external operators behaviour.
-#
-# Let us demonstrate here below, how by using simple Python loops and JIT-ed by
-# Numba functions we define the evaluation of the heat flux $\boldsymbol{j}$
-# and its derivatives $\frac{d\boldsymbol{j}}{d T}$ and
-# $\frac{d\boldsymbol{j}}{d\boldsymbol{\sigma}}$ at machine-code performance
-# level.
-
+# Note that at this stage `q_` is an abstract symbolic function and we have not
+# yet defined the `numpy` code to compute it.
 # %%
-Id = np.eye(2)
 
+# %% [markdown]
+# ### Residual
+# The external operator can be used in the definition of the residual $F$.
+# %%
+dx = Measure("dx", metadata={"quadrature_scheme": "default",
+                             "quadrature_degree": quadrature_degree})
+T_tilde = TestFunction(V)
+F = inner(q_, grad(T_tilde))*dx 
 
-@numba.njit
-def K(T):
+# %% [markdown]
+# ### Implementing the external operator
+# The external operator is implemented using functional programming techniques
+# that closely maps the way that `interpolate` is implemented in DOLFINx.
+#
+# In the first step, the user must define function(s) which accept `np.ndarray`
+# containing the operands (here, $T$ and $\boldsymbol{\sigma}$) evaluated at
+# all of the global interpolation points associated with the output function
+# space. These function(s) must return `np.ndarray` objects containing the
+# evaluation of the external operator at all of the global interpolation points.
+# 
+# We begin by defining the Python functions for the material conductivity $k$
+# and the flux $q$
+# \begin{align*}
+# k(T) &= \frac{1}{A + BT} \\
+# \boldsymbol{q} &= -k(T) \boldsymbol{\sigma}
+# \end{align*}
+# %%
+
+def k(T):
     return 1.0 / (A + B * T)
 
 
-@numba.njit
-def func_j_numba(T, sigma):
-    # j : scalar x vector -> vector
+def q(T, sigma):
     T_ = T.reshape((num_cells, num_gauss_points))
     sigma_ = sigma.reshape((num_cells, num_gauss_points, 2))
     j_ = np.empty_like(sigma_)
@@ -193,10 +180,16 @@ def func_j_numba(T, sigma):
             j_[i, j] = -K(T_[i, j]) * sigma_[i, j]
     return j_.reshape(-1)
 
+# %% [markdown]
+# Because we also wish to assemble the Jacobian we will also require
+# implementations of the derivative
+# \begin{equation*}
+# D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace =
+# [Bk(T)k(T)\boldsymbol{\sigma}(T)] \hat{T}
+# \end{equation*}
+# %%
 
-@numba.njit
-def func_djdT_numba(T, sigma):
-    # djdT : scalar x vector -> vector
+def dqdT(T, sigma):
     T_ = T.reshape((num_cells, num_gauss_points))
     sigma_ = sigma.reshape((num_cells, num_gauss_points, 2))
     djdT = np.empty_like(sigma_)
@@ -206,29 +199,46 @@ def func_djdT_numba(T, sigma):
             djdT[i, j] = B * K(T_[i, j]) ** 2 * sigma_[i, j]
     return djdT.reshape(-1)
 
+# %% [markdown]
+# and the derivative
+# \begin{equation*}
+# D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace =
+# [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}  
+# \end{equation*}
+# %%
 
-@numba.njit
-def func_djdsigma_numba(T, sigma):
-    # djdsigma : scalar x vector -> tensor
+def dqdsigma(T, sigma):
     T_ = T.reshape((num_cells, num_gauss_points))
     djdsigma_ = np.empty((num_cells, num_gauss_points, 2, 2), dtype=PETSc.ScalarType)
+    Id = np.eye(2)
 
     for i in range(0, num_cells):
         for j in range(0, num_gauss_points):
             djdsigma_[i, j] = -K(T_[i, j]) * Id
     return djdsigma_.reshape(-1)
 
-
+# %% [markdown]
+# Note that we do not need to explicitly incorporate the action of the finite
+# element trial function $\hat{T}$ which will be assembled by DOLFINx.
+#
+# The final function that the user must define is a higher-order function (a
+# function which returns other functions) which takes in a derivative
+# multi-index and returns the appropriate function among the three previous
+# definitions.
 # %%
 
-
-def j_external_numba(derivatives):
-    """Concrete numba implementation of external operator and its derivatives."""
+def q(derivatives):
     if derivatives == (0, 0):
-        return func_j_numba
+        return q_
     elif derivatives == (1, 0):
-        return func_djdT_numba
+        return dqdT
     elif derivatives == (0, 1):
-        return func_djdsigma_numba
+        return dqdsigma
     else:
         return NotImplementedError
+
+# %% [markdown]
+# We can now attach the implementation of the external operator `q` to our
+# `FEMExternalOperator` symbolic object `q_`.
+# %%
+
