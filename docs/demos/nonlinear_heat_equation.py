@@ -1,175 +1,148 @@
 # %% [markdown]
-# # Nonlinear heat equation
+# # Nonlinear heat equation (numpy)
 #
-# Authors: Andrey Latyshev (University of Luxembourg, Sorbonne Université, andrey.latyshev@uni.lu)
+# In this notebook we implement a numerical solution of steady-state heat
+# equation with an external operator to used to define a non-linear thermal
+# conductivity law relating the temperature gradient with the flux.
+# 
+# In this tutorial you will learn how to:
 #
-# In this notebook, we implement a numerical solution of a nonlinear
-# steady-state heat equation using an external operator. Here we focus on the
-# application of our framework to the problem, where the external operator has
-# two operands. In addition, we leverage the flexibility of the framework to
-# define the behaviour of the external operator using different 3rd-party
-# libraries (here we use Numba and JAX). We strongly recommend taking a look at
-# the simple example first in order to become familiar with the basic workflow
-# of the application of external operators in FEniCSx.
+# - define a UFL form including an `ExternalOperator` which allows the
+#   symbolically representation of an external operator,
+# - define a concrete implementation of the `ExternalOperator` and its
+#   derivatives using `numpy`,
+# - how to assemble the Jacobian and residual operators for use inside
+#   e.g. Newton's method.
+#
+# We assume some familiarity with finite element methods, non-linear mechanics
+# and FEniCS.
 #
 # ## Problem formulation
 #
-# Denoting the temperature field through $T$ we consider the following system
-# on the square domain $\Omega$:
+# Denoting the temperature field $T$ and its gradient $\boldsymbol{\sigma} :=
+# \nabla T$ we consider the following system on the square domain $\Omega :=
+# [0, 1]^2$ with boundary $\partial \Omega$
 #
 # \begin{align*}
-#     \Omega : \quad & \nabla \cdot (K(T) \nabla T) = 0 \\
-#     \partial\Omega : \quad & T = 0
+#      \nabla \cdot \boldsymbol{q} &= f \quad \mathrm{on} \; \Omega, \\
+#      \boldsymbol{q}(T, \boldsymbol{\sigma}(T)) &= -k(T) \boldsymbol{\sigma}, \\
+#      T &= 0 \quad \mathrm{on} \; \partial \Omega, \\
 # \end{align*}
+# where $f$ is a given function. With the material conductivity $k =
+# \mathrm{const}$ we recover the standard Fourier heat problem. However, here
+# we will assume that the thermal conductivity $k$ is some general function of
+# $T$ and that we would like specify $k$ using some external (non-UFL) piece of
+# code. For notational convenience in most of what follows we have omitted the
+# explicit dependence of $\boldsymbol{q}$ on $T$ and $\boldsymbol{\sigma}(T) =
+# \nabla T$.
+
+# Let $V = H^1_0(\Omega)$ be the usual Sobolev space of square-integrable
+# functions with square-integrable derivatives and vanishing value on the
+# boundary $\partial \Omega$. Then in a variational setting the problem can be
+# written in residual form as find $T \in V$ such that
+# \begin{equation*}
+# F(\boldsymbol{q}; \tilde{T}) = \int \boldsymbol{q} \cdot \nabla \tilde{T} - f \cdot
+# \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V,
+# \end{equation*}
+# where the semi-colon denotes the split between arguments in which the form is
+# non-linear ($T$) and linear ($\tilde{T}$). In order to solve the nonlinear
+# system of equation we apply Newton's method which requires the computation of
+# Jacobian, or the Gateaux derivative of $F$. 
 #
-# where $K(T) = \frac{1}{A + BT}$ is a nonlinear thermal conductivity, $A$ and
-# $B$ are some constants.
+# \begin{equation*}
+# D_{T} [ F(\boldsymbol{q}; \tilde{T}) ] \lbrace \hat{T} \rbrace := \int D_{T}[
+# \boldsymbol{q} ]\lbrace \hat{T} \rbrace \cdot
+# \nabla \tilde{T} \; \mathrm{d}x.
+# \end{equation*}
 #
-# Let $V = H^1_0(\Omega)$ be the functional space of admissible temperature
-# fields then in a variational setting the problem can be written as follows.
-#
-# Find $T \in V$ such that
-#
-# $$
-# F(\boldsymbol{j}; \tilde{T}) = -\int\frac{1}{A + BT}\nabla T .
-# \nabla\tilde{T} dx = \int\boldsymbol{j}(T,\boldsymbol{\sigma}(T)) .
-# \nabla\tilde{T} dx = 0, \quad \forall T \in V,
-# $$ (eqn:1)
-#
-# where $\boldsymbol{j} = -\frac{1}{A + BT}\nabla T = - K(T)
-# \boldsymbol{\sigma}(T)$ is a nonlinear heat flux and through
-# $\boldsymbol{\sigma}$ we denoted the gradient of the temperature field
-# $\nabla T$.
-#
-# In order to solve the nonlinear equation {eq}`eqn:1` we apply the Newton
-# method and calculate the Gateau derivative of the functional $F$ with respect
-# to operand $T$ in the direction $\hat{T} \in V$ as follows:
-#
-# $$
-# J(\boldsymbol{j};\hat{T},\tilde{T}) = \frac{d F}{d
-# T}(\boldsymbol{j}(T,\boldsymbol{\sigma}(T));\hat{T}, \tilde{T}) =
-# \int\frac{d\boldsymbol{j}}{dT}(T,\boldsymbol{\sigma}(T);\hat{T})
-# \nabla\tilde{T} dx,
-# $$
-#
-# where through $d \cdot / dT$ we denote the Gateau derivative.
-#
-# ## External operator
-#
-# In this example, we treat the heat flux $\boldsymbol{j}$ as an external
-# operator with two operands $T$ and $\boldsymbol{\sigma}(T) = \nabla T$. In
-# this regard, by applying the chain rule, let us write out the explicit
-# expression of the Gateau derivative of $\boldsymbol{j}$ here below
-#
-# $$
-#     \frac{d\boldsymbol{j}}{dT}(T,\boldsymbol{\sigma}(T);\hat{T}) =
-#     \frac{\partial\boldsymbol{j}}{\partial T} +
-#     \frac{\partial\boldsymbol{j}}{\partial\boldsymbol{\sigma}}\frac{\partial\boldsymbol{\sigma}}{\partial
-#     T} = BK^2(T)\boldsymbol{\sigma}(T)\hat{T} - K(T)\mathbb{I}:\nabla\hat{T},
-# $$
-# where $\mathbb{I}$ is a second-order identity tensor.
-#
-# According to the current version of the framework operands of an external
-# operator may be any UFL expression. It is worth noting that derivatives of
-# these expressions appear as terms of the full Gateaux derivative (as per the
-# chain rule) and are computed by UFL. Consequently, the user must define
-# evaluation only "partial derivatives" of the external operator and leave the
-# operand differentiation to UFL. Thus, in our example by the evaluation of the
-# external operator
-# $\frac{\partial\boldsymbol{j}}{\partial\boldsymbol{\sigma}}$ we mean the
-# computation of the expression $-K(T)\mathbb{I}$. The term $\nabla\hat{T}$ is
-# derived automatically by the AD tool of UFL and will be natively incorporated
-# into the bilinear form $J$ after application of the
-# `replace_external_operators` function. The same rule applies to the "first"
-# partial derivative $\frac{\partial\boldsymbol{j}}{\partial T}$. We evaluate
-# it as following the expression $BK^2(T)\boldsymbol{\sigma}(T)$ without the
-# term $\hat{T}$.
-#
+# Emphasing the explicit dependence of $\boldsymbol{q}$ on $T$, i.e.
+# $\boldsymbol{q} = \boldsymbol{q}(T, \sigma(T))$, we can use the chain rule to
+# write
+# \begin{align*}
+# D_{T}[\boldsymbol{q}]\lbrace \hat{T} \rbrace &= D_T [\boldsymbol{q}]\lbrace
+# D_T[T]\lbrace \hat{T} \rbrace \rbrace +
+# D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace
+# D_T[\boldsymbol{\sigma}]\lbrace \hat{T} \rbrace \rbrace \\
+# &= D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
+# D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace \\
+# \end{align*}
+# 
+# To fix ideas, we now assume the following explicit form for the material
+# conductivity
+# \begin{equation*}
+# k(T) = \frac{1}{A + BT}
+# \end{equation*}
+# where $A$ and $B$ are material constants. After some algebra we can derive
+# \begin{align*}
+# D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace &=
+# [Bk(T)k(T)\boldsymbol{\sigma}(T)] \hat{T} \\
+# D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace &=
+# [-k(T) \boldsymbol{I}] : \nabla \hat{T}  
+# \end{align*}
+# We now proceed to the definition of residual and Jacobian of this problem
+# using the `ExternalOperator` approach.
 # ```{note}
-# In general, the same function can be presented in numerous variations by
-# selecting different operands as sub-expressions of this function. In our
-# case, for example, we could have presented the heat flux $\boldsymbol{j}$ as
-# a function of $K(T)$ and $\sigma(T)$ operands, but this decision would have
-# led to more midterms due to the chain rule and therefore to more computation
-# costs. Thus, it is important to choose wisely the operands of the external
-# operators, which you want to use.
+# This simple example can also be implemented in pure UFL and the Jacobian
+# derived symbolically using UFL's usual `derivative` function.
 # ```
 #
-# In order to start the numerical algorithm we initialize variable `T` with the following initial guess:
+# ## Implementation
+# ### Preamble
 #
-# $$
-#     T(\boldsymbol{x}) = x + 2y,
-# $$
-# where  $\boldsymbol{x} = (x, y)^T$ is the space variable.
-#
-# ## Defining the external operator
-#
-
-# %% [markdown]
-# ## Preamble
-#
-# Importing required packages.
-#
-
+# We import from the required packages, create a mesh, and a scalar valued
+# function space which we will use to discretise the temperature field $T$.
 # %%
 
 from mpi4py import MPI
 from petsc4py import PETSc
 
-import numba
 import numpy as np
 
 import basix
-import dolfinx.fem.petsc  # there is an error without it, why?
-import ufl
+from ufl import TrialFunction, TestFunction, grad
 from dolfinx import fem, mesh
 
-# %% [markdown]
-# Here we build the mesh, construct the finite functional space and define main
-# variables and zero boundary conditions.
-#
+from dolfinx_external_operator import FEMExternalOperator
 
+domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+V = fem.functionspace(domain, ("CG", 1))
+
+# %% [markdown]
+# ### Defining the external operator
+# We will begin by defining the input *operands* we need to specify the
+# external operator $\boldsymbol{q}(T, \boldsymbol{\sigma})$.
+# 
+# Our external operator is a function of $T$ and $\boldsymbol{\sigma} := \nabla
+# T$:
 # %%
-nx = 5
-domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nx)
-gdim = domain.geometry.dim
-V = fem.functionspace(domain, ("CG", 1, ()))
-T_tilde = ufl.TestFunction(V)
-T_hat = ufl.TrialFunction(V)
-T = fem.Function(V, name="T")
-sigma = ufl.grad(T)
-dT = dolfinx.fem.Function(V, name="dT")
-
-
-def non_zero_guess(x):
-    return x[0, :] + 2.0 * x[1, :]
-
-
-A = 1.0
-B = 1.0
-
-
-def on_boundary(x):
-    return np.isclose(x[0], 0)
-
-
-boundary_dofs = fem.locate_dofs_geometrical(V, on_boundary)
-bc = fem.dirichletbc(PETSc.ScalarType(0), boundary_dofs, V)
+T = fem.Function(V)
+sigma = grad(T)
 
 # %% [markdown]
-# ## Defining the external operator
-#
-
-# %% [markdown]
-# The external operator must be defined in quadrature finite element space.
-
+# We also need to define a `FunctionSpace` on which the output of the external
+# operator $q$ should live. For optimal convergence it is important that $q$ is
+# evaluated directly at the Gauss points used in the integration of the weak
+# form.
 # %%
 quadrature_degree = 2
-dx = ufl.Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
-Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
-Q = dolfinx.fem.functionspace(domain, Qe)
-num_cells = domain.topology.index_map(domain.topology.dim).size_local
-num_gauss_points = Qe.custom_quadrature()[0].shape[0]
+Qe = basix.ufl.quadrature_element(domain.topology.cell_name(),
+                                  degree=quadrature_degree, value_shape=(2,))
+Q = fem.functionspace(domain, Qe)
+
+# %% [markdown]
+# We now have the ingredients to define the external operator.
+# %%
+q = FEMExternalOperator(T, sigma, function_space=Q) 
+# %% [markdown]
+# Note that at this stage 
+# %%
+
+# %% Residual equation
+# We now have the algebraic
+# %%
+dx = ufl.Measure("dx", metadata={"quadrature_scheme": "default",
+                                 "quadrature_degree": quadrature_degree})
+
 
 # %% [markdown]
 # Now we need to define functions that will compute the exact values of the
@@ -184,7 +157,6 @@ num_gauss_points = Qe.custom_quadrature()[0].shape[0]
 # Python libraries that support the integration of `ndarray` data. Thus, there
 # are numerous ways to define required functions. In this notebook, we focus on
 # leverage of two powerfull packages: Numba and JAX.
-
 # %% [markdown]
 # ### Numba
 #

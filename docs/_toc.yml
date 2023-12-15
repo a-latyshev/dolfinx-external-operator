@@ -2,11 +2,7 @@ format: jb-book
 root: intro
 
 parts:
-  - caption: "Introduction"
-    chapters:
-      - file: "demos/simple_example.md"
-        sections:
-          - file: demos/simple_example_implementation
-  - caption: "Fundamentals"
+  - caption: "Demos"
     chapters:
       - file: "demos/nonlinear_heat_equation.py"
+      - file: "demos/simple_example.md"
