@@ -142,7 +142,7 @@ q_ = FEMExternalOperator(T, sigma, function_space=Q)
 # yet defined the `numpy` code to compute it.
 
 # ```{note}
-# FEMExternalOperator holds memory to store its values, like `fem.Function`. 
+# FEMExternalOperator holds a `fem.Function` to store its evaluated values. 
 # ```
 # %%
 
@@ -260,6 +260,7 @@ T_hat = TrialFunction(V)
 J = derivative(F, T, T_hat)
 
 # %% [markdown]
+# ### Transformations
 # To apply the chain rule and obtain something symbolically similar to
 # \begin{equation*}
 # J(T; \hat{T}, \tilde{T}) = D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
@@ -276,5 +277,3 @@ J_expanded = ufl.algorithms.expand_derivatives(J)
 # %%
 F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
-
-print(J_replaced)
