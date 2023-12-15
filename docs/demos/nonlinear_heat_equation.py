@@ -101,10 +101,13 @@ from petsc4py import PETSc
 import numpy as np
 
 import basix
-from ufl import TrialFunction, TestFunction, grad, inner, Measure
+from dolfinx_external_operator.external_operator import replace_external_operators
+import ufl
+import ufl.algorithms
+from ufl import TrialFunction, TestFunction, grad, inner, Measure, derivative
 from dolfinx import fem, mesh
 
-from dolfinx_external_operator import FEMExternalOperator
+from dolfinx_external_operator import FEMExternalOperator, replace_external_operators
 
 domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
 V = fem.functionspace(domain, ("CG", 1))
@@ -135,8 +138,12 @@ Q = fem.functionspace(domain, Qe)
 q_ = FEMExternalOperator(T, sigma, function_space=Q) 
 
 # %% [markdown]
-# Note that at this stage `q_` is an abstract symbolic function and we have not
+# Note that at this stage `q_` is symbolic and we have not
 # yet defined the `numpy` code to compute it.
+
+# ```{note}
+# FEMExternalOperator holds memory to store its values, like `fem.Function`. 
+# ```
 # %%
 
 # %% [markdown]
@@ -146,7 +153,7 @@ q_ = FEMExternalOperator(T, sigma, function_space=Q)
 dx = Measure("dx", metadata={"quadrature_scheme": "default",
                              "quadrature_degree": quadrature_degree})
 T_tilde = TestFunction(V)
-F = inner(q_, grad(T_tilde))*dx 
+F = inner(q_, grad(T_tilde))*dx
 
 # %% [markdown]
 # ### Implementing the external operator
@@ -219,12 +226,13 @@ def dqdsigma(T, sigma):
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
-# element trial function $\hat{T}$ which will be assembled by DOLFINx.
+# element trial function $\hat{T}$; it will be handled by DOLFINx during
+# assembly.
 #
 # The final function that the user must define is a higher-order function (a
-# function which returns other functions) which takes in a derivative
-# multi-index and returns the appropriate function among the three previous
-# definitions.
+# function that returns other functions) that takes in a derivative multi-index
+# as its only argument and returns the appropriate function from the three
+# previous definitions.
 # %%
 
 def q(derivatives):
@@ -238,7 +246,35 @@ def q(derivatives):
         return NotImplementedError
 
 # %% [markdown]
-# We can now attach the implementation of the external operator `q` to our
+# We can now attach the implementation of the external function `q` to our
 # `FEMExternalOperator` symbolic object `q_`.
 # %%
+q_.external_function = q
 
+# %% [markdown]
+# ### Jacobian
+# We can now use UFL's built in `derivative` method to derive the Jacobian
+# automatically.
+# %%
+T_hat = TrialFunction(V)
+J = derivative(F, T, T_hat)
+
+# %% [markdown]
+# To apply the chain rule and obtain something symbolically similar to
+# \begin{equation*}
+# J(T; \hat{T}, \tilde{T}) = D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
+# D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace \\
+# \end{equation*}
+# we apply UFL's derivative expansion algorithm.
+# %%
+J_expanded = ufl.algorithms.expand_derivatives(J)
+
+# %% [markdown]
+# In order to assemble `F` and `J` we must apply a further transformation which
+# replaces the UFL external operators in the forms with their associated
+# `fem.Function`.
+# %%
+F_replaced, F_external_operators = replace_external_operators(F)
+J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+print(J_replaced)
