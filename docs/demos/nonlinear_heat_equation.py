@@ -166,11 +166,14 @@ F = inner(q_, grad(T_tilde))*dx
 # space. These function(s) must return `np.ndarray` objects containing the
 # evaluation of the external operator at all of the global interpolation points.
 #
-# We begin by defining the Python functions for the material conductivity $k$
-# and the flux $q$
+# We begin by defining the Python functions for the left part of 
+# \begin{equation*}
+# [\boldsymbol{q}(T, \nabla T)] \cdot \nabla \tilde{T} 
+# \end{equation*}
+# where we recall
 # \begin{align*}
-# k(T) &= \frac{1}{A + BT} \\
-# \boldsymbol{q} &= -k(T) \boldsymbol{\sigma}
+# \boldsymbol{q} &= -k(T) \boldsymbol{\sigma} \\
+# k(T) &= \frac{1}{A + BT}
 # \end{align*}
 # %%
 
@@ -194,7 +197,7 @@ def q_impl(T, sigma):
 
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
-# implementations of the derivative
+# implementations of the left part of the derivative
 # \begin{equation*}
 # D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace =
 # [Bk(T)k(T)\boldsymbol{\sigma}(T)] \hat{T}
@@ -212,7 +215,7 @@ def dqdT_impl(T, sigma):
     return dqdT.reshape(-1)
 
 # %% [markdown]
-# and the derivative
+# and the left part of the derivative
 # \begin{equation*}
 # D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace =
 # [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}
@@ -231,8 +234,8 @@ def dqdsigma_impl(T, sigma):
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
-# element trial function $\hat{T}$; it will be handled by DOLFINx during
-# assembly.
+# element trial $\tilde{T}$ or test functions $\hat{T}$; it will be handled by
+# DOLFINx during assembly.
 #
 # The final function that the user must define is a higher-order function (a
 # function that returns other functions) that takes in a derivative multi-index
@@ -296,8 +299,8 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 # 1. Evaluate the operands (here, `T` and `sigma`) on the quadrature space
 # `Q`. We interpolate a non-zero value into `T` so we obtain a non-zero
 # assembled residual and Jacobian.
-T.interpolate(lambda x: x[0]**2 + x[1])
 # %%
+T.interpolate(lambda x: x[0]**2 + x[1])
 evaluated_operands = evaluate_operands(F_external_operators) 
 
 # %% [markdown]
@@ -313,6 +316,7 @@ evaluate_external_operators(J_external_operators, evaluated_operands)
 # ```
 # 3. The finite element forms can be assembled using the standard DOLFINx
 # assembly routines.
+# %%
 F_compiled = fem.form(F_replaced)
 J_compiled = fem.form(J_replaced)
 b_vector = fem.assemble_vector(F_compiled)
@@ -320,11 +324,19 @@ A_matrix = fem.assemble_matrix(J_compiled)
 
 # %% [markdown]
 # ### Comparison with pure UFL
-# This example can also be implemented with pure UFL for comparison.
+# This output of the external operator approach can be directly checked against
+# a pure UFL implementation. Firstly the residual
 # %%
-F_manual = inner(-(1.0/(A + B*T))*sigma, grad(T_tilde))*dx
-F_manual_compiled = fem.form(F_manual)
-b_manual_vector = fem.assemble_vector(F_manual_compiled)
-print(b_vector.array)
-print(b_manual_vector.array)
+q_explicit = -(1.0/(A + B*T))*sigma
+F_explicit = inner(q_explicit, grad(T_tilde))*dx
+F_explicit_compiled = fem.form(F_explicit)
+b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
+assert np.allclose(b_explicit_vector.array, b_vector.array)
 
+# %% [markdown]
+# and then the Jacobian 
+# %%
+J_explicit = ufl.derivative(F_explicit, T, T_hat)
+J_explicit_compiled = fem.form(J_explicit)
+A_manual_matrix = fem.assemble_matrix(J_explicit_compiled)
+assert np.allclose(A_manual_matrix.to_dense(), A_matrix.to_dense())
