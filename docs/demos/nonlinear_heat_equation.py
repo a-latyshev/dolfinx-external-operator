@@ -174,18 +174,23 @@ F = inner(q_, grad(T_tilde))*dx
 # \end{align*}
 # %%
 
+A = 1.0
+B = 1.0
+num_cells = domain.topology.index_map(domain.topology.dim).size_local
+gdim = domain.geometry.dim
+
 def k(T):
     return 1.0 / (A + B * T)
 
 
-def q(T, sigma):
-    T_ = T.reshape((num_cells, num_gauss_points))
-    sigma_ = sigma.reshape((num_cells, num_gauss_points, 2))
-    j_ = np.empty_like(sigma_)
+def q_impl(T, sigma):
+    T_ = T.reshape((num_cells, -1))
+    sigma_ = sigma.reshape((num_cells, -1, gdim))
+    q = np.empty_like(sigma_)
     for i in range(0, num_cells):
-        for j in range(0, num_gauss_points):
-            j_[i, j] = -K(T_[i, j]) * sigma_[i, j]
-    return j_.reshape(-1)
+        for j in range(0, sigma_.shape[1]):
+            q[i, j] = -k(T_[i, j]) * sigma_[i, j]
+    return q.reshape(-1)
 
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
@@ -196,15 +201,15 @@ def q(T, sigma):
 # \end{equation*}
 # %%
 
-def dqdT(T, sigma):
-    T_ = T.reshape((num_cells, num_gauss_points))
-    sigma_ = sigma.reshape((num_cells, num_gauss_points, 2))
-    djdT = np.empty_like(sigma_)
+def dqdT_impl(T, sigma):
+    T_ = T.reshape((num_cells, -1))
+    sigma_ = sigma.reshape((num_cells, -1, gdim))
+    dqdT = np.empty_like(sigma_)
 
     for i in range(0, num_cells):
-        for j in range(0, num_gauss_points):
-            djdT[i, j] = B * K(T_[i, j]) ** 2 * sigma_[i, j]
-    return djdT.reshape(-1)
+        for j in range(0, T_.shape[1]):
+            dqdT[i, j] = B * k(T_[i, j]) ** 2 * sigma_[i, j]
+    return dqdT.reshape(-1)
 
 # %% [markdown]
 # and the derivative
@@ -214,14 +219,14 @@ def dqdT(T, sigma):
 # \end{equation*}
 # %%
 
-def dqdsigma(T, sigma):
-    T_ = T.reshape((num_cells, num_gauss_points))
-    djdsigma_ = np.empty((num_cells, num_gauss_points, 2, 2), dtype=PETSc.ScalarType)
+def dqdsigma_impl(T, sigma):
+    T_ = T.reshape((num_cells, -1))
+    djdsigma_ = np.empty((num_cells, T_.shape[1], gdim, gdim), dtype=PETSc.ScalarType)
     Id = np.eye(2)
 
     for i in range(0, num_cells):
-        for j in range(0, num_gauss_points):
-            djdsigma_[i, j] = -K(T_[i, j]) * Id
+        for j in range(0, T_.shape[1]):
+            djdsigma_[i, j] = -k(T_[i, j]) * Id
     return djdsigma_.reshape(-1)
 
 # %% [markdown]
@@ -237,11 +242,11 @@ def dqdsigma(T, sigma):
 
 def q(derivatives):
     if derivatives == (0, 0):
-        return q_
+        return q_impl
     elif derivatives == (1, 0):
-        return dqdT
+        return dqdT_impl
     elif derivatives == (0, 1):
-        return dqdsigma
+        return dqdsigma_impl
     else:
         return NotImplementedError
 
@@ -292,7 +297,14 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 evaluated_operands = evaluate_operands(F_external_operators) 
 
 # %% [markdown]
-# and evaluate the external operators
+# and then evaluate the external operators associated with the forms
+# `F_replaced` and `J_replaced`.
 # %%
 evaluate_external_operators(F_external_operators, evaluated_operands)
 evaluate_external_operators(J_external_operators, evaluated_operands)
+# %% [markdown]
+# ```{note}
+# Because the external operators share the same operands we can reuse
+# `evaluated_operands`.
+# ```
+# %%
