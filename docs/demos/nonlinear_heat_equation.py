@@ -4,7 +4,7 @@
 # In this notebook we implement a numerical solution of steady-state heat
 # equation with an external operator to used to define a non-linear thermal
 # conductivity law relating the temperature gradient with the flux.
-# 
+#
 # In this tutorial you will learn how to:
 #
 # - define a UFL form including an `ExternalOperator` which allows the
@@ -12,7 +12,7 @@
 # - define an external definition of the external operator using `numpy`,
 # - and assemble the Jacobian and residual operators for use inside
 #   e.g. Newton's method.
-# 
+#
 # To keep the concepts simple we do not solve the non-linear problem, leaving
 # that to a subsequent demo.
 #
@@ -30,36 +30,37 @@
 #      \boldsymbol{q}(T, \boldsymbol{\sigma}(T)) &= -k(T) \boldsymbol{\sigma}, \\
 #      T &= 0 \quad \mathrm{on} \; \partial \Omega, \\
 # \end{align*}
-# where $f$ is a given function. With the material conductivity $k =
-# \mathrm{const}$ we recover the standard Fourier heat problem. However, here
-# we will assume that the thermal conductivity $k$ is some general function of
-# $T$ and that we would like specify $k$ using some external (non-UFL) piece of
-# code. For notational convenience in most of what follows we have omitted the
-# explicit dependence of $\boldsymbol{q}$ on $T$ and $\boldsymbol{\sigma}(T) =
-# \nabla T$.
-
+# where $f$ is a given function. With flux $\boldsymbol{q} = -k
+# \boldsymbol{\sigma}$ with $k = \mathrm{const}$ we recover the standard Fourier
+# heat problem. However, here we will assume that the $\boldsymbol{q}$ is some
+# general function of $T$ and $\boldsymbol{\sigma}(T)$ that we would like
+# specify $\boldsymbol{q}$ using some external (non-UFL) piece of code.
+#
 # Let $V = H^1_0(\Omega)$ be the usual Sobolev space of square-integrable
 # functions with square-integrable derivatives and vanishing value on the
 # boundary $\partial \Omega$. Then in a variational setting the problem can be
 # written in residual form as find $T \in V$ such that
 # \begin{equation*}
-# F(\boldsymbol{q}; \tilde{T}) = \int \boldsymbol{q} \cdot \nabla \tilde{T} - f \cdot
+# F(T; \tilde{T}) = \int \boldsymbol{q}(T, \nabla T) \cdot \nabla \tilde{T} - f \cdot
 # \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V,
 # \end{equation*}
 # where the semi-colon denotes the split between arguments in which the form is
 # non-linear and linear. To solve the nonlinear system of equation we apply
 # Newton's method which requires the computation of Jacobian, or the Gateaux
-# derivative of $F$. 
+# derivative of $F$.
 #
 # \begin{equation*}
-# D_{T} [ F(\boldsymbol{q}; \tilde{T}) ] \lbrace \hat{T} \rbrace := \int D_{T}[
-# \boldsymbol{q} ]\lbrace \hat{T} \rbrace \cdot
-# \nabla \tilde{T} \; \mathrm{d}x.
+# J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace := \int D_T[\boldsymbol{q}(T, \nabla T)] \lbrace \hat{T} \rbrace \cdot \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
-# Emphasing the explicit dependence of $\boldsymbol{q}$ on $T$, i.e.
-# $\boldsymbol{q} = \boldsymbol{q}(T, \sigma(T))$, we can use the chain rule to
-# write
+# ```{note}
+# The above result uses the product rule $D_{x}(fg)\lbrace \hat{x} \rbrace =
+# (D_x(f)\lbrace \hat{x} \rbrace) g + f(D_x(g)\lbrace \hat{x} \rbrace)$ and
+# that the Gateaux derivative and integral can be exchanged safely.
+# ```
+#
+# Dropping the explicit dependence of $\boldsymbol{q}$ on $T$ and $\nabla T$
+# for notational convienience we can use the chain rule to write
 # \begin{align*}
 # D_{T}[\boldsymbol{q}]\lbrace \hat{T} \rbrace &= D_T [\boldsymbol{q}]\lbrace
 # D_T[T]\lbrace \hat{T} \rbrace \rbrace +
@@ -68,7 +69,7 @@
 # &= D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
 # D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace \\
 # \end{align*}
-# 
+#
 # To fix ideas, we now assume the following explicit form for the material
 # conductivity
 # \begin{equation*}
@@ -77,9 +78,9 @@
 # where $A$ and $B$ are material constants. After some algebra we can derive
 # \begin{align*}
 # D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace &=
-# [Bk(T)k(T)\boldsymbol{\sigma}(T)] \hat{T} \\
+# [Bk^2(T)\boldsymbol{\sigma}(T)] \hat{T} \\
 # D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace &=
-# [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}  
+# [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}
 # \end{align*}
 # We now proceed to the definition of residual and Jacobian of this problem
 # using the `ExternalOperator` approach.
@@ -101,13 +102,11 @@ from petsc4py import PETSc
 import numpy as np
 
 import basix
-from dolfinx_external_operator.external_operator import replace_external_operators
 import ufl
 import ufl.algorithms
-from ufl import TrialFunction, TestFunction, grad, inner, Measure, derivative
 from dolfinx import fem, mesh
-
 from dolfinx_external_operator import FEMExternalOperator, replace_external_operators
+from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
 
 domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
 V = fem.functionspace(domain, ("CG", 1))
@@ -135,14 +134,14 @@ Q = fem.functionspace(domain, Qe)
 # %% [markdown]
 # We now have all of the ingredients to define the external operator.
 # %%
-q_ = FEMExternalOperator(T, sigma, function_space=Q) 
+q_ = FEMExternalOperator(T, sigma, function_space=Q)
 
 # %% [markdown]
 # Note that at this stage `q_` is symbolic and we have not
 # yet defined the `numpy` code to compute it.
 
 # ```{note}
-# FEMExternalOperator holds a `fem.Function` to store its evaluated values. 
+# FEMExternalOperator holds a `fem.Function` to store its evaluated values.
 # ```
 # %%
 
@@ -165,7 +164,7 @@ F = inner(q_, grad(T_tilde))*dx
 # all of the global interpolation points associated with the output function
 # space. These function(s) must return `np.ndarray` objects containing the
 # evaluation of the external operator at all of the global interpolation points.
-# 
+#
 # We begin by defining the Python functions for the material conductivity $k$
 # and the flux $q$
 # \begin{align*}
@@ -210,7 +209,7 @@ def dqdT(T, sigma):
 # and the derivative
 # \begin{equation*}
 # D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace =
-# [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}  
+# [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}
 # \end{equation*}
 # %%
 
