@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Nonlinear heat equation (numpy)
+# # Non-linear heat equation
 #
 # In this notebook we assemble the Jacobian and residual of a steady-state heat
 # equation with an external operator to used to define a non-linear flux law.
@@ -27,7 +27,6 @@
 # \begin{align*}
 #      \nabla \cdot \boldsymbol{q} &= f \quad \mathrm{on} \; \Omega, \\
 #      \boldsymbol{q}(T, \boldsymbol{\sigma}(T)) &= -k(T) \boldsymbol{\sigma}, \\
-#      T &= 0 \quad \mathrm{on} \; \partial \Omega, \\
 # \end{align*}
 # where $f$ is a given function. With flux $\boldsymbol{q} = -k
 # \boldsymbol{\sigma}$ with $k = \mathrm{const}$ we recover the standard Fourier
@@ -108,7 +107,7 @@ from dolfinx import fem, mesh
 from dolfinx_external_operator import FEMExternalOperator, replace_external_operators
 from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
 
-domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
 V = fem.functionspace(domain, ("CG", 1))
 
 # %% [markdown]
@@ -118,6 +117,7 @@ V = fem.functionspace(domain, ("CG", 1))
 # %%
 T = fem.Function(V)
 sigma = grad(T)
+
 
 # %% [markdown]
 # We also need to define a `FunctionSpace` on which the output of the external
@@ -221,13 +221,13 @@ def dqdT_impl(T, sigma):
 
 def dqdsigma_impl(T, sigma):
     T_ = T.reshape((num_cells, -1))
-    djdsigma_ = np.empty((num_cells, T_.shape[1], gdim, gdim), dtype=PETSc.ScalarType)
+    dqdsigma_ = np.empty((num_cells, T_.shape[1], gdim, gdim), dtype=PETSc.ScalarType)
     Id = np.eye(2)
 
     for i in range(0, num_cells):
         for j in range(0, T_.shape[1]):
-            djdsigma_[i, j] = -k(T_[i, j]) * Id
-    return djdsigma_.reshape(-1)
+            dqdsigma_[i, j] = -k(T_[i, j]) * Id
+    return dqdsigma_.reshape(-1)
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
@@ -292,20 +292,39 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
 # %% [markdown]
 # ### Assembly
-# We can now proceed with the assembly in three steps. Firstly, we evaluate the
-# operands (here, `T` and `sigma`) on the quadrature space `Q`.
+# We can now proceed with the assembly in three steps. 
+# 1. Evaluate the operands (here, `T` and `sigma`) on the quadrature space
+# `Q`. We interpolate a non-zero value into `T` so we obtain a non-zero
+# assembled residual and Jacobian.
+T.interpolate(lambda x: x[0]**2 + x[1])
 # %%
 evaluated_operands = evaluate_operands(F_external_operators) 
 
 # %% [markdown]
-# and then evaluate the external operators associated with the forms
-# `F_replaced` and `J_replaced`.
+# 2. Using the evaluated operands, evaluate the external operators and pack the
+# associated `fem.Function` objects in `F_replaced` and `J_replaced`.
 # %%
 evaluate_external_operators(F_external_operators, evaluated_operands)
 evaluate_external_operators(J_external_operators, evaluated_operands)
 # %% [markdown]
 # ```{note}
 # Because the external operators share the same operands we can reuse
-# `evaluated_operands`.
+# `evaluated_operands` in both calls to `evaluate_external_operators`.
 # ```
+# 3. The finite element forms can be assembled using the standard DOLFINx
+# assembly routines.
+F_compiled = fem.form(F_replaced)
+J_compiled = fem.form(J_replaced)
+b_vector = fem.assemble_vector(F_compiled)
+A_matrix = fem.assemble_matrix(J_compiled)
+
+# %% [markdown]
+# ### Comparison with pure UFL
+# This example can also be implemented with pure UFL for comparison.
 # %%
+F_manual = inner(-(1.0/(A + B*T))*sigma, grad(T_tilde))*dx
+F_manual_compiled = fem.form(F_manual)
+b_manual_vector = fem.assemble_vector(F_manual_compiled)
+print(b_vector.array)
+print(b_manual_vector.array)
+
