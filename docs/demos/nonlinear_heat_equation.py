@@ -101,6 +101,7 @@ from petsc4py import PETSc
 import numpy as np
 
 import basix
+from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
 import ufl
 import ufl.algorithms
 from dolfinx import fem, mesh
@@ -262,17 +263,36 @@ J = derivative(F, T, T_hat)
 # ### Transformations
 # To apply the chain rule and obtain something symbolically similar to
 # \begin{equation*}
-# J(T; \hat{T}, \tilde{T}) = D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
-# D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace \\
+# J(T; \hat{T}, \tilde{T}) = \int (D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
+# D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace) \cdot \nabla \tilde{T} \; \mathrm{d}x \\
 # \end{equation*}
 # we apply UFL's derivative expansion algorithm.
 # %%
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
 # %% [markdown]
+# ```{note}
+# `ufl.algorithms.expand_derivatives` creates new `ExternalOperator` that hold
+# appropriately specified `fem.FunctionSpace` and `fem.Function` objects. 
+# ```
+# %%
+
+# %% [markdown]
 # In order to assemble `F` and `J` we must apply a further transformation which
-# replaces the UFL external operators in the forms with their associated
-# `fem.Function`.
+# replaces the UFL external operators in the forms with their `fem.Function`
+# member.
 # %%
 F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+# %% [markdown]
+# We can now proceed with the assembly in three steps. Firstly, we evaluate the
+# operands (here, `T` and `sigma`) on the quadrature space `Q`.
+# %%
+evaluated_operands = evaluate_operands(F_external_operators) 
+
+# %% [markdown]
+# and evaluate the external operators
+# %%
+evaluate_external_operators(F_external_operators, evaluated_operands)
+evaluate_external_operators(J_external_operators, evaluated_operands)
