@@ -2,8 +2,7 @@
 # # Nonlinear heat equation (numpy)
 #
 # In this notebook we implement a numerical solution of steady-state heat
-# equation with an external operator to used to define a non-linear thermal
-# conductivity law relating the temperature gradient with the flux.
+# equation with an external operator to used to define a non-linear flux law.
 #
 # In this tutorial you will learn how to:
 #
@@ -11,7 +10,7 @@
 #   symbolically representation of an external operator,
 # - define an external definition of the external operator using `numpy`,
 # - and assemble the Jacobian and residual operators for use inside
-#   e.g. Newton's method.
+#   linear and non-linear solvers
 #
 # To keep the concepts simple we do not solve the non-linear problem, leaving
 # that to a subsequent demo.
@@ -50,7 +49,7 @@
 # derivative of $F$.
 #
 # \begin{equation*}
-# J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace := \int D_T[\boldsymbol{q}(T, \nabla T)] \lbrace \hat{T} \rbrace \cdot \tilde{T} \; \mathrm{d}x
+# J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace := \int D_T[\boldsymbol{q}(T, \nabla T)] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
 # ```{note}
@@ -60,7 +59,7 @@
 # ```
 #
 # Dropping the explicit dependence of $\boldsymbol{q}$ on $T$ and $\nabla T$
-# for notational convienience we can use the chain rule to write
+# for notational convenience we can use the chain rule to write
 # \begin{align*}
 # D_{T}[\boldsymbol{q}]\lbrace \hat{T} \rbrace &= D_T [\boldsymbol{q}]\lbrace
 # D_T[T]\lbrace \hat{T} \rbrace \rbrace +
