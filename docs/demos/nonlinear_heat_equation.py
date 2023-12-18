@@ -123,12 +123,15 @@ sigma = grad(T)
 # operator $\boldsymbol{q}$ should live. For optimal convergence it is
 # necessary that $\boldsymbol{q}$ is evaluated directly at the Gauss points
 # used in the integration of the weak form. This can be enforced by
-# constructing a quadrature function space.
+# constructing a quadrature function space and an integration measure `dx`
+# using the same rule.
 # %%
 quadrature_degree = 2
 Qe = basix.ufl.quadrature_element(domain.topology.cell_name(),
                                   degree=quadrature_degree, value_shape=(2,))
 Q = fem.functionspace(domain, Qe)
+dx = Measure("dx", metadata={"quadrature_scheme": "default",
+                             "quadrature_degree": quadrature_degree})
 
 # %% [markdown]
 # We now have all of the ingredients to define the external operator.
@@ -148,8 +151,6 @@ q_ = FEMExternalOperator(T, sigma, function_space=Q)
 # ### Residual
 # The external operator can be used in the definition of the residual $F$.
 # %%
-dx = Measure("dx", metadata={"quadrature_scheme": "default",
-                             "quadrature_degree": quadrature_degree})
 T_tilde = TestFunction(V)
 F = inner(q_, grad(T_tilde))*dx
 
