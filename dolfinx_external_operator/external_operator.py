@@ -51,7 +51,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
         """
         ufl_element = function_space.ufl_element()
         if ufl_element.family_name != "quadrature":
-            raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
+            raise TypeError(
+                "FEMExternalOperator currently only supports Quadrature elements.")
 
         super().__init__(
             *operands,
@@ -71,7 +72,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 degree=ufl_element.degree,
                 value_shape=new_shape,
             )
-            self.ref_function_space = fem.functionspace(mesh, quadrature_element)
+            self.ref_function_space = fem.functionspace(
+                mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
         # Make the global coefficient associated to the external operator
@@ -117,7 +119,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 # TODO: more elegant solution is required
                 hidden_operands_eval.append(operand.x.array)
         all_operands_eval = operands_eval + hidden_operands_eval
-        external_operator_eval = self.external_function(self.derivatives)(*all_operands_eval)
+        external_operator_eval = self.external_function(
+            self.derivatives)(*all_operands_eval)
         np.copyto(self.ref_coefficient.x.array, external_operator_eval)
 
 
@@ -135,9 +138,8 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]):
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
-    quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[
-        0
-    ]
+    quadrature_points = basix.make_quadrature(
+        ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[0]
     map_c = mesh.topology.index_map(mesh.topology.dim)
     num_cells = map_c.size_local + map_c.num_ghosts
     cells = np.arange(0, num_cells, dtype=np.int32)
@@ -146,24 +148,14 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]):
     evaluated_operands = {}
     for external_operator in external_operators:
         # TODO: Is it possible to get the basix information out here?
-        ref_coefficient = external_operator.ref_coefficient
-        ufl_element = ref_coefficient.ufl_function_space().ufl_element()
-        quadrature_triple = (
-            int(basix.QuadratureType.Default),
-            int(ufl_element.cell_type),
-            ufl_element.degree,
-        )
-        quadrature_points = basix.make_quadrature(
-            ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default
-        )[0]
-
         for operand in external_operator.ufl_operands:
             try:
-                evaluated_operands[(quadrature_triple, operand)]
+                evaluated_operands[operand]
             except KeyError:
                 expr = fem.Expression(operand, quadrature_points)
                 evaluated_operand = expr.eval(mesh, cells)
-                evaluated_operands[(quadrature_triple, operand)] = evaluated_operand  # TODO: to optimize!
+                # TODO: to optimize!
+                evaluated_operands[operand] = evaluated_operand
     return evaluated_operands
 
 
@@ -178,20 +170,9 @@ def evaluate_external_operators(external_operators: List[FEMExternalOperator], e
         None
     """
     for external_operator in external_operators:
-        # TODO: Is it possible to get the basix information out here?
-        ref_coefficient = external_operator.ref_coefficient
-        ufl_element = ref_coefficient.ufl_function_space().ufl_element()
-        quadrature_triple = (
-            int(basix.QuadratureType.Default),
-            int(ufl_element.cell_type),
-            ufl_element.degree,
-        )
-        basix.make_quadrature(ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[0]
-
         operands_eval = []
         for operand in external_operator.ufl_operands:
-            operands_eval.append(evaluated_operands[quadrature_triple, operand])
-
+            operands_eval.append(evaluated_operands[operand])
         external_operator.update(operands_eval)
 
 
@@ -201,7 +182,8 @@ def _replace_action(action: ufl.Action):
     external_operator_argument = action.right().argument_slots()[-1]
     # NOTE: Is this replace always appropriate?
     form_replaced = ufl.algorithms.replace(
-        action.left(), {N_tilde: action.right().ref_coefficient * external_operator_argument}
+        action.left(), {N_tilde: action.right(
+        ).ref_coefficient * external_operator_argument}
     )
     return form_replaced, action.right()
 
@@ -218,7 +200,8 @@ def replace_external_operators(form):
     external_operators = []
     if isinstance(form, ufl.Action):
         if isinstance(form.right(), ufl.Action):
-            replaced_right_part, ex_ops = replace_external_operators(form.right())
+            replaced_right_part, ex_ops = replace_external_operators(
+                form.right())
             external_operators += ex_ops
             interim_form = ufl.Action(form.left(), replaced_right_part)
             replaced_form, ex_ops = replace_external_operators(interim_form)
@@ -227,14 +210,16 @@ def replace_external_operators(form):
             replaced_form, ex_op = _replace_action(form)
             external_operators += [ex_op]
         else:
-            raise RuntimeError("Expected an ExternalOperator in the right part of the Action.")
+            raise RuntimeError(
+                "Expected an ExternalOperator in the right part of the Action.")
     elif isinstance(form, ufl.FormSum):
         components = form.components()
         # TODO: Modify this loop so it runs from range(0, len(components))
         replaced_form, ex_ops = replace_external_operators(components[0])
         external_operators += ex_ops
         for i in range(1, len(components)):
-            replaced_form_term, ex_ops = replace_external_operators(components[i])
+            replaced_form_term, ex_ops = replace_external_operators(
+                components[i])
             replaced_form += replaced_form_term
             external_operators += ex_ops
     elif isinstance(form, ufl.Form):
