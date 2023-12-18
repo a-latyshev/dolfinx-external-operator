@@ -100,11 +100,11 @@ from petsc4py import PETSc
 import numpy as np
 
 import basix
-from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
 import ufl
 import ufl.algorithms
 from dolfinx import fem, mesh
 from dolfinx_external_operator import FEMExternalOperator, replace_external_operators
+from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
 from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
 
 domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
@@ -166,9 +166,9 @@ F = inner(q_, grad(T_tilde))*dx
 # space. These function(s) must return `np.ndarray` objects containing the
 # evaluation of the external operator at all of the global interpolation points.
 #
-# We begin by defining the Python functions for the left part of 
+# We begin by defining the Python functions for the left part of
 # \begin{equation*}
-# [\boldsymbol{q}(T, \nabla T)] \cdot \nabla \tilde{T} 
+# [\boldsymbol{q}(T, \nabla T)] \cdot \nabla \tilde{T}
 # \end{equation*}
 # where we recall
 # \begin{align*}
@@ -281,7 +281,7 @@ J_expanded = ufl.algorithms.expand_derivatives(J)
 # %% [markdown]
 # ```{note}
 # `ufl.algorithms.expand_derivatives` creates new `ExternalOperator` that hold
-# appropriately specified `fem.FunctionSpace` and `fem.Function` objects. 
+# appropriately specified `fem.FunctionSpace` and `fem.Function` objects.
 # ```
 # %%
 
@@ -295,13 +295,13 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
 # %% [markdown]
 # ### Assembly
-# We can now proceed with the assembly in three steps. 
+# We can now proceed with the assembly in three steps.
 # 1. Evaluate the operands (here, `T` and `sigma`) on the quadrature space
 # `Q`. We interpolate a non-zero value into `T` so we obtain a non-zero
 # assembled residual and Jacobian.
 # %%
 T.interpolate(lambda x: x[0]**2 + x[1])
-evaluated_operands = evaluate_operands(F_external_operators) 
+evaluated_operands = evaluate_operands(F_external_operators)
 
 # %% [markdown]
 # 2. Using the evaluated operands, evaluate the external operators and pack the
@@ -327,16 +327,25 @@ A_matrix = fem.assemble_matrix(J_compiled)
 # This output of the external operator approach can be directly checked against
 # a pure UFL implementation. Firstly the residual
 # %%
-q_explicit = -(1.0/(A + B*T))*sigma
+k_explicit = 1.0/(A + B*T)
+q_explicit = -k_explicit*sigma
 F_explicit = inner(q_explicit, grad(T_tilde))*dx
 F_explicit_compiled = fem.form(F_explicit)
 b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
 assert np.allclose(b_explicit_vector.array, b_vector.array)
 
 # %% [markdown]
-# and then the Jacobian 
+# and then the Jacobian
 # %%
 J_explicit = ufl.derivative(F_explicit, T, T_hat)
 J_explicit_compiled = fem.form(J_explicit)
-A_manual_matrix = fem.assemble_matrix(J_explicit_compiled)
+A_explicit_matrix = fem.assemble_matrix(J_explicit_compiled)
+assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
+
+# %% [markdown]
+# and a hand-derived Jacobian
+# %%
+J_manual = inner(B*k_explicit**2*sigma*T_hat, grad(T_tilde))*dx + inner(-k_explicit*ufl.Identity(2)*grad(T_hat), grad(T_tilde))*dx
+J_manual_compiled = fem.form(J_manual)
+A_manual_matrix = fem.assemble_matrix(J_manual_compiled)
 assert np.allclose(A_manual_matrix.to_dense(), A_matrix.to_dense())
