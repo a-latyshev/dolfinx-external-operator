@@ -291,6 +291,7 @@ F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
 # %% [markdown]
+# ### Assembly
 # We can now proceed with the assembly in three steps. Firstly, we evaluate the
 # operands (here, `T` and `sigma`) on the quadrature space `Q`.
 # %%
