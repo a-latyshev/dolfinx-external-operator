@@ -2,25 +2,64 @@
 requires = ["setuptools>=61.0.0", "pip>=23.1"]
 
 [project]
-name = "dolfinx_ExternalOperator"
-version = "0.8.0"
-description = "Extention of ufl.ExternalOperator"
+name = "dolfinx-external-operator"
+version = "0.8.0.dev0"
+description = "An implementation of ufl.ExternalOperator for DOLFINx"
 authors = [
     { name = "Andrey Latyshev", email = "andrey.latyshev@uni.lu" },
-    { name = "Jeremy Bleyer", email = "jeremy.bleyer@enpc.fr" },
     { name = "Jack S. Hale", email = "jack.hale@uni.lu" },
-    { name = "Corrado Maurini", email = "corrado.maurini@sorbonne-universite.fr" },
 ]
 license = { file = "LICENSE" }
 readme = "README.md"
-# dependencies = [
-#     "fenics-dolfinx==0.8.0",
-# ]
+dependencies = [
+    "fenics-dolfinx>=0.8.0.dev0,<0.9.0",
+    "fenics-ufl>=2023.3.0.dev0,<2023.4.0",
+]
 
 [project.optional-dependencies]
-dev = [
-    "ipython",
+docs = [
     "jupyter-book",
-    "jupytext",
-    "jupyterlab",
+    "jupytext"
 ]
+demos = [
+    "numba",
+    "jax"
+]
+lint = [
+    "ruff"
+]
+ci = [
+    "dolfinx-external-operator[docs]",
+    "dolfinx-external-operator[demos]",
+    "dolfinx-external-operator[lint]"
+]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+ignore-init-module-imports = true
+
+[tool.ruff.lint]
+select = [
+    # "B",
+    # "D", # pydocstyle
+    "E",   # pycodestyle
+    "W",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "RUF", # Ruff-specific rules
+    "UP",  # pyupgrade
+    # "ANN",
+    "ICN",
+    # "SIM",
+    # "PL",
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["basix", "dolfinx", "ffcx", "ufl", "dolfinx_external_operator"]
+known-third-party = ["gmsh", "numba", "numpy", "pytest", "pyvista"]
+section-order = ["future", "standard-library", "mpi", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.isort.sections]
+"mpi" = ["mpi4py", "petsc4py"]
