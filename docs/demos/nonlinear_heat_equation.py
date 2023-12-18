@@ -1,8 +1,11 @@
 # %% [markdown]
 # # Nonlinear heat equation (numpy)
 #
-# In this notebook we implement a numerical solution of steady-state heat
+# In this notebook we assemble a Jacobian and residual of a steady-state heat
 # equation with an external operator to used to define a non-linear flux law.
+#
+# To keep the concepts simple we do not solve the non-linear problem, leaving
+# that to a subsequent demo.
 #
 # In this tutorial you will learn how to:
 #
@@ -10,13 +13,10 @@
 #   symbolically representation of an external operator,
 # - define an external definition of the external operator using `numpy`,
 # - and assemble the Jacobian and residual operators for use inside
-#   linear and non-linear solvers
-#
-# To keep the concepts simple we do not solve the non-linear problem, leaving
-# that to a subsequent demo.
+#   linear or non-linear solvers.
 #
 # We assume some basic familiarity with finite element methods, non-linear
-# mechanics and FEniCS.
+# variational problems and FEniCS.
 #
 # ## Problem formulation
 #
