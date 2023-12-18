@@ -128,11 +128,9 @@ sigma = grad(T)
 # using the same rule.
 # %%
 quadrature_degree = 2
-Qe = basix.ufl.quadrature_element(domain.topology.cell_name(),
-                                  degree=quadrature_degree, value_shape=(2,))
+Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
 Q = fem.functionspace(domain, Qe)
-dx = Measure("dx", metadata={"quadrature_scheme": "default",
-                             "quadrature_degree": quadrature_degree})
+dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
 
 # %% [markdown]
 # We now have all of the ingredients to define the external operator.
@@ -153,7 +151,7 @@ q_ = FEMExternalOperator(T, sigma, function_space=Q)
 # The external operator can be used in the definition of the residual $F$.
 # %%
 T_tilde = TestFunction(V)
-F = inner(q_, grad(T_tilde))*dx
+F = inner(q_, grad(T_tilde)) * dx
 
 # %% [markdown]
 # ### Implementing the external operator
@@ -182,6 +180,7 @@ B = 1.0
 num_cells = domain.topology.index_map(domain.topology.dim).size_local
 gdim = domain.geometry.dim
 
+
 def k(T):
     return 1.0 / (A + B * T)
 
@@ -195,6 +194,7 @@ def q_impl(T, sigma):
             q[i, j] = -k(T_[i, j]) * sigma_[i, j]
     return q.reshape(-1)
 
+
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
 # implementations of the left part of the derivative
@@ -203,6 +203,7 @@ def q_impl(T, sigma):
 # [Bk(T)k(T)\boldsymbol{\sigma}(T)] \hat{T}
 # \end{equation*}
 # %%
+
 
 def dqdT_impl(T, sigma):
     T_ = T.reshape((num_cells, -1))
@@ -214,6 +215,7 @@ def dqdT_impl(T, sigma):
             dqdT[i, j] = B * k(T_[i, j]) ** 2 * sigma_[i, j]
     return dqdT.reshape(-1)
 
+
 # %% [markdown]
 # and the left part of the derivative
 # \begin{equation*}
@@ -221,6 +223,7 @@ def dqdT_impl(T, sigma):
 # [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}
 # \end{equation*}
 # %%
+
 
 def dqdsigma_impl(T, sigma):
     T_ = T.reshape((num_cells, -1))
@@ -231,6 +234,7 @@ def dqdsigma_impl(T, sigma):
         for j in range(0, T_.shape[1]):
             dqdsigma_[i, j] = -k(T_[i, j]) * Id
     return dqdsigma_.reshape(-1)
+
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
@@ -243,6 +247,7 @@ def dqdsigma_impl(T, sigma):
 # previous definitions.
 # %%
 
+
 def q(derivatives):
     if derivatives == (0, 0):
         return q_impl
@@ -252,6 +257,7 @@ def q(derivatives):
         return dqdsigma_impl
     else:
         return NotImplementedError
+
 
 # %% [markdown]
 # We can now attach the implementation of the external function `q` to our
@@ -300,7 +306,7 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 # `Q`. We interpolate a non-zero value into `T` so we obtain a non-zero
 # assembled residual and Jacobian.
 # %%
-T.interpolate(lambda x: x[0]**2 + x[1])
+T.interpolate(lambda x: x[0] ** 2 + x[1])
 evaluated_operands = evaluate_operands(F_external_operators)
 
 # %% [markdown]
@@ -327,9 +333,9 @@ A_matrix = fem.assemble_matrix(J_compiled)
 # This output of the external operator approach can be directly checked against
 # a pure UFL implementation. Firstly the residual
 # %%
-k_explicit = 1.0/(A + B*T)
-q_explicit = -k_explicit*sigma
-F_explicit = inner(q_explicit, grad(T_tilde))*dx
+k_explicit = 1.0 / (A + B * T)
+q_explicit = -k_explicit * sigma
+F_explicit = inner(q_explicit, grad(T_tilde)) * dx
 F_explicit_compiled = fem.form(F_explicit)
 b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
 assert np.allclose(b_explicit_vector.array, b_vector.array)
@@ -345,7 +351,10 @@ assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 # %% [markdown]
 # and a hand-derived Jacobian
 # %%
-J_manual = inner(B*k_explicit**2*sigma*T_hat, grad(T_tilde))*dx + inner(-k_explicit*ufl.Identity(2)*grad(T_hat), grad(T_tilde))*dx
+J_manual = (
+    inner(B * k_explicit**2 * sigma * T_hat, grad(T_tilde)) * dx
+    + inner(-k_explicit * ufl.Identity(2) * grad(T_hat), grad(T_tilde)) * dx
+)
 J_manual_compiled = fem.form(J_manual)
 A_manual_matrix = fem.assemble_matrix(J_manual_compiled)
 assert np.allclose(A_manual_matrix.to_dense(), A_matrix.to_dense())
