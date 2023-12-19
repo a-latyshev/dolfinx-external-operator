@@ -62,10 +62,10 @@ class FEMExternalOperator(ufl.ExternalOperator):
         )
 
         self.ufl_operands = tuple(map(as_ufl, operands))
-        new_shape = self.ufl_shape
+        new_shape = super().ufl_shape
         for i, e in enumerate(self.derivatives):
             new_shape += self.ufl_operands[i].ufl_shape * e
-        if new_shape != self.ufl_shape:
+        if new_shape != super().ufl_shape:
             mesh = function_space.mesh
             quadrature_element = basix.ufl.quadrature_element(
                 mesh.topology.cell_name(),
@@ -81,6 +81,10 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
         self.external_function = external_function
         self.hidden_operands = hidden_operands
+
+    # @property
+    # def ufl_shape(self):
+    #     return self.ref_coefficient.ufl_shape
 
     def _ufl_expr_reconstruct_(
         self,
@@ -180,11 +184,17 @@ def _replace_action(action: ufl.Action):
     # Extract the trial function associated with ExternalOperator
     N_tilde = action.left().arguments()[-1]
     external_operator_argument = action.right().argument_slots()[-1]
+    coefficient = action.right().ref_coefficient
     # NOTE: Is this replace always appropriate?
+    arg_dim = len(external_operator_argument.ufl_shape)
+    coeff_dim = len(coefficient.ufl_shape)
+    indexes = ufl.indices(coeff_dim)
+    indexes_contracted = indexes[coeff_dim - arg_dim:]
+    replacement = ufl.as_tensor(
+        coefficient[indexes] * external_operator_argument[indexes_contracted], indexes[:coeff_dim - arg_dim])
+
     form_replaced = ufl.algorithms.replace(
-        action.left(), {N_tilde: action.right(
-        ).ref_coefficient * external_operator_argument}
-    )
+        action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
 
