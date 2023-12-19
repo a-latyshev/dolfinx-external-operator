@@ -51,6 +51,12 @@ class FEMExternalOperator(ufl.ExternalOperator):
             raise TypeError(
                 "FEMExternalOperator currently only supports Quadrature elements.")
 
+        self.ufl_operands = tuple(map(as_ufl, operands))
+        for operand in self.ufl_operands:
+            if isinstance(operand, FEMExternalOperator):
+                raise TypeError(
+                    "Use of FEMExternalOperators as operands is not implemented.")
+
         super().__init__(
             *operands,
             function_space=function_space,
@@ -58,11 +64,10 @@ class FEMExternalOperator(ufl.ExternalOperator):
             argument_slots=argument_slots,
         )
 
-        self.ufl_operands = tuple(map(as_ufl, operands))
-        new_shape = super().ufl_shape
+        new_shape = self.ufl_shape
         for i, e in enumerate(self.derivatives):
             new_shape += self.ufl_operands[i].ufl_shape * e
-        if new_shape != super().ufl_shape:
+        if new_shape != self.ufl_shape:
             mesh = function_space.mesh
             quadrature_element = basix.ufl.quadrature_element(
                 mesh.topology.cell_name(),
