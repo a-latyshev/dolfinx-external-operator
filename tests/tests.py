@@ -59,9 +59,10 @@ def compute_dimensions(N, test_f, u):
 
 def test_dimensions_after_differentiation(V):
     # F = \int N(operand) : test_f dx
-    # shape(test_f) == shape(N)
+    # dim(tensor) := len(shape(tensor))
+    # dim(test_f) == dim(N)
     # J = \int (dN(operand) : doperand) : test_f dx
-    # shape(dN) - shape(doperand) == shape(N) == shape(test_f)
+    # dim(dN) - dim(doperand) == dim(N) == dim(test_f)
 
     domain = V.mesh
     v = ufl.TestFunction(V)
@@ -110,4 +111,27 @@ def test_dimensions_after_differentiation(V):
     assert compute_dimensions(N, test_f, u)
 
 
-test_dimensions_after_differentiation(V(domain_2d()))
+# def test_external_operators_composition(V):
+#     domain = V.mesh
+#     v = ufl.TestFunction(V)
+#     u = fem.Function(V)
+#     u_hat = ufl.TrialFunction(V)
+
+#     dx = ufl.Measure("dx", domain=domain, metadata={
+#                      "quadrature_degree": 1, "quadrature_scheme": "default"})
+
+#     Q_N = Q_gen(domain, (2,))
+#     Q_M = Q_gen(domain, ())
+#     N = FEMExternalOperator(
+#         ufl.grad(u), function_space=Q_N, external_function=None)
+#     M = FEMExternalOperator(N, function_space=Q_M, external_function=None)
+
+#     F = ufl.inner(M, v) * dx
+#     J = ufl.derivative(F, u, u_hat)
+#     J_expanded = ufl.algorithms.expand_derivatives(J)
+#     J_replaced, J_ex_ops_list = replace_external_operators(J_expanded)
+#     dNdu = J_ex_ops_list[0]
+#     print(M.ufl_operands)
+
+
+# test_external_operators_composition(V(domain_2d()))
