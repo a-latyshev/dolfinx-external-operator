@@ -4,8 +4,8 @@
 # In this notebook we assemble the Jacobian and residual of a steady-state heat
 # equation with an external operator to used to define a non-linear flux law.
 #
-# To keep the concepts simple we do not solve the non-linear problem, leaving
-# that to a subsequent demo.
+# To keep the concepts simple we do not solve the non-linear problem, which we
+# leave to a subsequent demo.
 #
 # In this tutorial you will learn how to:
 #
@@ -91,6 +91,7 @@
 # ```
 #
 # ## Implementation
+# 
 # ### Preamble
 #
 # We import from the required packages, create a mesh, and a scalar valued
@@ -115,7 +116,7 @@ V = fem.functionspace(domain, ("CG", 1))
 
 # %% [markdown]
 # ### Defining the external operator
-# We will begin by defining the input *operands* $T$ and $\boldsymbol{\sigma}
+# We will begin by defining the input *operands* $T$ and $\boldsymbol{\sigma}$
 # needed to specify the external operator $\boldsymbol{q}(T,
 # \boldsymbol{\sigma}(T))$. The operands of an `ExternalOperator` can be any
 # `ufl.Expr` object.
@@ -123,14 +124,18 @@ V = fem.functionspace(domain, ("CG", 1))
 T = fem.Function(V)
 sigma = grad(T)
 
+# %% [markdown]
+# We interpolate a non-zero value into `T` so to obtain a non-zero assembled
+# residual and Jacobian.
+# %%
+T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %% [markdown]
-# We also need to define a `FunctionSpace` on which the output of the external
-# operator $\boldsymbol{q}$ will live. For optimal convergence it is necessary
-# that $\boldsymbol{q}$ is evaluated directly at the Gauss points used in the
-# integration of the weak form. This can be enforced by constructing a
-# quadrature function space and an integration measure `dx` using the same
-# rule.
+# We also need to define a `FunctionSpace` in which the output of the external
+# operator $\boldsymbol{q}$ will live. For optimal convergence $\boldsymbol{q}$
+# must be evaluated directly at the Gauss points used in the integration of the
+# weak form. This can be enforced by constructing a quadrature function space
+# and an integration measure `dx` using the same rule.
 # %%
 quadrature_degree = 2
 Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
@@ -143,11 +148,10 @@ dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree"
 q_ = FEMExternalOperator(T, sigma, function_space=Q)
 
 # %% [markdown]
-# Note that at this stage the `FEMExternalOperator` `q_` is symbolic and we
-# have not defined the `numpy` code to compute it.
-
+# Note that at this stage the `q_` is symbolic and we have not defined the
+# `numpy` code to compute it. This will be done later in the example.
 # ```{note}
-# FEMExternalOperator holds a `fem.Function` to store its evaluated values.
+# FEMExternalOperator holds a `fem.Function` to store its evaluation.
 # ```
 # %%
 
@@ -160,16 +164,17 @@ F = inner(q_, grad(T_tilde)) * dx
 
 # %% [markdown]
 # ### Implementing the external operator
-# The symbolic `ExternalOperator` is linked to the actual implementation using
+# The symbolic `FEMExternalOperator` is linked to its implementation using
 # functional programming techniques. This approach is similar to how
-# `interpolate` is implemented in DOLFINx.
+# `interpolate` works in DOLFINx.
 #
-# In the first step, the user must define callable(s) which accept `np.ndarray`
-# containing the evaluated operands (here, $T$ and $\boldsymbol{\sigma}$) at
-# all of the global interpolation points associated with the output function
-# space. These callable(s) must return an `np.ndarray` object containing the
-# evaluation of the external operator at all of the global interpolation
-# points.
+# In the first step, the user must define Python functions(s) that accept
+# `np.ndarray` containing the evaluated operands (here, $T$ and
+# $\boldsymbol{\sigma}$) at the global interpolation points associated with the
+# output function space. These Function(s) must return an `np.ndarray` object
+# containing the evaluation of the external operator at all of the global
+# interpolation points. We discuss the sizing of these arrays directly in the
+# code below.
 #
 # We begin by defining the a Python functions for the left part of
 # \begin{equation*}
@@ -288,49 +293,60 @@ J = derivative(F, T, T_hat)
 # D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace) \cdot \nabla \tilde{T} \; \mathrm{d}x \\
 # \end{equation*}
 # we apply UFL's derivative expansion algorithm. This algorithm is aware of the
-# `ExternalOperator` semantics and the chain rule, creating a `ufl.Form` containing
-# appropriate new `ExternalOperator` objects related to the terms $D_T
+# `FEMExternalOperator` semantics and the chain rule, and creates a new form
+# containing new `FEMExternalOperator` objects associated with the terms $D_T
 # [\boldsymbol{q}]\lbrace \hat{T} \rbrace$ and
 # $D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace$.
 # %%
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
 # %% [markdown]
+# In order to assemble `F` and `J` we must apply a further transformation which
+# replaces the `FEMExternalOperator` in the forms with their owned
+# `fem.Function`.
+# %%
+F_replaced, F_external_operators = replace_external_operators(F)
+J_replaced, J_external_operators = replace_external_operators(J_expanded)
+# %% [markdown]
 # ```{note}
-# `ufl.algorithms.expand_derivatives` creates new `ExternalOperator` that hold
-# appropriately specified `fem.FunctionSpace` and `fem.Function` objects.
+# `*_replaced` contain standard `ufl.Form` objects mathematically similar to
+# `F` and `J_expanded` but with `FEMExternalOperators` replaced with the
+# `fem.Function` associated with the `FEMExternalOperator`.
+# `*_external_operators` are lists of the `FEMExternalOperator` objects found
+# `F` and `J_expanded`.
+# ```
+# 
+# ### Assembly
+# We can now proceed with the finite element assembly in three key steps. 
+# 1. Evaluate the operands (`T` and `sigma`) associated with the
+# `ExternalOperator`(s) on the quadrature space `Q`.
+# %%
+evaluated_operands = evaluate_operands(F_external_operators)
+# %% [markdown]
+# ```{note}
+# `evaluated_operands` contains a list of tuples with each tuple containing the
+# operands `ufl.Expr` and a `np.ndarray` with its evaluation.
 # ```
 # %%
 
 # %% [markdown]
-# In order to assemble `F` and `J` we must apply a further transformation which
-# replaces the UFL external operators in the forms with their `fem.Function`
-# member.
-# %%
-F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
-
-# %% [markdown]
-# ### Assembly
-# We can now proceed with the assembly in three key steps.
-# 1. Evaluate the operands (here, `T` and `sigma`) associated with the
-# `ExternalOperator`(s) on the quadrature space `Q`. We first interpolate a
-# non-zero value into `T` so we obtain a non-zero assembled residual and
-# Jacobian.
-# %%
-T.interpolate(lambda x: x[0] ** 2 + x[1])
-evaluated_operands = evaluate_operands(F_external_operators)
-
-# %% [markdown]
-# 2. Using the evaluated operands, evaluate the external operators and pack the
-# associated `fem.Function` objects in `F_replaced` and `J_replaced`.
+# 2a. Using the evaluated operands, evaluate the external operators in
+# `F_external_operators` and assemble the result into the `fem.Function` object
+# in `F_replaced`. This calls `q_impl` defined by above.
 # %%
 evaluate_external_operators(F_external_operators, evaluated_operands)
+
+# %% [markdown]
+# 2b. Using the evaluated operands, evaluate the external operators in
+# `J_external_operators` and assemble the results into `fem.Function` objects
+# in `J_replaced`. This calls `dqdT_impl` and `dqdsigma_impl` defined above.
+# %%
 evaluate_external_operators(J_external_operators, evaluated_operands)
+
 # %% [markdown]
 # ```{note}
-# Because the external operators share the same operands we can reuse
-# `evaluated_operands` in both calls to `evaluate_external_operators`.
+# Because all external operators share the same operands we can reuse
+# `evaluated_operands`. 
 # ```
 # 3. The finite element forms can be assembled using the standard DOLFINx
 # assembly routines.
