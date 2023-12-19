@@ -9,10 +9,12 @@
 #
 # In this tutorial you will learn how to:
 #
-# - define a UFL form including an `ExternalOperator` which allows the
-#   symbolically representation of an external operator,
-# - define an external definition of the external operator using `numpy`,
-# - and assemble the Jacobian and residual operators for use inside a
+# - define a UFL form including an `ExternalOperator` which symbolically
+#   represents an external operator,
+# - define the concrete external definition operator using `numpy` and
+#   functional programming techniques, and then attach it to the symbolic
+#   `ExternalOperator`,
+# - and assemble the Jacobian and residual operators that can be used inside a
 #   linear or non-linear solver.
 #
 # We assume some basic familiarity with finite element methods, non-linear
@@ -81,7 +83,8 @@
 # [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}
 # \end{align*}
 # We now proceed to the definition of residual and Jacobian of this problem
-# using the `ExternalOperator` approach.
+# where $\boldsymbol{q}$ will be defined using the `ExternalOperator` approach
+# and an external implementation using `numpy`. 
 # ```{note}
 # This simple model can also be implemented in pure UFL and the Jacobian
 # derived symbolically using UFL's `derivative` function.
@@ -112,8 +115,10 @@ V = fem.functionspace(domain, ("CG", 1))
 
 # %% [markdown]
 # ### Defining the external operator
-# We will begin by defining the input *operands* we need to specify the
-# external operator $\boldsymbol{q}(T, \boldsymbol{\sigma}(T))$.
+# We will begin by defining the input *operands* $T$ and $\boldsymbol{\sigma}
+# needed to specify the external operator $\boldsymbol{q}(T,
+# \boldsymbol{\sigma}(T))$. The operands of an `ExternalOperator` can be any
+# `ufl.Expr` object.
 # %%
 T = fem.Function(V)
 sigma = grad(T)
@@ -121,11 +126,11 @@ sigma = grad(T)
 
 # %% [markdown]
 # We also need to define a `FunctionSpace` on which the output of the external
-# operator $\boldsymbol{q}$ should live. For optimal convergence it is
-# necessary that $\boldsymbol{q}$ is evaluated directly at the Gauss points
-# used in the integration of the weak form. This can be enforced by
-# constructing a quadrature function space and an integration measure `dx`
-# using the same rule.
+# operator $\boldsymbol{q}$ will live. For optimal convergence it is necessary
+# that $\boldsymbol{q}$ is evaluated directly at the Gauss points used in the
+# integration of the weak form. This can be enforced by constructing a
+# quadrature function space and an integration measure `dx` using the same
+# rule.
 # %%
 quadrature_degree = 2
 Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
@@ -138,8 +143,8 @@ dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree"
 q_ = FEMExternalOperator(T, sigma, function_space=Q)
 
 # %% [markdown]
-# Note that at this stage `q_` is symbolic and we have not
-# yet defined the `numpy` code to compute it.
+# Note that at this stage the `FEMExternalOperator` `q_` is symbolic and we
+# have not defined the `numpy` code to compute it.
 
 # ```{note}
 # FEMExternalOperator holds a `fem.Function` to store its evaluated values.
@@ -155,20 +160,22 @@ F = inner(q_, grad(T_tilde)) * dx
 
 # %% [markdown]
 # ### Implementing the external operator
-# The external operator is implemented using functional programming techniques
-# that closely maps the way that `interpolate` is implemented in DOLFINx.
+# The symbolic `ExternalOperator` is linked to the actual implementation using
+# functional programming techniques. This approach is similar to how
+# `interpolate` is implemented in DOLFINx.
 #
-# In the first step, the user must define function(s) which accept `np.ndarray`
-# containing the operands (here, $T$ and $\boldsymbol{\sigma}$) evaluated at
+# In the first step, the user must define callable(s) which accept `np.ndarray`
+# containing the evaluated operands (here, $T$ and $\boldsymbol{\sigma}$) at
 # all of the global interpolation points associated with the output function
-# space. These function(s) must return `np.ndarray` objects containing the
-# evaluation of the external operator at all of the global interpolation points.
+# space. These callable(s) must return an `np.ndarray` object containing the
+# evaluation of the external operator at all of the global interpolation
+# points.
 #
-# We begin by defining the Python functions for the left part of
+# We begin by defining the a Python functions for the left part of
 # \begin{equation*}
 # [\boldsymbol{q}(T, \nabla T)] \cdot \nabla \tilde{T}
 # \end{equation*}
-# where we recall
+# here we recall
 # \begin{align*}
 # \boldsymbol{q} &= -k(T) \boldsymbol{\sigma} \\
 # k(T) &= \frac{1}{A + BT}
@@ -275,12 +282,16 @@ J = derivative(F, T, T_hat)
 
 # %% [markdown]
 # ### Transformations
-# To apply the chain rule and obtain something symbolically similar to
+# To apply the chain rule and obtain something symbolically equivalent to
 # \begin{equation*}
 # J(T; \hat{T}, \tilde{T}) = \int (D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
 # D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace) \cdot \nabla \tilde{T} \; \mathrm{d}x \\
 # \end{equation*}
-# we apply UFL's derivative expansion algorithm.
+# we apply UFL's derivative expansion algorithm. This algorithm is aware of the
+# `ExternalOperator` semantics and the chain rule, creating a `ufl.Form` containing
+# appropriate new `ExternalOperator` objects related to the terms $D_T
+# [\boldsymbol{q}]\lbrace \hat{T} \rbrace$ and
+# $D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace$.
 # %%
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
@@ -301,10 +312,11 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
 # %% [markdown]
 # ### Assembly
-# We can now proceed with the assembly in three steps.
-# 1. Evaluate the operands (here, `T` and `sigma`) on the quadrature space
-# `Q`. We interpolate a non-zero value into `T` so we obtain a non-zero
-# assembled residual and Jacobian.
+# We can now proceed with the assembly in three key steps.
+# 1. Evaluate the operands (here, `T` and `sigma`) associated with the
+# `ExternalOperator`(s) on the quadrature space `Q`. We first interpolate a
+# non-zero value into `T` so we obtain a non-zero assembled residual and
+# Jacobian.
 # %%
 T.interpolate(lambda x: x[0] ** 2 + x[1])
 evaluated_operands = evaluate_operands(F_external_operators)
