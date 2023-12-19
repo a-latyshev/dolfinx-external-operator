@@ -189,7 +189,6 @@ F = inner(q_, grad(T_tilde)) * dx
 
 A = 1.0
 B = 1.0
-num_cells = domain.topology.index_map(domain.topology.dim).size_local
 gdim = domain.geometry.dim
 
 
@@ -198,12 +197,14 @@ def k(T):
 
 
 def q_impl(T, sigma):
-    T_ = T.reshape((num_cells, -1))
+    num_cells = T.shape[0]
     sigma_ = sigma.reshape((num_cells, -1, gdim))
-    q = np.empty_like(sigma_)
+    # Space for output
+    q = np.empty_like(sigma_) 
+
     for i in range(0, num_cells):
         for j in range(0, sigma_.shape[1]):
-            q[i, j] = -k(T_[i, j]) * sigma_[i, j]
+            q[i, j] = -k(T[i, j]) * sigma_[i, j]
     return q.reshape(-1)
 
 
@@ -218,13 +219,13 @@ def q_impl(T, sigma):
 
 
 def dqdT_impl(T, sigma):
-    T_ = T.reshape((num_cells, -1))
+    num_cells = T.shape[0]
     sigma_ = sigma.reshape((num_cells, -1, gdim))
     dqdT = np.empty_like(sigma_)
 
     for i in range(0, num_cells):
-        for j in range(0, T_.shape[1]):
-            dqdT[i, j] = B * k(T_[i, j]) ** 2 * sigma_[i, j]
+        for j in range(0, T.shape[1]):
+            dqdT[i, j] = B * k(T[i, j]) ** 2 * sigma_[i, j]
     return dqdT.reshape(-1)
 
 
@@ -238,13 +239,13 @@ def dqdT_impl(T, sigma):
 
 
 def dqdsigma_impl(T, sigma):
-    T_ = T.reshape((num_cells, -1))
-    dqdsigma_ = np.empty((num_cells, T_.shape[1], gdim, gdim), dtype=PETSc.ScalarType)
-    Id = np.eye(2)
+    num_cells = T.shape[0]
+    dqdsigma_ = np.empty((num_cells, T.shape[1], gdim, gdim), dtype=PETSc.ScalarType)
 
+    Id = np.eye(2)
     for i in range(0, num_cells):
-        for j in range(0, T_.shape[1]):
-            dqdsigma_[i, j] = -k(T_[i, j]) * Id
+        for j in range(0, T.shape[1]):
+            dqdsigma_[i, j] = -k(T[i, j]) * Id
     return dqdsigma_.reshape(-1)
 
 

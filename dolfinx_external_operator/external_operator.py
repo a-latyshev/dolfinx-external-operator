@@ -161,8 +161,10 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]):
             try:
                 evaluated_operands[(quadrature_triple, operand)]
             except KeyError:
+                # TODO: Next call is potentially expensive in parallel.
                 expr = fem.Expression(operand, quadrature_points)
                 evaluated_operand = expr.eval(mesh, cells)
+                evaluated_operand = evaluated_operand.reshape(num_cells, -1) 
                 evaluated_operands[(quadrature_triple, operand)] = evaluated_operand  # TODO: to optimize!
     return evaluated_operands
 
