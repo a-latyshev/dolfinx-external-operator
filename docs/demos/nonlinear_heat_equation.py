@@ -111,7 +111,7 @@ from dolfinx_external_operator import FEMExternalOperator, replace_external_oper
 from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
 from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
 
-domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
+domain = mesh.create_unit_square(MPI.COMM_WORLD, 1, 1)
 V = fem.functionspace(domain, ("CG", 1))
 
 # %% [markdown]
@@ -197,14 +197,23 @@ def k(T):
 
 
 def q_impl(T, sigma):
+    # T has shape `(num_cells, num_interpolation_points_per_cell)`
     num_cells = T.shape[0]
+    # sigma has shape `(num_cells, num_interpolation_points_per_cell*value_shape)`
+    # We reshape `sigma` to have shape `(num_cells,
+    # num_interpolation_points_per_cell, np.prod(value_shape))`
     sigma_ = sigma.reshape((num_cells, -1, gdim))
-    # Space for output
-    q = np.empty_like(sigma_) 
-
+    # Array for output with shape `(num_cells,
+    # num_interpolation_points_per_cell, np.prod(value_shape))`
+    q = np.empty_like(sigma_)
+    
+    # TODO: Rewrite using numpy vectorised operation?
+    # Loop over cells
     for i in range(0, num_cells):
+        # Loop over interpolation points in cell
         for j in range(0, sigma_.shape[1]):
             q[i, j] = -k(T[i, j]) * sigma_[i, j]
+    # The output must be returned flattened to one dimension
     return q.reshape(-1)
 
 
