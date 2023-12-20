@@ -158,6 +158,7 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl
             try:
                 evaluated_operands[operand]
             except KeyError:
+                # TODO: Next call is potentially expensive in parallel.
                 expr = fem.Expression(operand, quadrature_points)
                 evaluated_operand = expr.eval(mesh, cells)
                 # TODO: to optimize!
