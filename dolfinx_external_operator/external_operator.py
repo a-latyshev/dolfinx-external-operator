@@ -29,7 +29,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         external_function=None,
         derivatives: Optional[Tuple[int, ...]] = None,
         argument_slots=(),
-        hidden_operands: Optional[List[fem.function.Function]] = None,
+        hidden_operands: Optional[List[fem.function.Function]] = [],
     ) -> None:
         """Initializes `FEMExternalOperator`.
 
@@ -107,27 +107,27 @@ class FEMExternalOperator(ufl.ExternalOperator):
             **add_kwargs,
         )
 
-    def update(self, operands_eval: List[np.ndarray]) -> None:
-        """Updates the global values of external operator.
+    # def update(self, operands_eval: List[np.ndarray]) -> None:
+    #     """Updates the global values of external operator.
 
-        Evaluates the external operator according to its definition in
-        `external_function` and updates values in the reference coefficient, a
-        globally allocated coefficient associated with the external operator.
+    #     Evaluates the external operator according to its definition in
+    #     `external_function` and updates values in the reference coefficient, a
+    #     globally allocated coefficient associated with the external operator.
 
-        Args:
-            operands_eval: A list with values of operands, on which the derivation is performed.
-        Returns:
-            None
-        """
-        hidden_operands_eval = []
-        if self.hidden_operands is not None:
-            for operand in self.hidden_operands:
-                # TODO: more elegant solution is required
-                hidden_operands_eval.append(operand.x.array)
-        all_operands_eval = operands_eval + hidden_operands_eval
-        external_operator_eval = self.external_function(
-            self.derivatives)(*all_operands_eval)
-        np.copyto(self.ref_coefficient.x.array, external_operator_eval)
+    #     Args:
+    #         operands_eval: A list with values of operands, on which the derivation is performed.
+    #     Returns:
+    #         None
+    #     """
+    #     hidden_operands_eval = []
+    #     if self.hidden_operands is not None:
+    #         for operand in self.hidden_operands:
+    #             # TODO: more elegant solution is required
+    #             hidden_operands_eval.append(operand.x.array)
+    #     all_operands_eval = operands_eval + hidden_operands_eval
+    #     external_operator_eval = self.external_function(
+    #         self.derivatives)(*all_operands_eval)
+    #     np.copyto(self.ref_coefficient.x.array, external_operator_eval)
 
 
 def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl.core.expr.Expr, np.ndarray]:
@@ -151,6 +151,7 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl
     cells = np.arange(0, num_cells, dtype=np.int32)
 
     # Evaluate unique operands in external operators
+    # Global map of unique operands presenting in provided external operators
     evaluated_operands = {}
     for external_operator in external_operators:
         # TODO: Is it possible to get the basix information out here?
@@ -159,10 +160,19 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl
                 evaluated_operands[operand]
             except KeyError:
                 # TODO: Next call is potentially expensive in parallel.
+                # TODO: We do not need to project all operands, some of them are updated (the hidden ones).
                 expr = fem.Expression(operand, quadrature_points)
                 evaluated_operand = expr.eval(mesh, cells)
                 # TODO: to optimize!
+                # It's better to allocate memory in advance and just to copy it every time
                 evaluated_operands[operand] = evaluated_operand
+
+        for operand in external_operator.hidden_operands:
+            try:
+                evaluated_operands[operand]
+            except KeyError:
+                evaluated_operands[operand] = operand.x.array
+
     return evaluated_operands
 
 
@@ -180,7 +190,13 @@ def evaluate_external_operators(external_operators: List[FEMExternalOperator], e
         operands_eval = []
         for operand in external_operator.ufl_operands:
             operands_eval.append(evaluated_operands[operand])  # Is it costly?
-        external_operator.update(operands_eval)
+        for operand in external_operator.hidden_operands:
+            operands_eval.append(evaluated_operands[operand])  # Is it costly?
+        external_operator_eval = external_operator.external_function(
+            external_operator.derivatives)(*operands_eval)
+
+        np.copyto(external_operator.ref_coefficient.x.array,
+                  external_operator_eval)
 
 
 def _replace_action(action: ufl.Action):
