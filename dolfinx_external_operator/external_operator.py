@@ -178,7 +178,7 @@ def evaluate_external_operators(external_operators: List[FEMExternalOperator], e
     for external_operator in external_operators:
         operands_eval = []
         for operand in external_operator.ufl_operands:
-            operands_eval.append(evaluated_operands[operand])
+            operands_eval.append(evaluated_operands[operand])  # Is it costly?
         external_operator.update(operands_eval)
 
 
