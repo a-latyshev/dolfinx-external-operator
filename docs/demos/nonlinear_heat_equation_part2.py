@@ -203,6 +203,7 @@ F = inner(q_, grad(T_tilde)) * dx
 # %%
 A = 1.0
 B = 1.0
+Id = np.eye(2)
 gdim = domain.geometry.dim
 
 
@@ -219,23 +220,16 @@ def q_impl(T, sigma):
     sigma_ = sigma.reshape((num_cells, -1, gdim))
     # Array for output with shape `(num_cells,
     # num_interpolation_points_per_cell, np.prod(value_shape))`
-    q = np.empty_like(sigma_)
-
-    # TODO: Rewrite using numpy vectorised operation?
-    # Loop over cells
-    for i in range(0, num_cells):
-        # Loop over interpolation points in cell
-        for j in range(0, sigma_.shape[1]):
-            q[i, j] = -k(T[i, j]) * sigma_[i, j]
+    output = - k(T)[:, :, np.newaxis] * sigma_
     # The output must be returned flattened to one dimension
-    return q.reshape(-1)
+    return output.reshape(-1)
 
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
 # implementations of the left part of the derivative
 # \begin{equation*}
-# D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace =
-# [Bk(T)k(T)\boldsymbol{\sigma}(T)] \hat{T}
+#     D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace =
+#     [Bk^2(T)\boldsymbol{\sigma}(T)] \hat{T}
 # \end{equation*}
 
 # %%
@@ -244,12 +238,8 @@ def q_impl(T, sigma):
 def dqdT_impl(T, sigma):
     num_cells = T.shape[0]
     sigma_ = sigma.reshape((num_cells, -1, gdim))
-    dqdT = np.empty_like(sigma_)
-
-    for i in range(0, num_cells):
-        for j in range(0, T.shape[1]):
-            dqdT[i, j] = B * k(T[i, j]) ** 2 * sigma_[i, j]
-    return dqdT.reshape(-1)
+    output = B * (k(T) ** 2)[:, :, np.newaxis] * sigma_
+    return output.reshape(-1)
 
 # %% [markdown]
 # and the left part of the derivative
@@ -262,15 +252,9 @@ def dqdT_impl(T, sigma):
 
 
 def dqdsigma_impl(T, sigma):
-    num_cells = T.shape[0]
-    dqdsigma_ = np.empty(
-        (num_cells, T.shape[1], gdim, gdim), dtype=PETSc.ScalarType)
-
-    Id = np.eye(2)
-    for i in range(0, num_cells):
-        for j in range(0, T.shape[1]):
-            dqdsigma_[i, j] = -k(T[i, j]) * Id
-    return dqdsigma_.reshape(-1)
+    output = -k(T)[:, :, np.newaxis, np.newaxis] * \
+        Id[np.newaxis, np.newaxis, :, :]
+    return output.reshape(-1)
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
