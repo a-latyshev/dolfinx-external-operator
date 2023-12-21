@@ -152,7 +152,7 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 # %%
 quadrature_degree = 2
 Qe = basix.ufl.quadrature_element(
-    domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
+    domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
 Q = fem.functionspace(domain, Qe)
 dx = Measure("dx", metadata={
              "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
@@ -176,7 +176,7 @@ k = FEMExternalOperator(T, function_space=Q)
 
 # %%
 T_tilde = TestFunction(V)
-F = inner(q_, grad(T_tilde)) * dx
+F = -inner(k*grad(T), grad(T_tilde)) * dx
 
 # %% [markdown]
 # ### Implementing the external operator
@@ -221,8 +221,7 @@ def k_impl(T):
 
 
 def dkdT_impl(T):
-    output = -B * k_impl(T)**2
-    return dqdsigma_.reshape(-1)
+    return -B * k_impl(T)**2
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
@@ -352,7 +351,7 @@ A_matrix = fem.assemble_matrix(J_compiled)
 
 # %%
 k_explicit = 1.0 / (A + B * T)
-q_explicit = -k_explicit * sigma
+q_explicit = -k_explicit * grad(T)
 F_explicit = inner(q_explicit, grad(T_tilde)) * dx
 F_explicit_compiled = fem.form(F_explicit)
 b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
@@ -372,7 +371,7 @@ assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 
 # %%
 J_manual = (
-    inner(B * k_explicit**2 * sigma * T_hat, grad(T_tilde)) * dx
+    inner(B * k_explicit**2 * grad(T) * T_hat, grad(T_tilde)) * dx
     + inner(-k_explicit * ufl.Identity(2) * grad(T_hat), grad(T_tilde)) * dx
 )
 J_manual_compiled = fem.form(J_manual)
