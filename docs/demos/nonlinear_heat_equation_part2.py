@@ -288,102 +288,25 @@ def q_external(derivatives):
 q_.external_function = q_external
 
 # %% [markdown]
-# ### Jacobian
-# We can now use UFL's built-in `derivative` method to derive the Jacobian
-# automatically.
+# ### System assembling
+#
+# The remaining part of the modeling remains unchanged.
 
 # %%
 T_hat = TrialFunction(V)
 J = derivative(F, T, T_hat)
-
-# %% [markdown]
-# ### Transformations
-# TODO: Explain the motivation (?) why we need to replace and not just assemble the form.
-# To apply the chain rule and obtain a new form symbolically equivalent to
-#
-# \begin{equation*}
-#     J(T; \hat{T}, \tilde{T}) = \int (D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
-# D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace) \cdot \nabla \tilde{T} \; \mathrm{d}x \\
-# \end{equation*}
-#
-# and which can be assembled via DOLFINx, we apply UFL's derivative expansion
-# algorithm. This algorithm is aware of the `FEMExternalOperator` semantics and
-# the chain rule, and creates a new form containing new `FEMExternalOperator`
-# objects associated with the terms $D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace$
-# and $D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace$.
-
-# %%
 J_expanded = ufl.algorithms.expand_derivatives(J)
-
-# %% [markdown]
-# In order to assemble `F` and `J` we must apply a further transformation that
-# replaces the `FEMExternalOperator` in the forms with their owned `fem.Function`,
-# which are accessible through `ref_coefficient` attribute of the
-# `FEMExternalOperator` object.
-
-# %%
 F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
-
-# %% [markdown]
-# ```{note}
-# `*_replaced` contain standard `ufl.Form` objects mathematically similar to
-# `F` and `J_expanded` but with `FEMExternalOperators` replaced with the
-# `fem.Function` associated with the `FEMExternalOperator`.
-# `*_external_operators` are lists of the `FEMExternalOperator` objects found
-# `F` and `J_expanded`.
-# ```
-#
-# ### Assembly
-# We can now proceed with the finite element assembly in three key steps.
-# 1. Evaluate the operands (`T` and `sigma`) associated with the
-# `FEMExternalOperator`(s) on the quadrature space `Q`.
-
-# %%
 evaluated_operands = evaluate_operands(F_external_operators)
-
-# %% [markdown]
-# ```{note}
-# `evaluated_operands` represents a map between operands `ufl.Expr` and their
-# evaluations stored in `np.ndarray`-s.
-# ```
-
-# %% [markdown]
-# 2a. Using the evaluated operands, evaluate the external operators in
-# `F_external_operators` and assemble the result into the `fem.Function` object
-# in `F_replaced`. This calls `q_impl` defined above.
-
-# %%
 evaluate_external_operators(F_external_operators, evaluated_operands)
 
-# %% [markdown]
-# 2b. Using the evaluated operands, evaluate the external operators in
-# `J_external_operators` and assemble the results into `fem.Function` objects
-# in `J_replaced`. This calls `dqdT_impl` and `dqdsigma_impl` defined above.
-
-# %%
 evaluate_external_operators(J_external_operators, evaluated_operands)
-
-# %% [markdown]
-# ```{note}
-# Because all external operators share the same operands we can reuse
-# the map `evaluated_operands`.
-# ```
-# 3. The finite element forms can be assembled using the standard DOLFINx
-# assembly routines.
-
-# %%
 F_compiled = fem.form(F_replaced)
 J_compiled = fem.form(J_replaced)
 b_vector = fem.assemble_vector(F_compiled)
 A_matrix = fem.assemble_matrix(J_compiled)
 
-# %% [markdown]
-# ### Comparison with pure UFL
-# This output of the external operator approach can be directly checked against
-# a pure UFL implementation. Firstly the residual
-
-# %%
 k_explicit = 1.0 / (A + B * T)
 q_explicit = -k_explicit * sigma
 F_explicit = inner(q_explicit, grad(T_tilde)) * dx
@@ -391,19 +314,11 @@ F_explicit_compiled = fem.form(F_explicit)
 b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
 assert np.allclose(b_explicit_vector.array, b_vector.array)
 
-# %% [markdown]
-# and then the Jacobian
-
-# %%
 J_explicit = ufl.derivative(F_explicit, T, T_hat)
 J_explicit_compiled = fem.form(J_explicit)
 A_explicit_matrix = fem.assemble_matrix(J_explicit_compiled)
 assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 
-# %% [markdown]
-# and a hand-derived Jacobian
-
-# %%
 J_manual = (
     inner(B * k_explicit**2 * sigma * T_hat, grad(T_tilde)) * dx
     + inner(-k_explicit * ufl.Identity(2) * grad(T_hat), grad(T_tilde)) * dx
