@@ -48,14 +48,12 @@ class FEMExternalOperator(ufl.ExternalOperator):
         """
         ufl_element = function_space.ufl_element()
         if ufl_element.family_name != "quadrature":
-            raise TypeError(
-                "FEMExternalOperator currently only supports Quadrature elements.")
+            raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
 
         self.ufl_operands = tuple(map(as_ufl, operands))
         for operand in self.ufl_operands:
             if isinstance(operand, FEMExternalOperator):
-                raise TypeError(
-                    "Use of FEMExternalOperators as operands is not implemented.")
+                raise TypeError("Use of FEMExternalOperators as operands is not implemented.")
 
         super().__init__(
             *operands,
@@ -74,8 +72,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 degree=ufl_element.degree,
                 value_shape=new_shape,
             )
-            self.ref_function_space = fem.functionspace(
-                mesh, quadrature_element)
+            self.ref_function_space = fem.functionspace(mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
         # Make the global coefficient associated to the external operator
@@ -144,8 +141,9 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
-    quadrature_points = basix.make_quadrature(
-        ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[0]
+    quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[
+        0
+    ]
     map_c = mesh.topology.index_map(mesh.topology.dim)
     num_cells = map_c.size_local + map_c.num_ghosts
     cells = np.arange(0, num_cells, dtype=np.int32)
@@ -176,7 +174,9 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl
     return evaluated_operands
 
 
-def evaluate_external_operators(external_operators: List[FEMExternalOperator], evaluated_operands: Dict[ufl.core.expr.Expr, np.ndarray]) -> None:
+def evaluate_external_operators(
+    external_operators: List[FEMExternalOperator], evaluated_operands: Dict[ufl.core.expr.Expr, np.ndarray]
+) -> None:
     """Evaluates external operators and updates their reference coefficients.
 
     Args:
@@ -192,11 +192,9 @@ def evaluate_external_operators(external_operators: List[FEMExternalOperator], e
             operands_eval.append(evaluated_operands[operand])  # Is it costly?
         for operand in external_operator.hidden_operands:
             operands_eval.append(evaluated_operands[operand])  # Is it costly?
-        external_operator_eval = external_operator.external_function(
-            external_operator.derivatives)(*operands_eval)
+        external_operator_eval = external_operator.external_function(external_operator.derivatives)(*operands_eval)
 
-        np.copyto(external_operator.ref_coefficient.x.array,
-                  external_operator_eval)
+        np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
 
 
 def _replace_action(action: ufl.Action):
@@ -208,12 +206,12 @@ def _replace_action(action: ufl.Action):
     arg_dim = len(external_operator_argument.ufl_shape)
     coeff_dim = len(coefficient.ufl_shape)
     indexes = ufl.indices(coeff_dim)
-    indexes_contracted = indexes[coeff_dim - arg_dim:]
+    indexes_contracted = indexes[coeff_dim - arg_dim :]
     replacement = ufl.as_tensor(
-        coefficient[indexes] * external_operator_argument[indexes_contracted], indexes[:coeff_dim - arg_dim])
+        coefficient[indexes] * external_operator_argument[indexes_contracted], indexes[: coeff_dim - arg_dim]
+    )
 
-    form_replaced = ufl.algorithms.replace(
-        action.left(), {N_tilde: replacement})
+    form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
 
@@ -229,8 +227,7 @@ def replace_external_operators(form):
     external_operators = []
     if isinstance(form, ufl.Action):
         if isinstance(form.right(), ufl.Action):
-            replaced_right_part, ex_ops = replace_external_operators(
-                form.right())
+            replaced_right_part, ex_ops = replace_external_operators(form.right())
             external_operators += ex_ops
             interim_form = ufl.Action(form.left(), replaced_right_part)
             replaced_form, ex_ops = replace_external_operators(interim_form)
@@ -239,16 +236,14 @@ def replace_external_operators(form):
             replaced_form, ex_op = _replace_action(form)
             external_operators += [ex_op]
         else:
-            raise RuntimeError(
-                "Expected an ExternalOperator in the right part of the Action.")
+            raise RuntimeError("Expected an ExternalOperator in the right part of the Action.")
     elif isinstance(form, ufl.FormSum):
         components = form.components()
         # TODO: Modify this loop so it runs from range(0, len(components))
         replaced_form, ex_ops = replace_external_operators(components[0])
         external_operators += ex_ops
         for i in range(1, len(components)):
-            replaced_form_term, ex_ops = replace_external_operators(
-                components[i])
+            replaced_form_term, ex_ops = replace_external_operators(components[i])
             replaced_form += replaced_form_term
             external_operators += ex_ops
     elif isinstance(form, ufl.Form):

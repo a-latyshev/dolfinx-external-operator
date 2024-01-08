@@ -26,14 +26,14 @@ def V(domain):
 
 
 def Q_gen(domain, tensor_shape):
-    Qe = basix.ufl.quadrature_element(
-        domain.topology.cell_name(), degree=1, value_shape=tensor_shape)
+    Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1, value_shape=tensor_shape)
     return fem.functionspace(domain, Qe)
 
 
 def compute_dimensions(N, test_f, u):
-    dx = ufl.Measure("dx", domain=N.ref_function_space.mesh, metadata={
-                     "quadrature_degree": 1, "quadrature_scheme": "default"})
+    dx = ufl.Measure(
+        "dx", domain=N.ref_function_space.mesh, metadata={"quadrature_degree": 1, "quadrature_scheme": "default"}
+    )
     V = u.function_space
     u_hat = ufl.TrialFunction(V)
 

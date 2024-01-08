@@ -110,8 +110,12 @@ import basix
 import ufl
 import ufl.algorithms
 from dolfinx import fem, mesh
-from dolfinx_external_operator import FEMExternalOperator, replace_external_operators
-from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
+    replace_external_operators,
+)
 from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
 
 domain = mesh.create_unit_square(MPI.COMM_WORLD, 1, 1)
@@ -148,11 +152,9 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %%
 quadrature_degree = 2
-Qe = basix.ufl.quadrature_element(
-    domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
+Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
 Q = fem.functionspace(domain, Qe)
-dx = Measure("dx", metadata={
-             "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
 
 # %% [markdown]
 # We now have all of the ingredients to define the external operator.
@@ -219,9 +221,10 @@ def q_impl(T, sigma):
     sigma_ = sigma.reshape((num_cells, -1, gdim))
     # Array for output with shape `(num_cells,
     # num_interpolation_points_per_cell, np.prod(value_shape))`
-    output = - k(T)[:, :, np.newaxis] * sigma_
+    output = -k(T)[:, :, np.newaxis] * sigma_
     # The output must be returned flattened to one dimension
     return output.reshape(-1)
+
 
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
@@ -240,6 +243,7 @@ def dqdT_impl(T, sigma):
     output = B * (k(T) ** 2)[:, :, np.newaxis] * sigma_
     return output.reshape(-1)
 
+
 # %% [markdown]
 # and the left part of the derivative
 # \begin{equation*}
@@ -251,9 +255,9 @@ def dqdT_impl(T, sigma):
 
 
 def dqdsigma_impl(T, sigma):
-    output = -k(T)[:, :, np.newaxis, np.newaxis] * \
-        Id[np.newaxis, np.newaxis, :, :]
+    output = -k(T)[:, :, np.newaxis, np.newaxis] * Id[np.newaxis, np.newaxis, :, :]
     return output.reshape(-1)
+
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
@@ -277,6 +281,7 @@ def q_external(derivatives):
         return dqdsigma_impl
     else:
         return NotImplementedError
+
 
 # %% [markdown]
 # We can now attach the implementation of the external function `q` to our
