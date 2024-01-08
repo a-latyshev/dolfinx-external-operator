@@ -32,7 +32,7 @@
 #
 # \begin{align*}
 #      \nabla \cdot \boldsymbol{q} &= f \quad \mathrm{on} \; \Omega, \\
-#      \boldsymbol{q}(T, \boldsymbol{\sigma}(T)) &= -k(T) \boldsymbol{\sigma}, \\
+#      \boldsymbol{q}(T) &= -k(T) \nabla T, \\
 # \end{align*}
 #
 # where $f$ is a given function. With flux $\boldsymbol{q} =
@@ -61,20 +61,14 @@
 #   J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
-# ```{note}
-# The above result uses the product rule $D_{x}(fg)\lbrace \hat{x} \rbrace =
-# (D_x(f)\lbrace \hat{x} \rbrace) g + f(D_x(g)\lbrace \hat{x} \rbrace)$ and
-# that the Gateaux derivative and integral can be exchanged safely.
-# ```
-#
 # Now we apply the chain rule to write
 #
 # \begin{align*}
-#   D_{T}[k(T) \nabla T]\lbrace \hat{T} \rbrace &= D_T [k(T)]\lbrace
+#   D_{T}[k \nabla T]\lbrace \hat{T} \rbrace &= D_T [k]\lbrace
 #   D_T[T]\lbrace \hat{T} \rbrace \rbrace\nabla T +
 #   k(T)
 #   D_T[\nabla T]\lbrace \hat{T} \rbrace \\
-#   &= D_T [k(T)]\lbrace \hat{T} \rbrace \nabla T +
+#   &= D_T [k]\lbrace \hat{T} \rbrace \nabla T +
 #   [k(T) \boldsymbol{I}] \cdot \nabla \hat{T},  \\
 # \end{align*}
 # where $\boldsymbol{I}$ is the 2x2 identity matrix.
@@ -86,7 +80,7 @@
 # \end{equation*}
 # where $A$ and $B$ are material constants. After some algebra we can derive
 # \begin{equation*}
-#   D_T [k(T)]\lbrace \hat{T} \rbrace =
+#   D_T [k]\lbrace \hat{T} \rbrace =
 #   [-Bk^2(T)] \hat{T}
 # \end{equation*}
 # We now proceed to the definition of residual and Jacobian of this problem
@@ -368,9 +362,9 @@ assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 # and a hand-derived Jacobian
 
 # %%
-J_manual = -(
-    inner(-B * k_explicit**2 * grad(T) * T_hat, grad(T_tilde)) * dx +
-    inner(k_explicit * Identity(2) * grad(T_hat) , grad(T_tilde)) * dx
+J_manual = (
+    inner(B * k_explicit**2 * grad(T) * T_hat, grad(T_tilde)) * dx +
+    inner(-k_explicit * Identity(2) * grad(T_hat) , grad(T_tilde)) * dx
 )
 J_manual_compiled = fem.form(J_manual)
 A_manual_matrix = fem.assemble_matrix(J_manual_compiled)
