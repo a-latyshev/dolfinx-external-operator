@@ -33,3 +33,11 @@ cd build/
 jupyter-book config sphinx .
 sphinx-autobuild . _build/html -b html
 ```
+
+To check and fix formatting
+
+```Shell
+pip install `.[lint]`
+ruff check .
+ruff format .
+```
