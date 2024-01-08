@@ -75,7 +75,7 @@
 #   k(T)
 #   D_T[\nabla T]\lbrace \hat{T} \rbrace \\
 #   &= D_T [k(T)]\lbrace \hat{T} \rbrace \nabla T +
-#   k(T) \boldsymbol{I} . \nabla \hat{T},  \\
+#   [k(T) \boldsymbol{I}] \cdot \nabla \hat{T},  \\
 # \end{align*}
 # where $\boldsymbol{I}$ is the 2x2 identity matrix.
 #
@@ -106,7 +106,6 @@
 
 # %%
 from mpi4py import MPI
-from petsc4py import PETSc
 
 import numpy as np
 
@@ -116,7 +115,7 @@ import ufl.algorithms
 from dolfinx import fem, mesh
 from dolfinx_external_operator import FEMExternalOperator, replace_external_operators
 from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
-from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
+from ufl import Identity, Measure, TestFunction, TrialFunction, derivative, grad, inner
 
 domain = mesh.create_unit_square(MPI.COMM_WORLD, 1, 1)
 V = fem.functionspace(domain, ("CG", 1))
@@ -175,7 +174,7 @@ k = FEMExternalOperator(T, function_space=Q)
 
 # %%
 T_tilde = TestFunction(V)
-F = -inner(k*grad(T), grad(T_tilde)) * dx
+F = inner(-k*grad(T), grad(T_tilde)) * dx
 
 # %% [markdown]
 # ### Implementing the external operator
@@ -369,9 +368,9 @@ assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 # and a hand-derived Jacobian
 
 # %%
-J_manual = (
-    inner(B * k_explicit**2 * grad(T) * T_hat, grad(T_tilde)) * dx
-    + inner(-k_explicit * ufl.Identity(2) * grad(T_hat), grad(T_tilde)) * dx
+J_manual = -(
+    inner(-B * k_explicit**2 * grad(T) * T_hat, grad(T_tilde)) * dx +
+    inner(k_explicit * Identity(2) * grad(T_hat) , grad(T_tilde)) * dx
 )
 J_manual_compiled = fem.form(J_manual)
 A_manual_matrix = fem.assemble_matrix(J_manual_compiled)

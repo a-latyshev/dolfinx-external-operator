@@ -1,13 +1,12 @@
 from mpi4py import MPI
-from petsc4py import PETSc
 
 import basix
 import ufl
 from dolfinx import fem, mesh
-from dolfinx_external_operator import FEMExternalOperator, replace_external_operators, evaluate_operands, evaluate_external_operators
-
-import pytest
-import numpy as np
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    replace_external_operators,
+)
 
 
 # @pytest.fixture
