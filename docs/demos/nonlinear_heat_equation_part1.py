@@ -61,7 +61,6 @@
 #   J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
-# TODO: Rewrite the following (or get rid of it?)
 # ```{note}
 # The above result uses the product rule $D_{x}(fg)\lbrace \hat{x} \rbrace =
 # (D_x(f)\lbrace \hat{x} \rbrace) g + f(D_x(g)\lbrace \hat{x} \rbrace)$ and

@@ -17,7 +17,19 @@ pip install .
 
 ```Shell
 pip install .[docs]
+cd build/
 jupyter book build .
 ```
 
 and follow the instructions printed.
+
+## Development
+
+To continuosly build and view the documentation in a web browser
+
+```Shell
+pip install sphinx-autobuild
+cd build/
+jupyter-book config sphinx .
+sphinx-autobuild . _build/html -b html
+```
