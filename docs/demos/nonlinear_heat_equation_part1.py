@@ -58,7 +58,9 @@
 # requires the computation of Jacobian, or the Gateaux derivative of $F$.
 #
 # \begin{equation*}
-#   J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
+#   J(T; \hat{T}, \tilde{T})
+#   := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace
+#   := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
 # Now we apply the product rule to write

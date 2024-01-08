@@ -81,10 +81,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
         self.external_function = external_function
         self.hidden_operands = hidden_operands
 
-    # @property
-    # def ufl_shape(self):
-    #     return self.ref_coefficient.ufl_shape
-
     def _ufl_expr_reconstruct_(
         self,
         *operands,
@@ -103,28 +99,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
             hidden_operands=self.hidden_operands,
             **add_kwargs,
         )
-
-    # def update(self, operands_eval: List[np.ndarray]) -> None:
-    #     """Updates the global values of external operator.
-
-    #     Evaluates the external operator according to its definition in
-    #     `external_function` and updates values in the reference coefficient, a
-    #     globally allocated coefficient associated with the external operator.
-
-    #     Args:
-    #         operands_eval: A list with values of operands, on which the derivation is performed.
-    #     Returns:
-    #         None
-    #     """
-    #     hidden_operands_eval = []
-    #     if self.hidden_operands is not None:
-    #         for operand in self.hidden_operands:
-    #             # TODO: more elegant solution is required
-    #             hidden_operands_eval.append(operand.x.array)
-    #     all_operands_eval = operands_eval + hidden_operands_eval
-    #     external_operator_eval = self.external_function(
-    #         self.derivatives)(*all_operands_eval)
-    #     np.copyto(self.ref_coefficient.x.array, external_operator_eval)
 
 
 def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl.core.expr.Expr, np.ndarray]:
@@ -251,40 +225,3 @@ def replace_external_operators(form):
         external_operators += ex_ops
 
     return replaced_form, external_operators
-
-
-# def _find_trivial_operands(external_operator: FEMExternalOperator, evaluated_operands: Dict[ufl.core.expr.Expr, np.ndarray]) -> None:
-#     ref_function_space = external_operators[0].ref_function_space
-#     ufl_element = ref_function_space.ufl_element()
-#     mesh = ref_function_space.mesh
-#     quadrature_points = basix.make_quadrature(
-#         ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[0]
-#     map_c = mesh.topology.index_map(mesh.topology.dim)
-#     num_cells = map_c.size_local + map_c.num_ghosts
-#     cells = np.arange(0, num_cells, dtype=np.int32)
-
-#     for operand in external_operator.trivial_operands:
-#         try:
-#             evaluated_operands[operand]
-#         except KeyError:
-#             expr = fem.Expression(operand, quadrature_points)
-#             evaluated_operand = expr.eval(mesh, cells)
-#             # TODO: to optimize!
-#             evaluated_operands[operand] = evaluated_operand
-
-#     for operand in external_operator.non_trivial_operands:
-#         _find_trivial_operands(operand, evaluated_operands)
-
-
-# def find_trivial_operands(external_operators: List[FEMExternalOperator]):
-#     """Evaluates unique operands of provided external operators.
-
-#     It takes into account all unique & trivial operands of absolutely all
-#     external operators including those which are operands of other external
-#     operators. Thus, this function works recursively. Trivial operands are UFL
-#     expressions. Non-trivial operands are `FEMExternalOperator` objects.
-#     """
-#     evaluated_operands = {}
-#     for external_operator in external_operators:
-#         _find_trivial_operands(external_operator)
-#     return evaluated_operands
