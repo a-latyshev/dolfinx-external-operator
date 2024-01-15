@@ -32,7 +32,7 @@
 #
 # \begin{align*}
 #      \nabla \cdot \boldsymbol{q} &= f \quad \mathrm{on} \; \Omega, \\
-#      \boldsymbol{q}(T, \boldsymbol{\sigma}(T)) &= -k(T) \boldsymbol{\sigma}, \\
+#      \boldsymbol{q}(T) &= -k(T) \nabla T, \\
 # \end{align*}
 #
 # where $f$ is a given function. With flux $\boldsymbol{q} =
@@ -58,25 +58,20 @@
 # requires the computation of Jacobian, or the Gateaux derivative of $F$.
 #
 # \begin{equation*}
-#   J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
+#   J(T; \hat{T}, \tilde{T})
+#   := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace
+#   := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
-# TODO: Rewrite the following (or get rid of it?)
-# ```{note}
-# The above result uses the product rule $D_{x}(fg)\lbrace \hat{x} \rbrace =
-# (D_x(f)\lbrace \hat{x} \rbrace) g + f(D_x(g)\lbrace \hat{x} \rbrace)$ and
-# that the Gateaux derivative and integral can be exchanged safely.
-# ```
-#
-# Now we apply the chain rule to write
+# Now we apply the product rule to write
 #
 # \begin{align*}
-#   D_{T}[k(T) \nabla T]\lbrace \hat{T} \rbrace &= D_T [k(T)]\lbrace
+#   D_{T}[k \nabla T]\lbrace \hat{T} \rbrace &= D_T [k]\lbrace
 #   D_T[T]\lbrace \hat{T} \rbrace \rbrace\nabla T +
 #   k(T)
 #   D_T[\nabla T]\lbrace \hat{T} \rbrace \\
-#   &= D_T [k(T)]\lbrace \hat{T} \rbrace \nabla T +
-#   k(T) \boldsymbol{I} . \nabla \hat{T},  \\
+#   &= D_T [k]\lbrace \hat{T} \rbrace \nabla T +
+#   [k(T) \boldsymbol{I}] \cdot \nabla \hat{T},  \\
 # \end{align*}
 # where $\boldsymbol{I}$ is the 2x2 identity matrix.
 #
@@ -87,7 +82,7 @@
 # \end{equation*}
 # where $A$ and $B$ are material constants. After some algebra we can derive
 # \begin{equation*}
-#   D_T [k(T)]\lbrace \hat{T} \rbrace =
+#   D_T [k]\lbrace \hat{T} \rbrace =
 #   [-Bk^2(T)] \hat{T}
 # \end{equation*}
 # We now proceed to the definition of residual and Jacobian of this problem
@@ -107,7 +102,6 @@
 
 # %%
 from mpi4py import MPI
-from petsc4py import PETSc
 
 import numpy as np
 
@@ -115,9 +109,13 @@ import basix
 import ufl
 import ufl.algorithms
 from dolfinx import fem, mesh
-from dolfinx_external_operator import FEMExternalOperator, replace_external_operators
-from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
-from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
+    replace_external_operators,
+)
+from ufl import Identity, Measure, TestFunction, TrialFunction, derivative, grad, inner
 
 domain = mesh.create_unit_square(MPI.COMM_WORLD, 1, 1)
 V = fem.functionspace(domain, ("CG", 1))
@@ -151,11 +149,9 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %%
 quadrature_degree = 2
-Qe = basix.ufl.quadrature_element(
-    domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
+Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
 Q = fem.functionspace(domain, Qe)
-dx = Measure("dx", metadata={
-             "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
 
 # %% [markdown]
 # We can create the external operator $k$.
@@ -176,7 +172,7 @@ k = FEMExternalOperator(T, function_space=Q)
 
 # %%
 T_tilde = TestFunction(V)
-F = -inner(k*grad(T), grad(T_tilde)) * dx
+F = inner(-k * grad(T), grad(T_tilde)) * dx
 
 # %% [markdown]
 # ### Implementing the external operator
@@ -209,6 +205,7 @@ def k_impl(T):
     # The output must be returned flattened to one dimension
     return output.reshape(-1)
 
+
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
 # implementations of the left part of the derivative
@@ -221,7 +218,8 @@ def k_impl(T):
 
 
 def dkdT_impl(T):
-    return -B * k_impl(T)**2
+    return -B * k_impl(T) ** 2
+
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
@@ -243,6 +241,7 @@ def k_external(derivatives):
         return dkdT_impl
     else:
         return NotImplementedError
+
 
 # %% [markdown]
 # We can now attach the implementation of the external function `k_external` to our
@@ -372,7 +371,7 @@ assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 # %%
 J_manual = (
     inner(B * k_explicit**2 * grad(T) * T_hat, grad(T_tilde)) * dx
-    + inner(-k_explicit * ufl.Identity(2) * grad(T_hat), grad(T_tilde)) * dx
+    + inner(-k_explicit * Identity(2) * grad(T_hat), grad(T_tilde)) * dx
 )
 J_manual_compiled = fem.form(J_manual)
 A_manual_matrix = fem.assemble_matrix(J_manual_compiled)
