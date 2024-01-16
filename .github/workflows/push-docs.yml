@@ -1,7 +1,6 @@
 name: Publish book
 
 on:
-  workflow_call:
   push:
     branches:
       - "main"
