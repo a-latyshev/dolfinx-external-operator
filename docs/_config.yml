@@ -20,6 +20,7 @@ launch_buttons:
 html:
   use_issues_button: true
   use_repository_button: true
+  favicon: "favicon.ico"
 
 bibtex_bibfiles:
   - references.bib
