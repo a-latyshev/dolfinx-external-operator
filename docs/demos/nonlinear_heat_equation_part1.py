@@ -22,7 +22,21 @@
 #
 # ## Recall
 #
-# TODO: Remind the definition of external operators, operands, arguments.
+# The concept of external operators was originally introduced in {cite}`bouziani_escaping_2021`. According to
+# this work, if $W, V$ and $X$ are some functional spaces then the external
+# operator $N$ maps an *operand* $u \in W$ as follows
+#
+# $$
+#   u, v \mapsto N(u; v) \in X,
+# $$
+#
+# where $v \in V$ is an *argument* of $N$. The operator $N$ can be **nonlinear**
+# concerning its *operands* but **linear** for its *arguments*.
+#
+# This concept is implemented in the form of a symbolic object of UFL and can be
+# naturally incorporated into linear and bilinear forms.
+#
+# TODO: Add Gateau derivative notation.
 #
 # ## Problem formulation
 #
@@ -63,7 +77,7 @@
 #   := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
-# Now we apply the product rule to write
+# Now we apply the product and chain rules to write
 #
 # \begin{align*}
 #   D_{T}[k \nabla T]\lbrace \hat{T} \rbrace &= D_T [k]\lbrace
@@ -87,7 +101,7 @@
 # \end{equation*}
 # We now proceed to the definition of residual and Jacobian of this problem
 # where $\boldsymbol{q}$ will be defined using the `FEMExternalOperator` approach
-# and an external implementation using `numpy`.
+# and an external implementation using the `Numpy` package.
 # ```{note}
 # This simple model can also be implemented in pure UFL and the Jacobian
 # derived symbolically using UFL's `derivative` function.
@@ -149,9 +163,11 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %%
 quadrature_degree = 2
-Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
+Qe = basix.ufl.quadrature_element(
+    domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
 Q = fem.functionspace(domain, Qe)
-dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+dx = Measure("dx", metadata={
+             "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
 
 # %% [markdown]
 # We can create the external operator $k$.
@@ -161,7 +177,7 @@ k = FEMExternalOperator(T, function_space=Q)
 
 # %% [markdown]
 # Note that at this stage the object `k` is symbolic and we have not defined the
-# `numpy` code to compute it. This will be done later in the example.
+# `Numpy` code to compute it. This will be done later in the example.
 # ```{note}
 # `FEMExternalOperator` holds the `ref_coefficient` (a `fem.Function`) attribute to store its evaluation.
 # ```
@@ -199,12 +215,11 @@ gdim = domain.geometry.dim
 
 
 def k_impl(T):
-    # The input T is a `np.ndarray` and has the shape
+    # The input `T` is a `np.ndarray` and has the shape
     # `(num_cells, num_interpolation_points_per_cell)` TODO: Is it always the case??
     output = 1.0 / (A + B * T)
     # The output must be returned flattened to one dimension
     return output.reshape(-1)
-
 
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
@@ -219,7 +234,6 @@ def k_impl(T):
 
 def dkdT_impl(T):
     return -B * k_impl(T) ** 2
-
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
@@ -241,7 +255,6 @@ def k_external(derivatives):
         return dkdT_impl
     else:
         return NotImplementedError
-
 
 # %% [markdown]
 # We can now attach the implementation of the external function `k_external` to our
@@ -376,3 +389,8 @@ J_manual = (
 J_manual_compiled = fem.form(J_manual)
 A_manual_matrix = fem.assemble_matrix(J_manual_compiled)
 assert np.allclose(A_manual_matrix.to_dense(), A_matrix.to_dense())
+
+# %% [markdown]
+# Here we considered a trivial example of an external operator. Let's take a look
+# at a more complex case in the context of the same heat equation, where an
+# external operator will have two operands.
