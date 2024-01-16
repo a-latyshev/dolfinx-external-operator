@@ -15,3 +15,5 @@ _build
 dist
 *.egg-info/
 build/
+
+docs/conf.py

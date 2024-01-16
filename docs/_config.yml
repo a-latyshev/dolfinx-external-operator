@@ -2,7 +2,7 @@
 # Learn more at https://jupyterbook.org/customize/config.html
 
 title: "External operators with FEniCSx"
-author: Andrey Latyshev
+author: Andrey Latyshev, Jack S. Hale
 copyright: "2023"
 
 execute:
@@ -10,8 +10,7 @@ execute:
 
 # Information about where the book exists on the web
 repository:
-  url: https://github.com/a-latyshev/dolfinx-external-operator # Online location of your book
-  path_to_book: docs/ # Optional path to your book, relative to the repository root
+  url: https://a-latyshev.github.io/dolfinx-external-operator/  # Online location of your book
   branch: main # Which branch of the repository should be used when creating links (optional)
 
 launch_buttons:
@@ -21,6 +20,7 @@ launch_buttons:
 html:
   use_issues_button: true
   use_repository_button: true
+  favicon: "favicon.ico"
 
 bibtex_bibfiles:
   - references.bib

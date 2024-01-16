@@ -1,21 +1,13 @@
-import ufl
-from dolfinx import fem, io, common
-from mpi4py import MPI
+from typing import List
+
 from petsc4py import PETSc
-from slepc4py import SLEPc
-from typing import Any, List, Union, Dict, Optional, Callable
 
-import numpy as np
+import ufl
+from dolfinx import fem
 
 
-class LinearProblem():
-    def __init__(
-        self,
-        dR: ufl.Form,
-        R: ufl.Form,
-        u: fem.Function,
-        bcs: List[fem.dirichletbc] = []
-    ):
+class LinearProblem:
+    def __init__(self, dR: ufl.Form, R: ufl.Form, u: fem.Function, bcs: List[fem.dirichletbc] = []):
         self.u = u
         self.bcs = bcs
 
@@ -45,8 +37,7 @@ class LinearProblem():
         with self.b.localForm() as b_local:
             b_local.set(0.0)
         fem.petsc.assemble_vector(self.b, self.b_form)
-        self.b.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                           mode=PETSc.ScatterMode.REVERSE)
+        self.b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(self.b, self.bcs)
 
     def assemble_matrix(self) -> None:

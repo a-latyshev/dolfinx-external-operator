@@ -1,0 +1,33 @@
+# Simple workflow for deploying static content to GitHub Pages
+name: Build documentation
+
+on:
+  push:
+    branches:
+      - "!main"
+      - "**"
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    container: dolfinx/dolfinx:nightly
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install package
+        run: |
+          pip install '.[ci]'
+
+      - name: Lint
+        run: |
+          ruff check .
+
+      - name: Build book
+        run: jupyter book build docs/
+      
+      - name: Upload documentation as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: webpage
+          path: docs/_build/html
+          if-no-files-found: error
