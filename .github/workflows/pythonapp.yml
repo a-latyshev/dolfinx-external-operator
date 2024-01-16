@@ -3,6 +3,7 @@ name: Build documentation
 
 on:
   push:
+    workflow_call:
     branches:
       - "!main"
       - "**"
