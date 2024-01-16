@@ -1,3 +1,15 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+# ---
+
 # %% [markdown]
 # # Application of external package
 #
@@ -12,7 +24,6 @@
 # `dqdT_impl` and `dqdsigma_impl`.
 
 # %%
-import jax.numpy as jnp
 import jax
 jax.config.update("jax_enable_x64", True)
 
@@ -24,22 +35,20 @@ jax.config.update("jax_enable_x64", True)
 # We use the JAX's function `vmap` for the vectorization.
 
 # %%
-
+A = 1.0
+B = 1.0
 
 def k(T):
     # In contrast to the previous implementations, the input `T` here is a scalar.
     return 1.0 / (A + B * T)
-
 
 @jax.jit
 def q(T, sigma):
     # The input `T is a scalar and sigma is an array with the shape (2,).
     return -k(T) * sigma
 
-
 # vectorization in the following way: q_global(T=(batch_size, 1), sigma=(batch_size, 2))
 q_global = jax.jit(jax.vmap(q, in_axes=(0, 0)))
-
 
 @jax.jit
 def q_impl(T, sigma):
