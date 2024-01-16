@@ -2,8 +2,8 @@
 name: Build documentation
 
 on:
+  workflow_call:
   push:
-    workflow_call:
     branches:
       - "!main"
       - "**"
