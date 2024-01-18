@@ -1,7 +1,7 @@
 **/__pycache__
 *.h5
 *.xdmf
-
+*.png
 **/_minted*
 *.log
 *.fls

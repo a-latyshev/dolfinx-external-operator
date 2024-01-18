@@ -131,6 +131,7 @@ if mesh_comm.rank == model_rank:
     model.mesh.generate(gdim)
 
 # import the mesh in fenicsx with gmshio
+# TODO: After calling this line there is [WARNING] yaksa: 2 leaked handle pool objects
 mesh, cell_tags, facet_tags = gmshio.model_to_mesh(
     gmsh.model, mesh_comm, 0., gdim=2)
 
@@ -311,7 +312,8 @@ F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
 
-operands_to_project, evaluated_operands = find_operands_and_allocate_memory(F_external_operators)
+operands_to_project, evaluated_operands = find_operands_and_allocate_memory(
+    F_external_operators)
 evaluate_operands_v2(operands_to_project, mesh)
 # evaluated_operands = evaluate_operands(F_external_operators)
 
@@ -414,6 +416,6 @@ if len(points_on_proc) > 0:
     plt.plot(results[:, 0], results[:, 1], "-o", label="via ExternalOperator")
     plt.xlabel("Displacement of inner boundary")
     plt.ylabel(r"Applied pressure $q/q_{lim}$")
-    # plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
+    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.legend()
     plt.show()
