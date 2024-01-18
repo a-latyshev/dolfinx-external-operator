@@ -1,3 +1,20 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
 # %% [markdown]
 # # Plasticity of von Mises
 #
@@ -8,6 +25,7 @@
 # ### Preamble
 
 # %%
+import dolfinx_external_operator
 from dolfinx.geometry import (
     bb_tree, compute_colliding_cells, compute_collisions_points)
 from dolfinx_external_operator import (
@@ -15,7 +33,10 @@ from dolfinx_external_operator import (
     evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
+    find_operands_and_allocate_memory,
+    evaluate_operands_v2,
 )
+
 import solvers
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -145,8 +166,8 @@ dx = ufl.Measure(
 )
 
 # %%
-sig_old = fem.Function(W, name="Previous_stress")
-sig = fem.Function(W, name="Current_stress")
+# sig_old = fem.Function(W, name="Previous_stress")
+# sig = fem.Function(W, name="Current_stress")
 p = fem.Function(W0, name="Cumulative_plastic_strain")
 dp = fem.Function(W0, name="Cumulative_plastic_strain_increment")
 u = fem.Function(V, name="Total_displacement")
@@ -183,19 +204,21 @@ loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 def F_ext(v):
     return -loading * ufl.inner(n, v)*ds(facet_tags_labels["inner"])
 
+
 # %%
-
-
 def epsilon(v):
     grad_v = ufl.grad(v)
     return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, SQRT2 * 0.5*(grad_v[0, 1] + grad_v[1, 0])])
 
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=W)
+sig_old = np.zeros_like(sigma.ref_coefficient.x.array)
 sigma.hidden_operands = [sigma.ref_coefficient, sig_old, p, dp]
 # different outputs of external operator
 F = ufl.inner(sigma, epsilon(v))*dx - F_ext(v)
 J = ufl.derivative(F, Du, u_hat)
+
+
 
 # %% [markdown]
 # ### Implementing the external operator
@@ -221,35 +244,33 @@ def C_tang_local(beta: PETSc.ScalarType, n_elas: np.ndarray) -> np.ndarray:
     n_elas_matrix = np.outer(n_elas, n_elas)
     return C_elas - 3*mu_*(3*mu_/(3*mu_+H) - beta) * n_elas_matrix - 2*mu_*beta*DEV
 
+
 # %%
-
-
 @numba.guvectorize(
     [(numba.float64[:], numba.float64[:], numba.float64[:], numba.float64[:],
       numba.float64[:], numba.float64[:], numba.float64[:])],
     '(n),(n),(n),(p),(p),(m)->(m)', nopython=True)
-def perform_return_mapping(deps_local, sigma_local, sigma_old_local, p_old_local, dp_local, C_tang_dummy, out):
+def perform_return_mapping(deps_local, sigma_local, sigma_old_local, p_old_local, dp_local, C_tang_dummy, output):
     """Performs the return-mapping procedure and calculates the tangent stiffness matrix locally.
 
     Note: C_tang_dummy is required only for defining the size of the output array. It's not a feature, it's a bug. See for more: https://github.com/numba/numba/issues/2797.
     """
-    sig_elas = sigma_old_local + C_elas @ deps_local
-    s = DEV @ sig_elas
-    sig_eq = np.sqrt(3./2. * np.dot(s, s))
+    sigma_elas = sigma_old_local + C_elas @ deps_local
+    s = DEV @ sigma_elas
+    sigma_eq = np.sqrt(3./2.*np.dot(s, s))
 
-    f_elas = sig_eq - sig0 - H*p_old_local
+    f_elas = sigma_eq - sig0 - H*p_old_local
     f_elas_plus = ppos(f_elas)
 
-    dp_local[:] = f_elas_plus/(3*mu_+H)
+    dp_local[:] = f_elas_plus / (3*mu_ + H)
 
-    n_elas = s/sig_eq*f_elas_plus/f_elas
-    beta = 3*mu_ * dp_local / sig_eq
+    n_elas = s/sigma_eq * f_elas_plus/f_elas
+    beta = 3*mu_ * dp_local / sigma_eq
 
-    new_sig = sig_elas - beta*s
+    new_sig = sigma_elas - beta*s
     sigma_local[:] = new_sig[:]
 
-    C_tang = C_tang_local(beta, n_elas)
-    out[:] = C_tang.reshape(-1)
+    output[:] = C_tang_local(beta, n_elas).reshape(-1)
 
 
 def C_tang_impl(deps, sigma, sigma_old, p_old, dp):
@@ -271,9 +292,8 @@ def C_tang_impl(deps, sigma, sigma_old, p_old, dp):
 def sigma_impl(deps, sigma, sigma_old, p_old, dp):
     return sigma
 
+
 # %%
-
-
 def sigma_external(derivatives):
     if derivatives == (0,):
         return sigma_impl
@@ -294,7 +314,11 @@ J_expanded = ufl.algorithms.expand_derivatives(J)
 F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
-evaluated_operands = evaluate_operands(F_external_operators)
+
+operands_to_project, evaluated_operands = find_operands_and_allocate_memory(F_external_operators)
+evaluate_operands_v2(operands_to_project, mesh)
+# evaluated_operands = evaluate_operands(F_external_operators)
+
 evaluate_external_operators(F_external_operators, evaluated_operands)
 evaluate_external_operators(J_external_operators, evaluated_operands)
 
@@ -302,10 +326,9 @@ evaluate_external_operators(J_external_operators, evaluated_operands)
 external_operator_problem = solvers.LinearProblem(
     J_replaced, -F_replaced, Du, bcs=bcs)
 
+
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
-
-
 def find_cell_by_point(mesh, point):
     cells = []
     points_on_proc = []
@@ -333,8 +356,8 @@ Nincr = 20
 load_steps = np.linspace(0, 1.1, Nincr+1)[1:]**0.5
 results = np.zeros((Nincr+1, 2))
 
-sig.vector.set(0.0)
-sig_old.vector.set(0.0)
+# sig.vector.set(0.0)
+# sig_old.vector.set(0.0)
 p.vector.set(0.0)
 u.vector.set(0.0)
 
@@ -363,7 +386,8 @@ for (i, t) in enumerate(load_steps):
         Du.x.scatter_forward()
 
         # Evaluation of new_eps(Du):
-        evaluated_operands = evaluate_operands(F_external_operators)
+        # evaluated_operands = evaluate_operands(F_external_operators)
+        evaluate_operands_v2(operands_to_project, mesh)
         # Return-mapping procedure and stress update:
         evaluate_external_operators(J_external_operators, evaluated_operands)
         # we don't need this as it just returns the sig.x.array; no we have to call this function in order to update values of sigma_ex_op, as they are not linked with sig.x.array yet
@@ -381,7 +405,7 @@ for (i, t) in enumerate(load_steps):
     p.x.scatter_forward()
     # print(p.x.array)
 
-    np.copyto(sig_old.x.array, sigma.ref_coefficient.x.array)
+    np.copyto(sig_old, sigma.ref_coefficient.x.array)
 
     if len(points_on_proc) > 0:
         results[i+1, :] = (u.eval(points_on_proc, cells)[0], t)
@@ -404,3 +428,35 @@ if len(points_on_proc) > 0:
     # plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.legend()
     plt.show()
+
+# %%
+arr1 = np.array([1,2,3])
+arr2 = np.array([1,2,3])
+type(id(arr1))
+
+# %%
+isinstance(id(arr1), ufl.core.expr.Expr)
+
+# %%
+s = tuple(arr1)
+s
+
+# %%
+arr1[2] = -1
+s
+
+# %%
+f'{arr1=}'.split('=')[0]
+
+# %%
+arr1
+
+# %%
+dict1 = {id(arr1): arr1, id(arr2): arr2}
+dict1
+
+# %%
+list1 = (id(arr1), id(arr2))
+dict1[dict1.keys()
+
+# %%
