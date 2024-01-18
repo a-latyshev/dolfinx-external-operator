@@ -128,16 +128,6 @@ V = fem.functionspace(domain, ("CG", 1))
 # %%
 T = fem.Function(V)
 
-# %% [markdown]
-# To start the Newton method we require non-zero assembled residual and Jacobian,
-# thus we initialize the variable `T` with the following non-zero function
-#
-# $$
-#     T = x^2 + y
-# $$
-
-# %%
-T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %% [markdown]
 # We also need to define a `fem.FunctionSpace` in which the output of the external
@@ -158,7 +148,7 @@ dx = Measure(
 )
 
 # %% [markdown]
-# We can create the external operator $k$.
+# We can create the external operator $k$ by specifying its operand `T` and its value function space.
 
 # %%
 k = FEMExternalOperator(T, function_space=Q)
@@ -239,9 +229,10 @@ def dkdT_impl(T):
 
 
 def k_external(derivatives):
-    if derivatives == (0,):
+    # TODO: explain the meaning of the derivative multi-index
+    if derivatives == (0,):  # no derivative, the function itself
         return k_impl
-    elif derivatives == (1,):
+    elif derivatives == (1,):  # the derivative with respect to the operand
         return dkdT_impl
     else:
         return NotImplementedError
@@ -266,7 +257,6 @@ J = derivative(F, T, T_hat)
 
 # %% [markdown]
 # ### Transformations
-# TODO: Explain the motivation (?) why the user needs to replace and not just assemble the form.
 #
 # To apply the chain rule and obtain a new form symbolically equivalent to
 #
@@ -285,6 +275,8 @@ J = derivative(F, T, T_hat)
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
 # %% [markdown]
+# TODO: Explain the motivation (?) why the user needs to replace and not just assemble the form.
+#
 # In order to assemble `F` and `J` we must apply a further transformation that
 # replaces the `FEMExternalOperator` in the forms with their owned `fem.Function`,
 # which are accessible through `ref_coefficient` attribute of the
