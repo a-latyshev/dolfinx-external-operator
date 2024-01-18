@@ -166,19 +166,13 @@ dx = ufl.Measure(
 )
 
 # %%
-# sig_old = fem.Function(W, name="Previous_stress")
-# sig = fem.Function(W, name="Current_stress")
 p = fem.Function(W0, name="Cumulative_plastic_strain")
-dp = fem.Function(W0, name="Cumulative_plastic_strain_increment")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="Newton_iteration_correction")
 Du = fem.Function(V, name="Current_increment")
 
 u_hat = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
-
-# P0 = fem.FunctionSpace(mesh, ("DG", 0))
-# p_avg = fem.Function(P0, name="Plastic_strain")
 
 # %%
 bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
@@ -212,13 +206,15 @@ def epsilon(v):
 
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=W)
-sig_old = np.zeros_like(sigma.ref_coefficient.x.array)
-sigma.hidden_operands = [sigma.ref_coefficient, sig_old, p, dp]
-# different outputs of external operator
+
 F = ufl.inner(sigma, epsilon(v))*dx - F_ext(v)
 J = ufl.derivative(F, Du, u_hat)
 
-
+# %%
+sig_old = np.zeros_like(sigma.ref_coefficient.x.array)
+dp = np.empty_like(p.x.array)
+sigma.hidden_operands = [sigma.ref_coefficient, sig_old, p, dp]
+# different outputs of external operator
 
 # %% [markdown]
 # ### Implementing the external operator
@@ -356,11 +352,6 @@ Nincr = 20
 load_steps = np.linspace(0, 1.1, Nincr+1)[1:]**0.5
 results = np.zeros((Nincr+1, 2))
 
-# sig.vector.set(0.0)
-# sig_old.vector.set(0.0)
-p.vector.set(0.0)
-u.vector.set(0.0)
-
 # timer3 = common.Timer("Solving the problem")
 # start = MPI.Wtime()
 # timer3.start()
@@ -401,10 +392,9 @@ for (i, t) in enumerate(load_steps):
     u.vector.axpy(1, Du.vector)  # u = u + 1*Du
     u.x.scatter_forward()
 
-    p.vector.axpy(1, dp.vector)
-    p.x.scatter_forward()
-    # print(p.x.array)
-
+    # p.vector.axpy(1, dp.vector)
+    # p.x.scatter_forward()
+    p.x.array[:] = p.x.array + dp
     np.copyto(sig_old, sigma.ref_coefficient.x.array)
 
     if len(points_on_proc) > 0:
@@ -421,42 +411,9 @@ for (i, t) in enumerate(load_steps):
 
 # %%
 if len(points_on_proc) > 0:
-    # plt.plot(results_classic[:, 0], results_classic[:, 1], "-o", label="classic")
     plt.plot(results[:, 0], results[:, 1], "-o", label="via ExternalOperator")
     plt.xlabel("Displacement of inner boundary")
     plt.ylabel(r"Applied pressure $q/q_{lim}$")
     # plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.legend()
     plt.show()
-
-# %%
-arr1 = np.array([1,2,3])
-arr2 = np.array([1,2,3])
-type(id(arr1))
-
-# %%
-isinstance(id(arr1), ufl.core.expr.Expr)
-
-# %%
-s = tuple(arr1)
-s
-
-# %%
-arr1[2] = -1
-s
-
-# %%
-f'{arr1=}'.split('=')[0]
-
-# %%
-arr1
-
-# %%
-dict1 = {id(arr1): arr1, id(arr2): arr2}
-dict1
-
-# %%
-list1 = (id(arr1), id(arr2))
-dict1[dict1.keys()
-
-# %%
