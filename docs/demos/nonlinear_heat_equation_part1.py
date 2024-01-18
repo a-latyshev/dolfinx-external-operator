@@ -9,9 +9,9 @@
 #
 # In this tutorial you will learn how to:
 #
-# - define a UFL form including an `FEMExternalOperator` which symbolically
+# - define a UFL form including a `FEMExternalOperator` which symbolically
 #   represents an external operator,
-# - define the concrete external definition operator using `Numpy` and
+# - define the concrete definition of the external operator using `Numpy` and
 #   functional programming techniques, and then attach it to the symbolic
 #   `FEMExternalOperator`,
 # - and assemble the Jacobian and residual operators that can be used inside a
@@ -35,9 +35,8 @@
 #      \boldsymbol{q}(T) &= -k(T) \nabla T, \\
 # \end{align*}
 #
-# where $f$ is a given function. With flux $\boldsymbol{q} =
-# -k\boldsymbol{\sigma}$ for the thermal conductivity $k = \mathrm{const}$ we
-# recover the standard Fourier heat problem. However, here we will assume that $k$
+# where $f$ is a given function and $\boldsymbol{q}(T)$ is the heat flux and $k(T)$ the thermal conductivity. With $k = \mathrm{const}$ we
+# recover the standard linear Fourier heat problem. However, here we will assume that $k$
 # is some general function of $T$ that we would like to specify using some
 # external (non-UFL) piece of code.
 #
@@ -149,9 +148,14 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %%
 quadrature_degree = 2
-Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
+Qe = basix.ufl.quadrature_element(
+    domain.topology.cell_name(), degree=quadrature_degree, value_shape=()
+)
 Q = fem.functionspace(domain, Qe)
-dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+dx = Measure(
+    "dx",
+    metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree},
+)
 
 # %% [markdown]
 # We can create the external operator $k$.
