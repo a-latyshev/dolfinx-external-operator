@@ -49,7 +49,7 @@
 # naturally incorporated into linear and bilinear forms.
 #
 # The Gateaux derivative of the external operator $N$ at $u \in W$ in the direction of $\hat{u}
-# \in V$ looks as follows:
+# \in W$ looks as follows:
 #
 # $$
 #   N^\prime(u;\hat{u}, v) = D_{u} [ N(u; v) ] \lbrace \hat{u} \rbrace.
@@ -192,7 +192,8 @@ k = FEMExternalOperator(T, function_space=Q)
 # Note that at this stage the object `k` is symbolic and we have not defined the
 # `Numpy` code to compute it. This will be done later in the example.
 # ```{note}
-# `FEMExternalOperator` holds the `ref_coefficient` (a `fem.Function`) attribute to store its evaluation.
+# `FEMExternalOperator` holds the `ref_coefficient` (a `fem.Function`) attribute
+# to store its evaluation.
 # ```
 
 # %% [markdown]
@@ -228,8 +229,8 @@ gdim = domain.geometry.dim
 
 
 def k_impl(T):
-    # The input `T` is a `np.ndarray` and has the shape
-    # `(num_cells, num_interpolation_points_per_cell)` TODO: Is it always the case??
+    # The input `T` is a `np.ndarray` and has the size equal to the number of
+    # DoFs of the space `V`.
     output = 1.0 / (A + B * T)
     # The output must be returned flattened to one dimension
     return output.reshape(-1)
