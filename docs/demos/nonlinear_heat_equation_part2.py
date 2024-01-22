@@ -1,24 +1,26 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
 # %% [markdown]
-# # More complex example
+# # More complex case
 #
-# In this notebook, we assemble the Jacobian and residual of a steady-state heat
-# equation with an external operator to be used to define a non-linear flux law.
-#
-# To keep the concepts simple we do not solve the non-linear problem, which we
-# leave to a subsequent demo.
-#
-# In this tutorial you will learn how to:
-#
-# - define a UFL form including an `FEMExternalOperator` which symbolically
-#   represents an external operator,
-# - define the concrete external definition operator using `numpy` and
-#   functional programming techniques, and then attach it to the symbolic
-#   `FEMExternalOperator`,
-# - and assemble the Jacobian and residual operators that can be used inside a
-#   linear or non-linear solver.
-#
-# We assume some basic familiarity with finite element methods, non-linear
-# variational problems and FEniCS.
+# In this notebook, we alter the previous implementation by wrapping a more complex
+# expression through an external operator. The objective remains the same: to
+# assemble the Jacobian and residual of a steady-state heat equation with an
+# external operator to be used to define a non-linear flux law.
 #
 # ## Problem formulation
 #
@@ -44,12 +46,12 @@
 # $$
 #   F(T; \tilde{T}) = \int \boldsymbol{q}(T, \nabla T) \cdot \nabla \tilde{T} - f \cdot
 #   \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V,
-# $$ (eq_1)
+# $$ (eq_2)
 #
 # where the semi-colon denotes the split between arguments in which the form is
 # non-linear (on the left) and linear (on the right).
 #
-# To solve the nonlinear equation {eq}`eq_1` we apply Newton's method which
+# To solve the nonlinear equation {eq}`eq_2` we apply Newton's method which
 # requires the computation of Jacobian, or the Gateaux derivative of $F$.
 #
 # \begin{equation*}
@@ -89,7 +91,7 @@
 # \end{align*}
 # We now proceed to the definition of residual and Jacobian of this problem
 # where $\boldsymbol{q}$ will be defined using the `FEMExternalOperator` approach
-# and an external implementation using `numpy`.
+# and an external implementation using `Numpy`.
 # ```{note}
 # This simple model can also be implemented in pure UFL and the Jacobian
 # derived symbolically using UFL's `derivative` function.
@@ -154,9 +156,11 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %%
 quadrature_degree = 2
-Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
+Qe = basix.ufl.quadrature_element(
+    domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
 Q = fem.functionspace(domain, Qe)
-dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+dx = Measure("dx", metadata={
+             "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
 
 # %% [markdown]
 # We now have all of the ingredients to define the external operator.
@@ -237,8 +241,6 @@ def q_impl(T, sigma):
 # \end{equation*}
 
 # %%
-
-
 def dqdT_impl(T, sigma):
     num_cells = T.shape[0]
     sigma_ = sigma.reshape((num_cells, -1, gdim))
@@ -254,10 +256,9 @@ def dqdT_impl(T, sigma):
 # \end{equation*}
 
 # %%
-
-
 def dqdsigma_impl(T, sigma):
-    output = -k(T)[:, :, np.newaxis, np.newaxis] * Id[np.newaxis, np.newaxis, :, :]
+    output = -k(T)[:, :, np.newaxis, np.newaxis] * \
+        Id[np.newaxis, np.newaxis, :, :]
     return output.reshape(-1)
 
 
@@ -272,8 +273,6 @@ def dqdsigma_impl(T, sigma):
 # previous definitions.
 
 # %%
-
-
 def q_external(derivatives):
     if derivatives == (0, 0):
         return q_impl
@@ -283,7 +282,6 @@ def q_external(derivatives):
         return dqdsigma_impl
     else:
         return NotImplementedError
-
 
 # %% [markdown]
 # We can now attach the implementation of the external function `q` to our
