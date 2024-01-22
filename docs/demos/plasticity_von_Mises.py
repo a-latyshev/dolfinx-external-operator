@@ -18,7 +18,29 @@
 # %% [markdown]
 # # Plasticity of von Mises
 #
+# This tutorial aims to demonstrate an efficient implementation of the plasticity model of von Mises using an external operator defining the elastoplastic constitutive relations. We consider a cylinder expansion problem in the two-dimensional case in a symmetric formulation.
+#
+#
+#
+# an approach of plasticity modelling via the FEniCSx environment. We call this approach “classical” to pay tribute to the original implementation of an approach solving plasticity problems using the common return-mapping algorithm via legacy FEniCS 2019.
+#
+#
+# Modelling of an elastoplastic material involves restoring equilibrium between internal and external forces acting on a solid. The Newton method is commonly used to reach this equilibrium on each loading step.
+#
+# In order to find a numerical solution of the cylinder expansion problem including a displacement field, cumulative plastic strain and a stress field of the solid, an iterative predictor-corrector return-mapping algorithm is applied on each iteration of the Newton method. Because of the specific form of the von Mises criterion, the return-mapping procedure can be performed analytically. A detailed conclusion of the von Mises plastic model in the case of cylinder expansion problem can be found in ( Bonnet et al., (2014). The finite element method in solid mechanics ).
+#
 # ## Problem formulation
+#
+# The domain of the problem $\Omega$ represents the first quarter of the cylinder, where symmetry conditions are set on the left and bottom sides and pressure is set on the inner wall. The behaviour of cylinder material is elastoplastic and it is defined by von Mises yield criterion with the linear isotropic hardening law. The modelling of this solid is performed under assumptions of plane strain and an associative plasticity law.
+#
+# $$
+#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)} d\boldsymbol{x} - F_\text{ext} = 0, \quad \forall \boldsymbol{v} \in V,
+# $$
+# where $F_{\text{ext}}(\boldsymbol{v}) = q \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} .\boldsymbol{v} d\boldsymbol{x}$.
+#
+# $$
+#     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0 - Hp \leq 0
+# $$
 #
 # ## Implementation
 #
