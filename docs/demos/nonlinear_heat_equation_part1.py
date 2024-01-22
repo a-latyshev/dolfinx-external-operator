@@ -49,7 +49,8 @@
 #      \boldsymbol{q}(T) &= -k(T) \nabla T, \\
 # \end{align*}
 #
-# where $f$ is a given function and $\boldsymbol{q}(T)$ is the heat flux and $k(T)$ the thermal conductivity. With $k = \mathrm{const}$ we
+# where $f$ is a given function and $\boldsymbol{q}(T)$ is the heat flux and
+# $k(T)$ the thermal conductivity. With $k = \mathrm{const}$ we
 # recover the standard linear Fourier heat problem. However, here we will assume that $k$
 # is some general function of $T$ that we would like to specify using some
 # external (non-UFL) piece of code.
@@ -158,7 +159,8 @@ Qe = basix.ufl.quadrature_element(
 Q = fem.functionspace(domain, Qe)
 dx = Measure(
     "dx",
-    metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree},
+    metadata={"quadrature_scheme": "default",
+              "quadrature_degree": quadrature_degree},
 )
 
 # %% [markdown]

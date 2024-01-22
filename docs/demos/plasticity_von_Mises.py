@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -25,33 +24,30 @@
 # ### Preamble
 
 # %%
-import dolfinx_external_operator
-from dolfinx.geometry import (
-    bb_tree, compute_colliding_cells, compute_collisions_points)
+import sys
+
+from mpi4py import MPI
+from petsc4py import PETSc
+
+import gmsh
+import matplotlib.pyplot as plt
+import numba
+import numpy as np
+import solvers
+
+import basix
+import ufl
+from dolfinx import fem
+from dolfinx.geometry import bb_tree, compute_colliding_cells, compute_collisions_points
+from dolfinx.io import gmshio
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
-    evaluate_operands,
-    replace_external_operators,
-    find_operands_and_allocate_memory,
     evaluate_operands_v2,
+    find_operands_and_allocate_memory,
+    replace_external_operators,
 )
 
-import solvers
-from mpi4py import MPI
-from petsc4py import PETSc
-import ufl
-import basix
-from dolfinx import fem, common
-import dolfinx.fem.petsc  # there is an error without it, why?
-from dolfinx.io import gmshio
-import gmsh
-
-import numba
-import numpy as np
-import matplotlib.pyplot as plt
-
-import sys
 sys.path.append("..")
 # import fenicsx_support as fs
 # import classic_plasitcity
@@ -221,7 +217,7 @@ sigma.hidden_operands = [sigma.ref_coefficient, sig_old, p, dp]
 # ### Implementing the external operator
 
 # %%
-l, m = lambda_, mu_
+l, m = lambda_, mu_  # noqa: E741
 C_elas = np.array([[l+2*m, l, l, 0],
                    [l, l+2*m, l, 0],
                    [l, l, l+2*m, 0],
@@ -250,7 +246,9 @@ def C_tang_local(beta: PETSc.ScalarType, n_elas: np.ndarray) -> np.ndarray:
 def perform_return_mapping(deps_local, sigma_local, sigma_old_local, p_old_local, dp_local, C_tang_dummy, output):
     """Performs the return-mapping procedure and calculates the tangent stiffness matrix locally.
 
-    Note: C_tang_dummy is required only for defining the size of the output array. It's not a feature, it's a bug. See for more: https://github.com/numba/numba/issues/2797.
+    Note: C_tang_dummy is required only for defining the size of the output
+    array. It's not a feature, it's a bug. See for more:
+    https://github.com/numba/numba/issues/2797.
     """
     sigma_elas = sigma_old_local + C_elas @ deps_local
     s = DEV @ sigma_elas
@@ -368,7 +366,7 @@ for (i, t) in enumerate(load_steps):
 
     if MPI.COMM_WORLD.rank == 0:
         print(
-            f"\nnRes0 , {nRes0} \n Increment: {str(i+1)}, load = {t * q_lim}")
+            f"\nnRes0 , {nRes0} \n Increment: {i+1!s}, load = {t * q_lim}")
     niter = 0
 
     while nRes/nRes0 > tol and niter < Nitermax:
@@ -383,8 +381,6 @@ for (i, t) in enumerate(load_steps):
         evaluate_operands_v2(operands_to_project, mesh)
         # Return-mapping procedure and stress update:
         evaluate_external_operators(J_external_operators, evaluated_operands)
-        # we don't need this as it just returns the sig.x.array; no we have to call this function in order to update values of sigma_ex_op, as they are not linked with sig.x.array yet
-        # evaluate_external_operators(F_external_operators, evaluated_operands)
         external_operator_problem.assemble_vector()
         nRes = external_operator_problem.b.norm()
 

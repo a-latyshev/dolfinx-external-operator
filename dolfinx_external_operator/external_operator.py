@@ -152,7 +152,9 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl
     return evaluated_operands
 
 
-def find_operands_and_allocate_memory(external_operators: List[FEMExternalOperator]) -> Tuple[Dict[ufl.core.expr.Expr, Tuple[np.ndarray, fem.function.Expression]], Dict[Union[ufl.core.expr.Expr, int], np.ndarray]]:
+def find_operands_and_allocate_memory(external_operators: List[FEMExternalOperator]
+                                      ) -> Tuple[Dict[ufl.core.expr.Expr, Tuple[np.ndarray, fem.function.Expression]],
+                                                 Dict[Union[ufl.core.expr.Expr, int], np.ndarray]]:
     """Finds operands of external operators and allocate memory for their evaulation.
 
     The function seeks unique operands among provided external operators and
@@ -161,7 +163,7 @@ def find_operands_and_allocate_memory(external_operators: List[FEMExternalOperat
     Args:
         external_operators: A list with external operators.
 
-    Returns: 
+    Returns:
         A tuple of two dictionaries. The first one maps operands that will
         be evaluated into a tuple of allocated `ndarray`-s and
         their`fem.Expression`-representation. The second one maps all operands (the
@@ -208,13 +210,17 @@ def find_operands_and_allocate_memory(external_operators: List[FEMExternalOperat
     return operands_to_project, evaluated_operands
 
 
-def evaluate_operands_v2(operands_to_project: Dict[ufl.core.expr.Expr, Tuple[np.ndarray, fem.function.Expression]], mesh: Mesh) -> None:
+def evaluate_operands_v2(
+        operands_to_project: Dict[ufl.core.expr.Expr, Tuple[np.ndarray, fem.function.Expression]],
+        mesh: Mesh
+) -> None:
     """Evaluates operands.
 
     Evaluates only provided operands
 
     Args:
-        external_operators: A dictionary for operands and a tuple of `ndarray` to store operands values and their expressions.
+        external_operators: A dictionary for operands and a tuple of `ndarray`
+        to store operands values and their expressions.
 
     Returns:
         None.
@@ -241,12 +247,12 @@ def evaluate_external_operators(
         objects or its id-s) into `ndarray` of their values.
 
     Bug:
-        evaluated_operands is Dict[ufl.core.expr.Expr, np.ndarray] but actually it may have int values, like id(op). The function allows it!
+        evaluated_operands is Dict[ufl.core.expr.Expr, np.ndarray] but actually
+        it may have int values, like id(op). The function allows it!
     Returns:
         None
     """
     for external_operator in external_operators:
-        operands_eval = []
         # Is it costly?
         ufl_operands_eval = [evaluated_operands[operand]
                              for operand in external_operator.ufl_operands]
