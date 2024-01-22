@@ -1,3 +1,15 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+# ---
+
 # %% [markdown]
 # # Non-linear heat equation
 #
@@ -9,9 +21,9 @@
 #
 # In this tutorial you will learn how to:
 #
-# - define a UFL form including an `FEMExternalOperator` which symbolically
+# - define a UFL form including a `FEMExternalOperator` which symbolically
 #   represents an external operator,
-# - define the concrete external definition operator using `Numpy` and
+# - define the concrete definition of the external operator using `Numpy` and
 #   functional programming techniques, and then attach it to the symbolic
 #   `FEMExternalOperator`,
 # - and assemble the Jacobian and residual operators that can be used inside a
@@ -36,7 +48,14 @@
 # This concept is implemented in the form of a symbolic object of UFL and can be
 # naturally incorporated into linear and bilinear forms.
 #
-# TODO: Add Gateau derivative notation.
+# The Gateaux derivative of the external operator $N$ at $u \in W$ in the direction of $\hat{u}
+# \in V$ looks as follows:
+#
+# $$
+#   N^\prime(u;\hat{u}, v) = D_{u} [ N(u; v) ] \lbrace \hat{u} \rbrace.
+# $$
+#
+# This derivative is a new external operator with the same operand $u$ and two arguments $v$ and $\hat{u}$.
 #
 # ## Problem formulation
 #
@@ -49,9 +68,9 @@
 #      \boldsymbol{q}(T) &= -k(T) \nabla T, \\
 # \end{align*}
 #
-# where $f$ is a given function. With flux $\boldsymbol{q} =
-# -k\boldsymbol{\sigma}$ for the thermal conductivity $k = \mathrm{const}$ we
-# recover the standard Fourier heat problem. However, here we will assume that $k$
+# where $f$ is a given function and $\boldsymbol{q}(T)$ is the heat flux and
+# $k(T)$ the thermal conductivity. With $k = \mathrm{const}$ we
+# recover the standard linear Fourier heat problem. However, here we will assume that $k$
 # is some general function of $T$ that we would like to specify using some
 # external (non-UFL) piece of code.
 #
@@ -143,16 +162,6 @@ V = fem.functionspace(domain, ("CG", 1))
 # %%
 T = fem.Function(V)
 
-# %% [markdown]
-# To start the Newton method we require non-zero assembled residual and Jacobian,
-# thus we initialize the variable `T` with the following non-zero function
-#
-# $$
-#     T = x^2 + y
-# $$
-
-# %%
-T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %% [markdown]
 # We also need to define a `fem.FunctionSpace` in which the output of the external
@@ -164,13 +173,17 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 # %%
 quadrature_degree = 2
 Qe = basix.ufl.quadrature_element(
-    domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
+    domain.topology.cell_name(), degree=quadrature_degree, value_shape=()
+)
 Q = fem.functionspace(domain, Qe)
-dx = Measure("dx", metadata={
-             "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+dx = Measure(
+    "dx",
+    metadata={"quadrature_scheme": "default",
+              "quadrature_degree": quadrature_degree},
+)
 
 # %% [markdown]
-# We can create the external operator $k$.
+# We can create the external operator $k$ by specifying its operand `T` and its value function space.
 
 # %%
 k = FEMExternalOperator(T, function_space=Q)
@@ -235,6 +248,7 @@ def k_impl(T):
 def dkdT_impl(T):
     return -B * k_impl(T) ** 2
 
+
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
 # element trial $\tilde{T}$ or test functions $\hat{T}$; it will be handled by
@@ -246,12 +260,20 @@ def dkdT_impl(T):
 # argument and returns the appropriate function from the two previous definitions.
 
 # %%
-
-
 def k_external(derivatives):
-    if derivatives == (0,):
+    """Defines behaviour of the external operator and its derivatives.
+
+    Args:
+        derivatives: a tuple of integers representing a multi-index. Each index
+        is associated with an operand and indicates whether we take derivative
+        at this operand.
+
+    Returns:
+        a callable Python function.
+    """
+    if derivatives == (0,):  # no derivation, the function itself
         return k_impl
-    elif derivatives == (1,):
+    elif derivatives == (1,):  # the derivative with respect to the operand `T`
         return dkdT_impl
     else:
         return NotImplementedError
@@ -274,8 +296,14 @@ T_hat = TrialFunction(V)
 J = derivative(F, T, T_hat)
 
 # %% [markdown]
+# ```{note}
+# The function `derivative` just defines the derivative of a form but the
+# automatic differentiation is not applied yet. For this matter we need to
+# *expand* the Jacobian by using the `expand_derivatives` algorithm.
+# ```
+
+# %% [markdown]
 # ### Transformations
-# TODO: Explain the motivation (?) why the user needs to replace and not just assemble the form.
 #
 # To apply the chain rule and obtain a new form symbolically equivalent to
 #
@@ -294,8 +322,12 @@ J = derivative(F, T, T_hat)
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
 # %% [markdown]
-# In order to assemble `F` and `J` we must apply a further transformation that
-# replaces the `FEMExternalOperator` in the forms with their owned `fem.Function`,
+# The current assembling methods of DOLFINx are not aware of the
+# `FEMExternalOperator`. That's why we must replace these objects in both forms
+# with finite coefficients of appropriate shapes.
+#
+# Thus, to assemble `F` and `J` we must apply a further transformation that
+# replaces the `FEMExternalOperator` in the forms with their owned `fem.Function` coefficients,
 # which are accessible through `ref_coefficient` attribute of the
 # `FEMExternalOperator` object.
 

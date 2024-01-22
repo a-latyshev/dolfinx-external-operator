@@ -8,6 +8,10 @@
 #       format_name: percent
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
 # ---
 
 # %% [markdown]
@@ -227,6 +231,7 @@ def q_impl(T, sigma):
     # The output must be returned flattened to one dimension
     return output.reshape(-1)
 
+
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
 # implementations of the left part of the derivative
@@ -236,13 +241,12 @@ def q_impl(T, sigma):
 # \end{equation*}
 
 # %%
-
-
 def dqdT_impl(T, sigma):
     num_cells = T.shape[0]
     sigma_ = sigma.reshape((num_cells, -1, gdim))
     output = B * (k(T) ** 2)[:, :, np.newaxis] * sigma_
     return output.reshape(-1)
+
 
 # %% [markdown]
 # and the left part of the derivative
@@ -252,12 +256,11 @@ def dqdT_impl(T, sigma):
 # \end{equation*}
 
 # %%
-
-
 def dqdsigma_impl(T, sigma):
     output = -k(T)[:, :, np.newaxis, np.newaxis] * \
         Id[np.newaxis, np.newaxis, :, :]
     return output.reshape(-1)
+
 
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
@@ -270,8 +273,6 @@ def dqdsigma_impl(T, sigma):
 # previous definitions.
 
 # %%
-
-
 def q_external(derivatives):
     if derivatives == (0, 0):
         return q_impl
