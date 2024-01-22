@@ -1,3 +1,15 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+# ---
+
 # %% [markdown]
 # # Non-linear heat equation
 #
@@ -36,7 +48,14 @@
 # This concept is implemented in the form of a symbolic object of UFL and can be
 # naturally incorporated into linear and bilinear forms.
 #
-# TODO: Add Gateau derivative notation.
+# The Gateaux derivative of the external operator $N$ at $u \in W$ in the direction of $\hat{u}
+# \in V$ looks as follows:
+#
+# $$
+#   N^\prime(u;\hat{u}, v) = D_{u} [ N(u; v) ] \lbrace \hat{u} \rbrace.
+# $$
+#
+# This derivative is a new external operator with the same operand $u$ and two arguments $v$ and $\hat{u}$.
 #
 # ## Problem formulation
 #
@@ -229,6 +248,7 @@ def k_impl(T):
 def dkdT_impl(T):
     return -B * k_impl(T) ** 2
 
+
 # %% [markdown]
 # Note that we do not need to explicitly incorporate the action of the finite
 # element trial $\tilde{T}$ or test functions $\hat{T}$; it will be handled by
@@ -240,13 +260,20 @@ def dkdT_impl(T):
 # argument and returns the appropriate function from the two previous definitions.
 
 # %%
-
-
 def k_external(derivatives):
-    # TODO: explain the meaning of the derivative multi-index
-    if derivatives == (0,):  # no derivative, the function itself
+    """Defines behaviour of the external operator and its derivatives.
+
+    Args:
+        derivatives: a tuple of integers representing a multi-index. Each index
+        is associated with an operand and indicates whether we take derivative
+        at this operand.
+
+    Returns:
+        a callable Python function.
+    """
+    if derivatives == (0,):  # no derivation, the function itself
         return k_impl
-    elif derivatives == (1,):  # the derivative with respect to the operand
+    elif derivatives == (1,):  # the derivative with respect to the operand `T`
         return dkdT_impl
     else:
         return NotImplementedError
@@ -269,6 +296,13 @@ T_hat = TrialFunction(V)
 J = derivative(F, T, T_hat)
 
 # %% [markdown]
+# ```{note}
+# The function `derivative` just defines the derivative of a form but the
+# automatic differentiation is not applied yet. For this matter we need to
+# *expand* the Jacobian by using the `expand_derivatives` algorithm.
+# ```
+
+# %% [markdown]
 # ### Transformations
 #
 # To apply the chain rule and obtain a new form symbolically equivalent to
@@ -288,10 +322,12 @@ J = derivative(F, T, T_hat)
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
 # %% [markdown]
-# TODO: Explain the motivation (?) why the user needs to replace and not just assemble the form.
+# The current assembling methods of DOLFINx are not aware of the
+# `FEMExternalOperator`. That's why we must replace these objects in both forms
+# with finite coefficients of appropriate shapes.
 #
-# In order to assemble `F` and `J` we must apply a further transformation that
-# replaces the `FEMExternalOperator` in the forms with their owned `fem.Function`,
+# Thus, to assemble `F` and `J` we must apply a further transformation that
+# replaces the `FEMExternalOperator` in the forms with their owned `fem.Function` coefficients,
 # which are accessible through `ref_coefficient` attribute of the
 # `FEMExternalOperator` object.
 
