@@ -18,16 +18,13 @@
 # %% [markdown]
 # # Plasticity of von Mises
 #
-# This tutorial aims to demonstrate an efficient implementation of the plasticity model of von Mises using an external operator defining the elastoplastic constitutive relations. We consider a cylinder expansion problem in the two-dimensional case in a symmetric formulation.
+# This tutorial aims to demonstrate an efficient implementation of the plasticity model of von Mises using an external operator defining the elastoplastic constitutive relations, which are written via the 3rd party package `Numba`. Here we consider a cylinder expansion problem in the two-dimensional case in a symmetric formulation.
 #
+# <!-- Modelling of an elastoplastic material involves restoring equilibrium between internal and external forces acting on a solid. The Newton method is commonly used to reach this equilibrium on each loading step. -->
 #
+# This tutorial is based on the original implementation of the problem via legacy FEniCS 2019 and its extension for the modern FEniCSx in the setting of convex optimization. A detailed conclusion of the von Mises plastic model in the case of the cylinder expansion problem can be found in ( Bonnet et al., (2014). The finite element method in solid mechanics ). Do not hesitate to visit the mentioned sources for more information.
 #
-# an approach of plasticity modelling via the FEniCSx environment. We call this approach “classical” to pay tribute to the original implementation of an approach solving plasticity problems using the common return-mapping algorithm via legacy FEniCS 2019.
-#
-#
-# Modelling of an elastoplastic material involves restoring equilibrium between internal and external forces acting on a solid. The Newton method is commonly used to reach this equilibrium on each loading step.
-#
-# In order to find a numerical solution of the cylinder expansion problem including a displacement field, cumulative plastic strain and a stress field of the solid, an iterative predictor-corrector return-mapping algorithm is applied on each iteration of the Newton method. Because of the specific form of the von Mises criterion, the return-mapping procedure can be performed analytically. A detailed conclusion of the von Mises plastic model in the case of cylinder expansion problem can be found in ( Bonnet et al., (2014). The finite element method in solid mechanics ).
+# We assume the knowledge of the return-mapping procedure, commonly used in the solid mechanics community to solve elastoplasticity problems.
 #
 # ## Notation
 #
@@ -48,15 +45,7 @@
 #     & \boldsymbol{\varepsilon} = [\varepsilon_{xx}, \varepsilon_{yy}, \varepsilon_{zz}, \sqrt{2}\varepsilon_{xy}]^T.
 # \end{align*}
 #
-# <!-- The deviatoric parts of stress and strain tensors are respectively
-#
-# \begin{align*}
-#     & \boldsymbol{s} = \boldsymbol{\sigma} - \frac{1}{3} \mathrm{tr} \boldsymbol{\sigma}, \\
-#     & \boldsymbol{s} = \boldsymbol{\sigma} - \frac{1}{3} \mathrm{tr} \boldsymbol{\sigma}. \\
-# \end{align*} -->
-#
-# We introduce two additional quantities of interest: the cumulative plastic
-# strain $p$ and the equivalent stress $\sigma_\text{eq}$ defined by the following
+# Denoting the deviatoric operator $\mathrm{dev}$, we introduce two additional quantities of interest: the cumulative plastic strain $p$ and the equivalent stress $\sigma_\text{eq}$ defined by the following
 # formulas:
 #
 # \begin{align*}
@@ -66,8 +55,7 @@
 #
 # where $\boldsymbol{e} = \mathrm{dev}\boldsymbol{\varepsilon}$ and
 # $\boldsymbol{s} = \mathrm{dev}\boldsymbol{\sigma}$ are deviatoric parts of the
-# stain and stress tensors respectively defined by the deviatoric operator
-# $\mathrm{dev}$.
+# stain and stress tensors respectively.
 #
 #
 # ## Problem formulation
@@ -75,34 +63,46 @@
 # The domain of the problem $\Omega$ represents the first quarter of the hollow
 # cylinder with inner $R_i$ and outer $R_o$ radii, where symmetry conditions are
 # set on the left and bottom sides and pressure is set on the inner wall. The
-# behaviour of cylinder material is defined by the von Mises yield criterion
-# {eq}`eq_von_Mises` with the linear isotropic hardening law.
+# behaviour of cylinder material is defined by the von Mises yield criterion $f$ 
+# with the linear isotropic hardening law {eq}`eq_von_Mises`
 #
 # $$
 #     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0 - Hp \leq 0,
 # $$ (eq_von_Mises)
 #
-# where $\sigma_0$ is an uniaxial strength, $H$ is an isotropic hardening modulus
-# and $p = \sqrt{\frac{2}{3}\boldsymbol{e}.\boldsymbol{e}}$
+# where $\sigma_0$ is an uniaxial strength and $H$ is an isotropic hardening modulus, which is defined through the tangent elastic modulus $E_t$ and Young modulus $E$. 
 #
-# The modelling of this solid is performed under assumptions of plane strain and
-# an associative plasticity law.
+# Let V be the functional space of admissible displacement fields. Then, the weak formulation of this problem can be written as following:
 #
+# Find $\boldsymbol{u} \in V$ such that
 # $$
-#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)} d\boldsymbol{x} - F_\text{ext} = 0, \quad \forall \boldsymbol{v} \in V,
-# $$ (eq_1)
+#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)} d\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall \boldsymbol{v} \in V,
+# $$ (eq_main)
 #
-# where $F_{\text{ext}}(\boldsymbol{v}) = q
-# \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} .\boldsymbol{v}
-# d\boldsymbol{x}$ is a vector of external forces acting on the inner surface of
-# the cylinder. The loading variable $q$ will be progressively increased from 0 to
+# where the external force $F_{\text{ext}}(\boldsymbol{v})$ represent the pressure inside the cylinder. 
+#
+# $$ 
+#     F_\text{ext}(\boldsymbol{v}) = q \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} .\boldsymbol{v} d\boldsymbol{x}, 
+# $$ 
+# where the loading parameter $q$ is progressively increased from 0 to
 # $q_\text{lim} = \frac{2}{\sqrt{3}}\sigma_0\log\left(\frac{R_o}{R_i}\right)$, the
 # analytical collapse load for the perfect plasticity model without hardening.
 #
+# The modelling is performed under assumptions of the plane strain and
+# an associative plasticity law.
+#
+# In the above nonlinear problem {eq}`eq_main` the elastoplastic constitutive relation $\boldsymbol{\sigma}(\boldsymbol{u})$ is restored by applying the return-mapping procedure. The main bottleneck of this procedure is a computation of derivatives of quantities of interest including one of the stress tensor, so-called the tangent stiffness matrix $\boldsymbol{C}_\text{tang}$ required for the Newton method to solve the nonlinear equation {eq}`eq_main`. The advantage of the von Mises model is that the return-mapping procedure may be performed analytically, so the derivatives may be expressed explicitly.
+#
+# In this tutorial, we treat the stress tensor $\boldsymbol{\sigma}$ as an external operator acting on the displacement field $\boldsymbol{u}$ and represent it through a `FEMExternalOperator` object. The analytical return-mapping procedure of von Mises plasticity is used to define the behviour of the stress operator and its derivative. The procedure is implemented using some external (non-UFL) piece of code. 
 #
 # ## Implementation
 #
 # ### Preamble
+
+# %%
+# TODO: 
+# Add Omega to integrals in the heat equation 
+# Restore initialization of T(?)
 
 # %%
 import sys
