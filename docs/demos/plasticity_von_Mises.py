@@ -150,9 +150,9 @@ dx = ufl.Measure(
 
 # %%
 p = fem.Function(W0, name="cumulative_plastic_strain")
-u = fem.Function(V, name="total_displacement")
-du = fem.Function(V, name="newton_iteration_correction")
-Du = fem.Function(V, name="current_increment")
+dp = fem.Function(W0, name="increment_plastic_strain")
+
+u = fem.Function(V, name="displacement")
 
 u_hat = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
@@ -201,10 +201,11 @@ C_elas = np.array(
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-
+# TODO: This can eventually be numba jitted.
 def return_mapping(deps, sigma, p, dp):
     """Performs the return-mapping procedure.
     """
+    # TODO: Add loop over points.
     sigma_elastic = sigma + C_elas @ deps
     s = deviatoric @ sigma_elastic
     sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
@@ -225,10 +226,13 @@ def return_mapping(deps, sigma, p, dp):
     return C_tang, sigma_new, dp_new 
 
 
+# NOTE: This does not need to be jitted - no hot loops, no use of automatic
+# differentiation.
 def C_tang_impl(deps):
+    # NOTE: Why these fixed shapes? Don't we have e.g. deps_ at more than one quadrature point?
     deps_ = deps.reshape((-1, 4))
     sigma_ = sigma.x.array.reshape((-1, 4))
-    p_ = p.reshape.x.array((-1, 1))
+    p_ = p.x.array.reshape((-1, 1))
     dp_ = dp.x.array.reshape((-1, 1))
 
     C_tang_, sigma_new, dp_new = return_mapping(
@@ -241,7 +245,7 @@ def C_tang_impl(deps):
     return C_tang_.reshape(-1)
 
 
-def sigma_impl(deps, sigma, p, dp):
+def sigma_impl(deps):
     return sigma
 
 
@@ -266,7 +270,7 @@ J_expanded = ufl.algorithms.expand_derivatives(J)
 F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
-
+# TODO: Revert to previous version, this isn't necessary.
 operands_to_project, evaluated_operands = find_operands_and_allocate_memory(F_external_operators)
 evaluate_operands_v2(operands_to_project, mesh)
 # evaluated_operands = evaluate_operands(F_external_operators)
@@ -274,9 +278,9 @@ evaluate_operands_v2(operands_to_project, mesh)
 evaluate_external_operators(F_external_operators, evaluated_operands)
 evaluate_external_operators(J_external_operators, evaluated_operands)
 
-# %%
+# NOTE: Define a small class with routines to assemble F, assemble J and update
+# the solution and use NewtonSolver. 
 external_operator_problem = solvers.LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
-
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
@@ -312,6 +316,7 @@ results = np.zeros((Nincr + 1, 2))
 # start = MPI.Wtime()
 # timer3.start()
 
+# TODO: Why can't we use NewtonSolver?
 for i, t in enumerate(load_steps):
     loading.value = t * q_lim
     external_operator_problem.assemble_vector()
