@@ -23,7 +23,7 @@ docs = [
 ]
 demos = [
     "numba",
-    "jax[cpu]"
+    "jax"
 ]
 lint = [
     "ruff"
