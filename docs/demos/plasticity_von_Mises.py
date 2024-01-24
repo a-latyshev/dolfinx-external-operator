@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -38,6 +39,7 @@ import solvers
 import basix
 import ufl
 from dolfinx import fem
+from dolfinx.io import gmshio
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -59,9 +61,10 @@ E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
 
 # NOTE: Is this really necessary for intialising the Newton solver?
+# NOTE: TPV = 1e-16 is better?
 TPV = np.finfo(PETSc.ScalarType).eps  # très petite value
 
-q_lim = float(2 / np.sqrt(3) * np.log(R_e / R_i) * sig0)
+q_lim = float(2 / np.sqrt(3) * np.log(R_e / R_i) * sigma_0)
 
 SQRT2 = np.sqrt(2.0)
 
@@ -76,6 +79,7 @@ lc = 0.3
 verbosity = 0
 
 # TODO: Put this in another file? Can execute with cell magic?
+# NOTE: Maybe. Will it be OK for the reader?
 mesh_comm = MPI.COMM_WORLD
 model_rank = 0
 gmsh.initialize()
@@ -131,6 +135,7 @@ deg_u = 2
 deg_stress = 2
 
 # NOTE: How did you come up with this quadrature rule being sufficient?
+# NOTE: This is how it's done in the Jeremy's code
 W0e = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=deg_stress, value_shape=())
 We = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=deg_stress, value_shape=(4,))
 
@@ -152,10 +157,13 @@ dx = ufl.Measure(
 )
 
 # %%
+sig_old = fem.Function(W, name="stress_from_previous_loading_step")
 p = fem.Function(W0, name="cumulative_plastic_strain")
 dp = fem.Function(W0, name="increment_plastic_strain")
 
 u = fem.Function(V, name="displacement")
+du = fem.Function(V, name="du")
+Du = fem.Function(V, name="Current_increment")
 
 u_hat = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
@@ -182,12 +190,17 @@ def F_ext(v):
 
 
 # %%
+def sigma_external_dummy(derivatives):
+    return NotImplementedError
+
+
+# %%
 def epsilon(v):
     grad_v = ufl.grad(v)
     return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, SQRT2 * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
 
 
-sigma = FEMExternalOperator(epsilon(u), function_space=W)
+sigma = FEMExternalOperator(epsilon(u), function_space=W, external_function=sigma_external_dummy)
 
 F = ufl.inner(sigma, epsilon(v)) * dx - F_ext(v)
 J = ufl.derivative(F, u, u_hat)
@@ -198,14 +211,17 @@ J = ufl.derivative(F, u, u_hat)
 # %%
 l, m = lambda_, mu_  # noqa: E741
 C_elas = np.array(
-    [[l + 2 * m, l, l, 0], [l, l + 2 * m, l, 0], [l, l, l + 2 * m, 0], [0, 0, 0, 2 * m]], dtype=PETSc.ScalarType
+    [[l + 2 * m, l, l, 0],
+     [l, l + 2 * m, l, 0],
+     [l, l, l + 2 * m, 0],
+     [0, 0, 0, 2 * m]], dtype=PETSc.ScalarType
 )
 
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
 # TODO: This can eventually be numba jitted.
-def return_mapping(deps, sigma, p, dp):
+def return_mapping(deps, sigma, sigma_n, p, dp):
     """Performs the return-mapping procedure.
     """
     # TODO: Add loop over points.
@@ -222,7 +238,7 @@ def return_mapping(deps, sigma, p, dp):
     beta = 3 * mu_ * dp / sigma_eq
 
     sigma_new = sigma_elastic - beta * s
-    
+
     n_elas_matrix = np.outer(n_elas, n_elas)
     C_tang = C_elas - 3 * mu_ * (3 * mu_ / (3 * mu_ + H) - beta) * n_elas_matrix - 2 * mu_ * beta * deviatoric
 
@@ -231,16 +247,21 @@ def return_mapping(deps, sigma, p, dp):
 
 # NOTE: This does not need to be jitted/JAXed/Numba - no hot loops, no use of
 # automatic differentiation.
+# ANSWER: I agree.
+
 # NOTE: This function should not update state.
-def C_tang_impl(deps):
+# ANSWER: Is copying always so negligible in term of time and computational performance.
+def C_tang_impl(deps, sigma, sigma_n, p, dp):
     # NOTE: Why these fixed shapes? Don't we have e.g. deps_ at more than one quadrature point?
+    # ANSWER: after interpolation we have deps.shape = (num_cels, num_Gauss_nodes * 4),
+    # where 4 is the mathematical shape. We batch over Gauss nodes.
     deps_ = deps.reshape((-1, 4))
     sigma_ = sigma.x.array.reshape((-1, 4))
     p_ = p.x.array.reshape((-1, 1))
     dp_ = dp.x.array.reshape((-1, 1))
 
     C_tang_, sigma_new, dp_new = return_mapping(
-        deps_, sigma_, p_, dp_,
+        deps_, sigma_, sigma_n, p_, dp_,
     )
 
     return C_tang_.reshape(-1), sigma_new, dp_new
@@ -301,6 +322,8 @@ def find_cell_by_point(mesh, point):
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
 # It is required to run this program via MPI in order to capture the process, to which this point is attached
+from dolfinx.geometry import (
+    bb_tree, compute_colliding_cells, compute_collisions_points)
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_proc = find_cell_by_point(mesh, x_point)
 
@@ -314,6 +337,8 @@ results = np.zeros((Nincr + 1, 2))
 # timer3.start()
 
 # TODO: Why can't we use NewtonSolver?
+# ANSWER: May be not for this example? it's heavy enough.
+# Mohr-Coulomb where the algo is more general suits better to introduce the nonlinear solver + external operators, IMHO.
 for i, t in enumerate(load_steps):
     loading.value = t * q_lim
     external_operator_problem.assemble_vector()
@@ -351,6 +376,7 @@ for i, t in enumerate(load_steps):
     # p.x.scatter_forward()
     p.x.array[:] = p.x.array + dp
     # NOTE: Isn't sigma_old already updated?
+    # ANSWER: No it's not! This is the history!!
     np.copyto(sig_old, sigma.ref_coefficient.x.array)
 
     if len(points_on_proc) > 0:
