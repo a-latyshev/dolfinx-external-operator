@@ -30,8 +30,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
         external_function=None,
         derivatives: Optional[Tuple[int, ...]] = None,
         argument_slots=(),
-        hidden_operands: Optional[List[Union[fem.function.Function, np.ndarray]]] = [
-        ],
     ) -> None:
         """Initializes `FEMExternalOperator`.
 
@@ -45,8 +43,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 respect to operands.
             argument_slots: tuple composed containing expressions with
                 `ufl.Argument` or `ufl.Coefficient` objects.
-            hidden_operands: operands on which the external operator acts, but
-                the differentiation with respect to which is not required.
         """
         ufl_element = function_space.ufl_element()
         if ufl_element.family_name != "quadrature":
@@ -84,7 +80,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
         self.ref_coefficient = fem.Function(self.ref_function_space)
 
         self.external_function = external_function
-        self.hidden_operands = hidden_operands
 
     def _ufl_expr_reconstruct_(
         self,
@@ -101,7 +96,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
             external_function=self.external_function,
             derivatives=derivatives or self.derivatives,
             argument_slots=argument_slots or self.argument_slots(),
-            hidden_operands=self.hidden_operands,
             **add_kwargs,
         )
 
@@ -136,104 +130,13 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl
                 evaluated_operands[operand]
             except KeyError:
                 # TODO: Next call is potentially expensive in parallel.
-                # TODO: We do not need to project all operands, some of them are updated (the hidden ones).
                 expr = fem.Expression(operand, quadrature_points)
                 evaluated_operand = expr.eval(mesh, cells)
                 # TODO: to optimize!
                 # It's better to allocate memory in advance and just to copy it every time
                 evaluated_operands[operand] = evaluated_operand
 
-        for operand in external_operator.hidden_operands:
-            try:
-                evaluated_operands[operand]
-            except KeyError:
-                evaluated_operands[operand] = operand.x.array
-
     return evaluated_operands
-
-
-def find_operands_and_allocate_memory(external_operators: List[FEMExternalOperator]
-                                      ) -> Tuple[Dict[ufl.core.expr.Expr, Tuple[np.ndarray, fem.function.Expression]],
-                                                 Dict[Union[ufl.core.expr.Expr, int], np.ndarray]]:
-    """Finds operands of external operators and allocate memory for their evaulation.
-
-    The function seeks unique operands among provided external operators and
-    allocates Numpy-array of appropriate sizes for the operands future evaluation.
-
-    Args:
-        external_operators: A list with external operators.
-
-    Returns:
-        A tuple of two dictionaries. The first one maps operands that will
-        be evaluated into a tuple of allocated `ndarray`-s and
-        their`fem.Expression`-representation. The second one maps all operands (the
-        objects or its id-s) into `ndarray` of their values.
-    """
-    # TODO: Generalise to evaluate operands on subset of cells.
-    ref_function_space = external_operators[0].ref_function_space
-    ufl_element = ref_function_space.ufl_element()
-    mesh = ref_function_space.mesh
-    quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree, basix.QuadratureType.Default)[
-        0
-    ]
-    map_c = mesh.topology.index_map(mesh.topology.dim)
-    num_cells = map_c.size_local + map_c.num_ghosts
-    cells = np.arange(0, num_cells, dtype=np.int32)
-
-    # Global map of unique operands presenting in provided external operators
-    evaluated_operands = {}
-    # Global map of unique operands to be evaluated
-    operands_to_project = {}
-    for external_operator in external_operators:
-        for operand in external_operator.ufl_operands:
-            try:
-                evaluated_operands[operand]
-            except KeyError:
-                # TODO: Next call is potentially expensive in parallel.
-                expr = fem.Expression(operand, quadrature_points)
-                evaluated_operand = expr.eval(mesh, cells)
-                operands_to_project[operand] = (evaluated_operand, expr)
-                evaluated_operands[operand] = evaluated_operand
-
-        for operand in external_operator.hidden_operands:
-            try:
-                evaluated_operands[id(operand)]
-            except KeyError:
-                if isinstance(operand, fem.function.Function):
-                    evaluated_operands[id(operand)] = operand.x.array
-                elif isinstance(operand, np.ndarray):
-                    evaluated_operands[id(operand)] = operand
-                else:
-                    raise TypeError(
-                        "Hidden operands are either fem.Function-s or Numpy array-s.")
-
-    return operands_to_project, evaluated_operands
-
-
-def evaluate_operands_v2(
-        operands_to_project: Dict[ufl.core.expr.Expr, Tuple[np.ndarray, fem.function.Expression]],
-        mesh: Mesh
-) -> None:
-    """Evaluates operands.
-
-    Evaluates only provided operands
-
-    Args:
-        external_operators: A dictionary for operands and a tuple of `ndarray`
-        to store operands values and their expressions.
-
-    Returns:
-        None.
-    """
-    map_c = mesh.topology.index_map(mesh.topology.dim)
-    num_cells = map_c.size_local + map_c.num_ghosts
-    cells = np.arange(0, num_cells, dtype=np.int32)
-
-    # Evaluate unique operands in external operators
-
-    for operand in operands_to_project:
-        operand_values, operand_expression = operands_to_project[operand]
-        np.copyto(operand_values, operand_expression.eval(mesh, cells))
 
 
 def evaluate_external_operators(
@@ -256,10 +159,8 @@ def evaluate_external_operators(
         # Is it costly?
         ufl_operands_eval = [evaluated_operands[operand]
                              for operand in external_operator.ufl_operands]
-        hidden_operands_eval = [evaluated_operands[id(operand)]
-                                for operand in external_operator.hidden_operands]
         external_operator_eval = external_operator.external_function(
-            external_operator.derivatives)(*ufl_operands_eval, *hidden_operands_eval)
+            external_operator.derivatives)(*ufl_operands_eval)
 
         np.copyto(external_operator.ref_coefficient.x.array,
                   external_operator_eval)
