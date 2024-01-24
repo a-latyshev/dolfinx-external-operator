@@ -220,19 +220,17 @@ C_elas = np.array(
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-# TODO: This can eventually be numba jitted.
-def return_mapping(deps, sigma, sigma_n, p, dp):
-    """Performs the return-mapping procedure.
-    """
-    # TODO: Add loop over points.
-    sigma_elastic = sigma + C_elas @ deps
+@numba.njit
+def return_mapping(deps, sigma, sigma_old, p):
+    """Performs the return-mapping procedure locally."""
+    sigma_elastic = sigma_old + C_elas @ deps
     s = deviatoric @ sigma_elastic
     sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
 
     f_elastic = sigma_eq - sigma_0 - H * p
     f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
 
-    dp_new = f_elastic_plus / (3 * mu_ + H)
+    dp = f_elastic_plus / (3 * mu_ + H)
 
     n_elas = s / sigma_eq * f_elastic_plus / f_elastic
     beta = 3 * mu_ * dp / sigma_eq
@@ -242,30 +240,29 @@ def return_mapping(deps, sigma, sigma_n, p, dp):
     n_elas_matrix = np.outer(n_elas, n_elas)
     C_tang = C_elas - 3 * mu_ * (3 * mu_ / (3 * mu_ + H) - beta) * n_elas_matrix - 2 * mu_ * beta * deviatoric
 
-    return C_tang, sigma_new, dp_new 
+    return C_tang, sigma_new, dp
 
+@numba.njit
+def C_tang_impl(deps, sigma, sigma_old, p):
+    num_cells = deps.shape[0]
+    num_gauss_points = int(deps.shape[1]/4)
+    C_tang_new = np.empty((num_cells, num_gauss_points, 4, 4), dtype=PETSc.ScalarType)
+    dp_new = np.empty((num_cells, num_gauss_points), dtype=PETSc.ScalarType)
+    sigma_new = np.empty((num_cells, num_gauss_points, 4), dtype=PETSc.ScalarType)
 
-# NOTE: This does not need to be jitted/JAXed/Numba - no hot loops, no use of
-# automatic differentiation.
-# ANSWER: I agree.
+    deps_ = deps.reshape((num_cells, num_gauss_points, 4))
+    sigma_ = sigma.reshape((num_cells, num_gauss_points, 4))
+    sigma_old_ = sigma_old.reshape((num_cells, num_gauss_points, 4))
+    p_ = p.reshape((num_cells, num_gauss_points))
 
-# NOTE: This function should not update state.
-# ANSWER: Is copying always so negligible in term of time and computational performance.
-def C_tang_impl(deps, sigma, sigma_n, p, dp):
-    # NOTE: Why these fixed shapes? Don't we have e.g. deps_ at more than one quadrature point?
-    # ANSWER: after interpolation we have deps.shape = (num_cels, num_Gauss_nodes * 4),
-    # where 4 is the mathematical shape. We batch over Gauss nodes.
-    deps_ = deps.reshape((-1, 4))
-    sigma_ = sigma.x.array.reshape((-1, 4))
-    p_ = p.x.array.reshape((-1, 1))
-    dp_ = dp.x.array.reshape((-1, 1))
+    for i in range(num_cells):
+        for q in range(num_gauss_points):
+            C_tang, sigma, dp = return_mapping(deps_[i][q], sigma_[i][q], sigma_old_[i][q], p_[i][q])
+            C_tang_new[i][q][:] = C_tang
+            dp_new[i][q] = dp
+            sigma_new[i][q][:,:] = sigma
 
-    C_tang_, sigma_new, dp_new = return_mapping(
-        deps_, sigma_, sigma_n, p_, dp_,
-    )
-
-    return C_tang_.reshape(-1), sigma_new, dp_new
-
+    return C_tang_new.reshape(-1), sigma_new.reshape(-1), dp_new.reshape(-1)
 
 def sigma_impl(deps):
     return sigma
