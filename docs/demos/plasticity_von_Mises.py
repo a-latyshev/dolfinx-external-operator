@@ -117,6 +117,8 @@ if mesh_comm.rank == model_rank:
 
 # import the mesh in fenicsx with gmshio
 # TODO: After calling this line there is [WARNING] yaksa: 2 leaked handle pool objects
+# NOTE: There are some memory leaks in Python interpreter - in short, don't
+# worry too much about these.
 mesh, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, mesh_comm, 0.0, gdim=2)
 
 mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
@@ -128,6 +130,7 @@ facet_tags.name = f"{mesh.name}_facets"
 deg_u = 2
 deg_stress = 2
 
+# NOTE: How did you come up with this quadrature rule being sufficient?
 W0e = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=deg_stress, value_shape=())
 We = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=deg_stress, value_shape=(4,))
 
@@ -226,8 +229,9 @@ def return_mapping(deps, sigma, p, dp):
     return C_tang, sigma_new, dp_new 
 
 
-# NOTE: This does not need to be jitted - no hot loops, no use of automatic
-# differentiation.
+# NOTE: This does not need to be jitted/JAXed/Numba - no hot loops, no use of
+# automatic differentiation.
+# NOTE: This function should not update state.
 def C_tang_impl(deps):
     # NOTE: Why these fixed shapes? Don't we have e.g. deps_ at more than one quadrature point?
     deps_ = deps.reshape((-1, 4))
@@ -238,11 +242,8 @@ def C_tang_impl(deps):
     C_tang_, sigma_new, dp_new = return_mapping(
         deps_, sigma_, p_, dp_,
     )
-   
-    sigma_[:] = sigma_new
-    dp_[:] = dp_new
 
-    return C_tang_.reshape(-1)
+    return C_tang_.reshape(-1), sigma_new, dp_new
 
 
 def sigma_impl(deps):
@@ -270,13 +271,9 @@ J_expanded = ufl.algorithms.expand_derivatives(J)
 F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
-# TODO: Revert to previous version, this isn't necessary.
-operands_to_project, evaluated_operands = find_operands_and_allocate_memory(F_external_operators)
-evaluate_operands_v2(operands_to_project, mesh)
-# evaluated_operands = evaluate_operands(F_external_operators)
-
-evaluate_external_operators(F_external_operators, evaluated_operands)
-evaluate_external_operators(J_external_operators, evaluated_operands)
+evaluated_operands = evaluate_operands(F_replaced)
+_ = evaluate_external_operators(F_external_operators, evaluated_operands)
+_, sigma_new, dp_new = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 # NOTE: Define a small class with routines to assemble F, assemble J and update
 # the solution and use NewtonSolver. 
@@ -353,6 +350,7 @@ for i, t in enumerate(load_steps):
     # p.vector.axpy(1, dp.vector)
     # p.x.scatter_forward()
     p.x.array[:] = p.x.array + dp
+    # NOTE: Isn't sigma_old already updated?
     np.copyto(sig_old, sigma.ref_coefficient.x.array)
 
     if len(points_on_proc) > 0:

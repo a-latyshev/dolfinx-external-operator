@@ -365,7 +365,7 @@ evaluated_operands = evaluate_operands(F_external_operators)
 # in `F_replaced`. This calls `q_impl` defined above.
 
 # %%
-evaluate_external_operators(F_external_operators, evaluated_operands)
+evaluated_external_operators_F = evaluate_external_operators(F_external_operators, evaluated_operands)
 
 # %% [markdown]
 # 2b. Using the evaluated operands, evaluate the external operators in
@@ -373,7 +373,7 @@ evaluate_external_operators(F_external_operators, evaluated_operands)
 # in `J_replaced`. This calls `dqdT_impl` and `dqdsigma_impl` defined above.
 
 # %%
-evaluate_external_operators(J_external_operators, evaluated_operands)
+evaluated_external_operators_J = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 # %% [markdown]
 # ```{note}

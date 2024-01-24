@@ -141,29 +141,31 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl
 
 def evaluate_external_operators(
     external_operators: List[FEMExternalOperator], evaluated_operands: Dict[Union[ufl.core.expr.Expr, int], np.ndarray]
-) -> None:
-    """Evaluates external operators and updates their reference coefficients.
+) -> list[list[np.ndarray]]:
+    """Evaluates external operators and updates the associated coefficient.
 
     Args:
         external_operators: A list with external operators to evaluate.
-        evaluated_operands: A dictionary mapping all operands (the
-        objects or its id-s) into `ndarray` of their values.
+        evaluated_operands: A dictionary mapping all operands to `ndarray`
+                            containing their evaluation.
 
-    Bug:
-        evaluated_operands is Dict[ufl.core.expr.Expr, np.ndarray] but actually
-        it may have int values, like id(op). The function allows it!
     Returns:
-        None
+        A list containing the evaluation of the external operators.        
     """
+    evaluated_operators = []
     for external_operator in external_operators:
-        # Is it costly?
         ufl_operands_eval = [evaluated_operands[operand]
                              for operand in external_operator.ufl_operands]
         external_operator_eval = external_operator.external_function(
             external_operator.derivatives)(*ufl_operands_eval)
-
-        np.copyto(external_operator.ref_coefficient.x.array,
-                  external_operator_eval)
+    
+        # TODO: It's not clear if this call should be here, or outside the
+        # function.
+        np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
+    
+        evaluated_operators.append(external_operator_eval)
+    
+    return evaluated_operators
 
 
 def _replace_action(action: ufl.Action):
