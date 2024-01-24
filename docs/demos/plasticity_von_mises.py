@@ -165,7 +165,7 @@ deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 # TODO: Can be numba or jax jitted
 def return_mapping(deps, sigma, p, dp):
     """Performs the return-mapping procedure."""
-    # TODO: Add loop over points.
+    # TODO: Add loop over points?
     sigma_elastic = sigma + C_elas @ deps
     s = deviatoric @ sigma_elastic
     sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
@@ -191,7 +191,7 @@ dp = fem.Function(P, name="incremental_plastic_strain")
 sigma = fem.Function(S, name="stress")
 
 def C_tang_impl(deps):
-    # NOTE: Why these fixed shapes? Don't we have e.g. deps_ at more than one quadrature point?
+    # TODO: Are these shapes correct?
     deps_ = deps.reshape((-1, 4))
     sigma_ = sigma.x.array.reshape((-1, 4))
     p_ = p.x.array.reshape((-1, 1))
@@ -204,9 +204,8 @@ def C_tang_impl(deps):
         dp_,
     )
 
-    # TODO: There is nothing stopping you doing the state update here, or
+    # NOTE: There is nothing stopping you doing the state update here, or
     # inside the calculation.
-
     return C_tang_.reshape(-1), sigma_new, dp_new
 
 
