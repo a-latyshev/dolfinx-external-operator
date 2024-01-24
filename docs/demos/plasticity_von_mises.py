@@ -204,11 +204,14 @@ def C_tang_impl(deps):
         dp_,
     )
 
-    return C_tang_.reshape(-1)
+    # TODO: There is nothing stopping you doing the state update here, or
+    # inside the calculation.
+
+    return C_tang_.reshape(-1), sigma_new, dp_new
 
 
 def sigma_impl(deps):
-    return sigma
+    return NotImplementedError
 
 
 def sigma_external(derivatives):
