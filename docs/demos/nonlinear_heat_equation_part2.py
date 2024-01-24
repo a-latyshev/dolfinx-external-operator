@@ -44,7 +44,7 @@
 # written in residual form as find $T \in V$ such that
 #
 # $$
-#   F(T; \tilde{T}) = \int \boldsymbol{q}(T, \nabla T) \cdot \nabla \tilde{T} - f \cdot
+#   F(T; \tilde{T}) = \int \boldsymbol{q}(T, \nabla T) \cdot \nabla \tilde{T} + f \cdot
 #   \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V,
 # $$ (eq_2)
 #

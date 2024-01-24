@@ -87,7 +87,7 @@
 # written in residual form as find $T \in V$ such that
 #
 # $$
-#   F(T; \tilde{T}) = - \int\limits_{\Omega} k(T) \nabla T \cdot \nabla \tilde{T} - f \cdot
+#   F(T; \tilde{T}) = \int\limits_{\Omega} k(T) \nabla T \cdot \nabla \tilde{T} - f \cdot
 #   \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V,
 # $$ (eq_1)
 #
@@ -100,7 +100,7 @@
 # \begin{equation*}
 #   J(T; \hat{T}, \tilde{T})
 #   := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace
-#   := -\int\limits_{\Omega} D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
+#   := \int\limits_{\Omega} D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
 # Now we apply the product and chain rules to write
@@ -347,7 +347,7 @@ J = derivative(F, T, T_hat)
 # To apply the chain rule and obtain a new form symbolically equivalent to
 #
 # $$
-#   J(T; \hat{T}, \tilde{T}) := -\int\limits_{\Omega} D_T [k]\lbrace \hat{T}
+#   J(T; \hat{T}, \tilde{T}) := \int\limits_{\Omega} D_T [k]\lbrace \hat{T}
 #   \rbrace \nabla T \cdot \nabla \tilde{T} + [k(T) \boldsymbol{I}] \cdot \nabla
 #   \hat{T} \cdot \nabla \tilde{T} \; \mathrm{d}x
 # $$
