@@ -24,16 +24,12 @@
 # ### Preamble
 
 # %%
-import sys
 
 from mpi4py import MPI
 from petsc4py import PETSc
 
 import gmsh
-import matplotlib.pyplot as plt
-import numba
 import numpy as np
-import solvers
 
 import basix
 import ufl
@@ -41,8 +37,6 @@ from dolfinx import fem
 from dolfinx.io import gmshio
 from dolfinx_external_operator import (
     FEMExternalOperator,
-    evaluate_external_operators,
-    evaluate_operands,
     replace_external_operators,
 )
 
@@ -59,9 +53,8 @@ sigma_0 = 250.0  # yield strength
 E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
 
-# NOTE: Is this really necessary for intialising the Newton solver?
+# NOTE: Is this really necessary for initialising the Newton solver?
 TPV = np.finfo(PETSc.ScalarType).eps  # très petite value
-
 
 # %% [markdown]
 # ### Building the mesh
@@ -113,10 +106,6 @@ if mesh_comm.rank == model_rank:
     gmsh.option.setNumber("General.Verbosity", verbosity)
     model.mesh.generate(gdim)
 
-# import the mesh in fenicsx with gmshio
-# TODO: After calling this line there is [WARNING] yaksa: 2 leaked handle pool objects
-# NOTE: There are some memory leaks in Python interpreter - in short, don't
-# worry too much about these.
 mesh, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, mesh_comm, 0.0, gdim=2)
 
 mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
@@ -124,63 +113,48 @@ mesh.name = "quarter_cylinder"
 cell_tags.name = f"{mesh.name}_cells"
 facet_tags.name = f"{mesh.name}_facets"
 
-# %%
 k_u = 2
-k_stress = 2 * (deg_u - 1)
-W0e = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
-We = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
+V = fem.functionspace(mesh, ("CG", k_u, (2,)))
 
-W0 = fem.functionspace(mesh, W0e)
-W = fem.functionspace(mesh, We)
-V = fem.functionspace(mesh, ("CG", deg_u, (2,)))
+k_stress = 2 * (k_u - 1)
+P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
+S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
 
-ds = ufl.Measure(
-    "ds",
-    domain=mesh,
-    subdomain_data=facet_tags,
-    metadata={"quadrature_degree": deg_stress, "quadrature_scheme": "default"},
-)
+P = fem.functionspace(mesh, P_element)
+S = fem.functionspace(mesh, S_element)
 
-dx = ufl.Measure(
-    "dx",
-    domain=mesh,
-    metadata={"quadrature_degree": deg_stress, "quadrature_scheme": "default"},
-)
-
-# %%
-p = fem.Function(W0, name="cumulative_plastic_strain")
-dp = fem.Function(W0, name="incremental_plastic_strain")
-
-u = fem.Function(V, name="displacement")
-
-u_hat = ufl.TrialFunction(V)
-v = ufl.TestFunction(V)
+Du = fem.Function(V, name="displacement_increment")
 
 
-# %%
-n = ufl.FacetNormal(mesh)
-loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
-
-
-def F_ext(v):
-    return -loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
-
-
-# %%
 def epsilon(v):
     grad_v = ufl.grad(v)
     return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
 
 
-sigma = FEMExternalOperator(epsilon(u), function_space=W)
+sigma_operator = FEMExternalOperator(epsilon(Du), function_space=S)
 
-F = ufl.inner(sigma, epsilon(v)) * dx - F_ext(v)
-J = ufl.derivative(F, u, u_hat)
+n = ufl.FacetNormal(mesh)
+loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
-# %% [markdown]
-# ### Implementing the external operator
+ds = ufl.Measure(
+    "ds",
+    domain=mesh,
+    subdomain_data=facet_tags,
+    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
+)
 
-# %%
+dx = ufl.Measure(
+    "dx",
+    domain=mesh,
+    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
+)
+
+v = ufl.TestFunction(V)
+F = ufl.inner(sigma_operator, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+
+u_hat = ufl.TrialFunction(V)
+J = ufl.derivative(F, Du, u_hat)
+
 l, m = lambda_, mu_  # noqa: E741
 C_elas = np.array(
     [[l + 2 * m, l, l, 0], [l, l + 2 * m, l, 0], [l, l, l + 2 * m, 0], [0, 0, 0, 2 * m]], dtype=PETSc.ScalarType
@@ -189,8 +163,7 @@ C_elas = np.array(
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-
-# TODO: This can eventually be numba jitted.
+# TODO: Can be numba or jax jitted
 def return_mapping(deps, sigma, p, dp):
     """Performs the return-mapping procedure."""
     # TODO: Add loop over points.
@@ -213,10 +186,11 @@ def return_mapping(deps, sigma, p, dp):
 
     return C_tang, sigma_new, dp_new
 
+# Internal state
+p = fem.Function(P, name="cumulative_plastic_strain")
+dp = fem.Function(P, name="incremental_plastic_strain")
+sigma = fem.Function(S, name="stress")
 
-# NOTE: This does not need to be jitted/JAXed/Numba - no hot loops, no use of
-# automatic differentiation.
-# NOTE: This function should not update state.
 def C_tang_impl(deps):
     # NOTE: Why these fixed shapes? Don't we have e.g. deps_ at more than one quadrature point?
     deps_ = deps.reshape((-1, 4))
@@ -238,7 +212,6 @@ def sigma_impl(deps):
     return sigma
 
 
-# %%
 def sigma_external(derivatives):
     if derivatives == (0,):
         return sigma_impl
@@ -248,16 +221,9 @@ def sigma_external(derivatives):
         return NotImplementedError
 
 
-# %%
 sigma.external_function = sigma_external
 
-# %%
-J_expanded = ufl.algorithms.expand_derivatives(J)
-F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
-
-# %% [markdown]
-# ### Solving the problem
+# Boundary conditions
 bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
 left_facets = facet_tags.find(facet_tags_labels["Ly"])
 
@@ -269,10 +235,23 @@ sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V
 
 bcs = [sym_bottom, sym_left]
 
+# Form manipulations
+J_expanded = ufl.algorithms.expand_derivatives(J)
+F_replaced, F_external_operators = replace_external_operators(F)
+J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+F_replaced = fem.form(F_replaced)
+J_form = fem.form(J_replaced)
+
 num_increments = 20
 load_steps = np.linspace(0, 1.1, num_increments + 1)[1:] ** 0.5
 results = np.zeros((num_increments + 1, 2))
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 
-for i, t in enumerate(load_steps):
-    loading.value = t * q_lim
+u = fem.Function(V, name="displacement")
+
+# Continuation
+for i, load_step in enumerate(load_steps):
+    loading.value = -load_step * q_lim
+
+
