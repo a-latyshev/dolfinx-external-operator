@@ -100,7 +100,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         )
 
 
-def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[ufl.core.expr.Expr, np.ndarray]:
+def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[Union[ufl.core.expr.Expr, int], np.ndarray]:
     """Evaluates operands of external operators.
 
     Args:
