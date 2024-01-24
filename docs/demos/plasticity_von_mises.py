@@ -25,8 +25,6 @@
 
 # %%
 
-from numpy.lib.utils import who
-from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -41,6 +39,7 @@ from dolfinx_external_operator import (
     FEMExternalOperator,
     replace_external_operators,
 )
+from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
 
 # %%
 R_e, R_i = 1.3, 1.0  # external/internal radius
@@ -193,15 +192,15 @@ sigma = fem.Function(S, name="stress")
 num_quadrature_points = P_element.dim
 
 def C_tang_impl(deps):
-    num_cells = deps.shape[0]     
+    num_cells = deps.shape[0]
 
     # Output
-    C_tang_new = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
+    C_tang = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
     sigma_new = np.empty((num_cells, num_quadrature_points, 4), dtype=PETSc.ScalarType)
-    dp = np.empty((num_cells, num_gauss_points), dtype=PETSc.ScalarType)
+    dp = np.empty((num_cells, num_quadrature_points), dtype=PETSc.ScalarType)
 
     deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
-    
+
     # Current state
     sigma_ = sigma.x.array.reshape((num_cells, num_quadrature_points, 4))
     p_ = p.x.array.reshape((num_cells, num_quadrature_points))
@@ -209,14 +208,14 @@ def C_tang_impl(deps):
 
     for i in range(num_cells):
         for j in range(num_quadrature_points):
-            C_tang_[i, j], sigma_new[i, j], dp[i, j] = return_mapping(
+            C_tang[i, j], sigma_new[i, j], dp[i, j] = return_mapping(
                 deps_[i, j],
                 sigma_[i, j],
                 p_[i, j],
                 dp_[i, j]
             )
 
-    return C_tang_.reshape(-1), sigma_new.reshape(-1), dp.reshape(-1)
+    return C_tang.reshape(-1), sigma_new.reshape(-1), dp.reshape(-1)
 
 
 def sigma_impl(deps):
