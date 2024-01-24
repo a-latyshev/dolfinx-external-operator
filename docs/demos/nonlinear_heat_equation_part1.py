@@ -111,7 +111,7 @@
 #   k(T)
 #   D_T[\nabla T]\lbrace \hat{T} \rbrace \\
 #   &= D_T [k]\lbrace \hat{T} \rbrace \nabla T +
-#   [k(T) \boldsymbol{I}] \cdot \nabla \hat{T},  \\
+#   [k(T) \boldsymbol{I}] \cdot \nabla \hat{T},
 # \end{align*}
 # where $\boldsymbol{I}$ is the 2x2 identity matrix.
 #
@@ -247,10 +247,13 @@ gdim = domain.geometry.dim
 
 def k_impl(T):
     # The input `T` is a `np.ndarray` having the shape equal to (number of
-    # cells, number of interpolation points per cell). The latter is defined according to the quadrature space Q, on which the operator `k` was defined previously.
+    # cells, number of interpolation points per cell). The latter is defined
+    # according to the quadrature space Q, on which the operator `k` was defined
+    # previously.
     output = 1.0 / (A + B * T)
     # The output must be returned flattened to one dimension
     return output.reshape(-1)
+
 
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
@@ -261,8 +264,6 @@ def k_impl(T):
 # \end{equation*}
 
 # %%
-
-
 def dkdT_impl(T):
     return -B * k_impl(T) ** 2
 
@@ -325,16 +326,16 @@ J = derivative(F, T, T_hat)
 #
 # To apply the chain rule and obtain a new form symbolically equivalent to
 #
-# \begin{equation*}
-#     J(T; \hat{T}, \tilde{T}) = \int (D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
-#     D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace) \cdot \nabla \tilde{T} \; \mathrm{d}x \\
-# \end{equation*}
+# $$
+#   J(T; \hat{T}, \tilde{T}) := -\int\limits_{\Omega} D_T [k]\lbrace \hat{T}
+#   \rbrace \nabla T \cdot \nabla \tilde{T} + [k(T) \boldsymbol{I}] \cdot \nabla
+#   \hat{T} \cdot \nabla \tilde{T} \; \mathrm{d}x
+# $$
 #
 # and which can be assembled via DOLFINx, we apply UFL's derivative expansion
 # algorithm. This algorithm is aware of the `FEMExternalOperator` semantics and
-# the chain rule, and creates a new form containing new `FEMExternalOperator`
-# objects associated with the terms $D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace$
-# and $D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace$.
+# the chain rule and creates a new form containing a new `FEMExternalOperator`
+# object associated with the terms $D_T [k]\lbrace \hat{T} \rbrace$.
 
 # %%
 J_expanded = ufl.algorithms.expand_derivatives(J)

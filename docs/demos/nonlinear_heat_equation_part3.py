@@ -114,5 +114,88 @@ def dqdsigma_impl(T, sigma):
     out = dqdsigma_global(T_vectorized, sigma_vectorized)
     return out.reshape(-1)
 
+
 # %% [markdown]
-# The decorator `@jax.jit` guarantees that the first function call will take place at compile time.
+# The decorator `@jax.jit` guarantees that the first function call will take place
+# at compile time.
+#
+# Now we just reuse the code from the previous part of the tutorial to assemble
+# the system containing external operators defined in the JAX package.
+
+# %%
+from mpi4py import MPI
+
+import numpy as np
+
+import basix
+import ufl
+import ufl.algorithms
+from dolfinx import fem, mesh
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
+    replace_external_operators,
+)
+from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
+
+domain = mesh.create_unit_square(MPI.COMM_WORLD, 1, 1)
+V = fem.functionspace(domain, ("CG", 1))
+
+T = fem.Function(V)
+sigma = grad(T)
+
+quadrature_degree = 2
+Qe = basix.ufl.quadrature_element(
+    domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
+Q = fem.functionspace(domain, Qe)
+dx = Measure("dx", metadata={
+             "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+
+def q_external(derivatives):
+    if derivatives == (0, 0):
+        return q_impl
+    elif derivatives == (1, 0):
+        return dqdT_impl
+    elif derivatives == (0, 1):
+        return dqdsigma_impl
+    else:
+        return NotImplementedError
+
+q = FEMExternalOperator(T, sigma, function_space=Q, external_function=q_external)
+T_tilde = TestFunction(V)
+F = inner(q, grad(T_tilde)) * dx
+
+T_hat = TrialFunction(V)
+J = derivative(F, T, T_hat)
+J_expanded = ufl.algorithms.expand_derivatives(J)
+F_replaced, F_external_operators = replace_external_operators(F)
+J_replaced, J_external_operators = replace_external_operators(J_expanded)
+evaluated_operands = evaluate_operands(F_external_operators)
+evaluate_external_operators(F_external_operators, evaluated_operands)
+evaluate_external_operators(J_external_operators, evaluated_operands)
+
+F_compiled = fem.form(F_replaced)
+J_compiled = fem.form(J_replaced)
+b_vector = fem.assemble_vector(F_compiled)
+A_matrix = fem.assemble_matrix(J_compiled)
+
+k_explicit = 1.0 / (A + B * T)
+q_explicit = -k_explicit * sigma
+F_explicit = inner(q_explicit, grad(T_tilde)) * dx
+F_explicit_compiled = fem.form(F_explicit)
+b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
+assert np.allclose(b_explicit_vector.array, b_vector.array)
+
+J_explicit = ufl.derivative(F_explicit, T, T_hat)
+J_explicit_compiled = fem.form(J_explicit)
+A_explicit_matrix = fem.assemble_matrix(J_explicit_compiled)
+assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
+
+J_manual = (
+    inner(B * k_explicit**2 * sigma * T_hat, grad(T_tilde)) * dx
+    + inner(-k_explicit * ufl.Identity(2) * grad(T_hat), grad(T_tilde)) * dx
+)
+J_manual_compiled = fem.form(J_manual)
+A_manual_matrix = fem.assemble_matrix(J_manual_compiled)
+assert np.allclose(A_manual_matrix.to_dense(), A_matrix.to_dense())
