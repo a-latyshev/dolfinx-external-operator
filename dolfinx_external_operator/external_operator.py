@@ -5,7 +5,6 @@ import numpy as np
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.mesh import Mesh
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 
@@ -150,7 +149,7 @@ def evaluate_external_operators(
                             containing their evaluation.
 
     Returns:
-        A list containing the evaluation of the external operators.        
+        A list containing the evaluation of the external operators.
     """
     evaluated_operators = []
     for external_operator in external_operators:
@@ -158,13 +157,13 @@ def evaluate_external_operators(
                              for operand in external_operator.ufl_operands]
         external_operator_eval = external_operator.external_function(
             external_operator.derivatives)(*ufl_operands_eval)
-    
+
         # TODO: It's not clear if this call should be here, or outside the
         # function - too implicit?
         np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
-    
+
         evaluated_operators.append(external_operator_eval)
-    
+
     return evaluated_operators
 
 
