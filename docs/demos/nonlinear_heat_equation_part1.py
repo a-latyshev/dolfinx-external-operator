@@ -125,9 +125,29 @@
 #   D_T [k]\lbrace \hat{T} \rbrace =
 #   [-Bk^2(T)] \hat{T}
 # \end{equation*}
+#
+# In our framework, we treat the Gateaux derivative $D_T [k]\lbrace \hat{T}
+# \rbrace$ as an action between the "classical" derivative of the expression
+# $k(T)$ and the argument $\hat{T}$, which is ... TODO: It's super hard to explain
+# it in a simple way... That's why I suggested to a "simple example" where we
+# could've explained the theory just a little bit...
+#
+# In our framework, we distinguish two parts of the Gateaux derivative $D_T
+# [k]\lbrace \hat{T} \rbrace$: the left one associated with the "classical"
+# derivative of the expression $k(T)$ and the right one expressing the argument
+# $\hat{T}$ (a.k.a. trial function). The right part may have a more complex
+# expression, e.g. $\nabla\hat{T}$, as you will see from other tutorials.
+#
+# ```{note}
+# By implementation of derivatives of an external operator, we always mean the
+# implementation of the "left" part of its Gateaux derivative. The "right" part is
+# handled by the framework during automatic differentiation.
+# ```
+#
 # We now proceed to the definition of residual and Jacobian of this problem
-# where $\boldsymbol{q}$ will be defined using the `FEMExternalOperator` approach
+# where $k$ will be defined using the `FEMExternalOperator` approach
 # and an external implementation using the `Numpy` package.
+#
 # ```{note}
 # This simple model can also be implemented in pure UFL and the Jacobian
 # derived symbolically using UFL's `derivative` function.
@@ -256,7 +276,7 @@ def k_impl(T):
 
 
 # %% [markdown]
-# Because we also wish to assemble the Jacobian we will also require
+# Because we wish to assemble the Jacobian we will also require
 # implementations of the left part of the derivative
 # \begin{equation*}
 #     D_{T}[k(T)] \lbrace \hat{T} \rbrace =
