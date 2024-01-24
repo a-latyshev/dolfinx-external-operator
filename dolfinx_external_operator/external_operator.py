@@ -160,8 +160,8 @@ def evaluate_external_operators(
             external_operator.derivatives)(*ufl_operands_eval)
     
         # TODO: It's not clear if this call should be here, or outside the
-        # function.
-        np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
+        # function - too implicit?
+        external_operator.ref_coefficient.x.array[:] = external_operator_eval[0]
     
         evaluated_operators.append(external_operator_eval)
     
