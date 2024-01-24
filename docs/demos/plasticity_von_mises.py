@@ -125,7 +125,6 @@ S = fem.functionspace(mesh, S_element)
 
 Du = fem.Function(V, name="displacement_increment")
 
-
 def epsilon(v):
     grad_v = ufl.grad(v)
     return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
@@ -205,7 +204,7 @@ def C_tang_impl(deps):
         dp_,
     )
 
-    return C_tang_.reshape(-1), sigma_new, dp_new
+    return C_tang_.reshape(-1)
 
 
 def sigma_impl(deps):
@@ -253,5 +252,3 @@ u = fem.Function(V, name="displacement")
 # Continuation
 for i, load_step in enumerate(load_steps):
     loading.value = -load_step * q_lim
-
-
