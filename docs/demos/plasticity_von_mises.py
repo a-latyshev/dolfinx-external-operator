@@ -25,6 +25,8 @@
 
 # %%
 
+from numpy.lib.utils import who
+from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -162,10 +164,8 @@ C_elas = np.array(
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-# TODO: Can be numba or jax jitted
 def return_mapping(deps, sigma, p, dp):
     """Performs the return-mapping procedure."""
-    # TODO: Add loop over points?
     sigma_elastic = sigma + C_elas @ deps
     s = deviatoric @ sigma_elastic
     sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
@@ -173,7 +173,7 @@ def return_mapping(deps, sigma, p, dp):
     f_elastic = sigma_eq - sigma_0 - H * p
     f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
 
-    dp_new = f_elastic_plus / (3 * mu_ + H)
+    dp = f_elastic_plus / (3 * mu_ + H)
 
     n_elas = s / sigma_eq * f_elastic_plus / f_elastic
     beta = 3 * mu_ * dp / sigma_eq
@@ -183,34 +183,44 @@ def return_mapping(deps, sigma, p, dp):
     n_elas_matrix = np.outer(n_elas, n_elas)
     C_tang = C_elas - 3 * mu_ * (3 * mu_ / (3 * mu_ + H) - beta) * n_elas_matrix - 2 * mu_ * beta * deviatoric
 
-    return C_tang, sigma_new, dp_new
+    return C_tang, sigma_new, dp
 
 # Internal state
 p = fem.Function(P, name="cumulative_plastic_strain")
 dp = fem.Function(P, name="incremental_plastic_strain")
 sigma = fem.Function(S, name="stress")
 
+num_quadrature_points = P_element.dim
+
 def C_tang_impl(deps):
-    # TODO: Are these shapes correct?
-    deps_ = deps.reshape((-1, 4))
-    sigma_ = sigma.x.array.reshape((-1, 4))
-    p_ = p.x.array.reshape((-1, 1))
-    dp_ = dp.x.array.reshape((-1, 1))
+    num_cells = deps.shape[0]     
 
-    C_tang_, sigma_new, dp_new = return_mapping(
-        deps_,
-        sigma_,
-        p_,
-        dp_,
-    )
+    # Output
+    C_tang_new = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
+    sigma_new = np.empty((num_cells, num_quadrature_points, 4), dtype=PETSc.ScalarType)
+    dp = np.empty((num_cells, num_gauss_points), dtype=PETSc.ScalarType)
 
-    # NOTE: There is nothing stopping you doing the state update here, or
-    # inside the calculation.
-    return C_tang_.reshape(-1), sigma_new, dp_new
+    deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
+    
+    # Current state
+    sigma_ = sigma.x.array.reshape((num_cells, num_quadrature_points, 4))
+    p_ = p.x.array.reshape((num_cells, num_quadrature_points))
+    dp_ = dp.x.array.reshape((num_cells, num_quadrature_points))
+
+    for i in range(num_cells):
+        for j in range(num_quadrature_points):
+            C_tang_[i, j], sigma_new[i, j], dp[i, j] = return_mapping(
+                deps_[i, j],
+                sigma_[i, j],
+                p_[i, j],
+                dp_[i, j]
+            )
+
+    return C_tang_.reshape(-1), sigma_new.reshape(-1), dp.reshape(-1)
 
 
 def sigma_impl(deps):
-    return NotImplementedError
+    return sigma
 
 
 def sigma_external(derivatives):
@@ -237,12 +247,16 @@ sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V
 bcs = [sym_bottom, sym_left]
 
 # Form manipulations
-J_expanded = ufl.algorithms.expand_derivatives(J)
 F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
-
 F_replaced = fem.form(F_replaced)
+
+J_expanded = ufl.algorithms.expand_derivatives(J)
+J_replaced, J_external_operators = replace_external_operators(J_expanded)
 J_form = fem.form(J_replaced)
+
+# NOTE: Small test, remove.
+evaluated_operands = evaluate_operands(F_external_operators)
+_, _, _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 num_increments = 20
 load_steps = np.linspace(0, 1.1, num_increments + 1)[1:] ** 0.5
@@ -252,5 +266,6 @@ q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 u = fem.Function(V, name="displacement")
 
 # Continuation
+# TODO: Bring back and make a bit cleaner.
 for i, load_step in enumerate(load_steps):
     loading.value = -load_step * q_lim
