@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Callable, Any
 
 import numpy as np
 
@@ -27,7 +27,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         self,
         *operands,
         function_space: fem.function.FunctionSpace,
-        external_function=None,
+        external_function: Callable[Tuple[int, ...], Any],
         derivatives: Optional[Tuple[int, ...]] = None,
         argument_slots=(),
         hidden_operands: Optional[List[Union[fem.function.Function, np.ndarray]]] = [

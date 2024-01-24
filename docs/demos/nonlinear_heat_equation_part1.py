@@ -8,13 +8,20 @@
 #       format_name: percent
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
 # ---
 
 # %% [markdown]
 # # Non-linear heat equation
 #
 # In this notebook, we assemble the Jacobian and residual of a steady-state heat
-# equation with an external operator to be used to define a non-linear flux law.
+# equation with an external operator to be used to define a non-linear flux law
+# through some external piece of code. Although this example is trivial and the
+# flux may be expressed through UFL, it is simple enough to let the FEniCSx-users
+# get acquainted with the new concept of external operators.
 #
 # To keep the concepts simple we do not solve the non-linear problem, which we
 # leave to a subsequent demo.
@@ -80,7 +87,7 @@
 # written in residual form as find $T \in V$ such that
 #
 # $$
-#   F(T; \tilde{T}) = - \int k(T) \nabla T \cdot \nabla \tilde{T} - f \cdot
+#   F(T; \tilde{T}) = - \int\limits_{\Omega} k(T) \nabla T \cdot \nabla \tilde{T} - f \cdot
 #   \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V,
 # $$ (eq_1)
 #
@@ -93,7 +100,7 @@
 # \begin{equation*}
 #   J(T; \hat{T}, \tilde{T})
 #   := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace
-#   := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
+#   := -\int\limits_{\Omega} D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
 # Now we apply the product and chain rules to write
@@ -156,19 +163,18 @@ V = fem.functionspace(domain, ("CG", 1))
 # %% [markdown]
 # ### Defining the external operator
 # We will begin by defining the input *operand* $T$ needed to specify the external
-# operator $k(T)$. Operands of a `FEMExternalOperator` can be any `ufl.Expr`
-# object.
+# operator.
 
 # %%
 T = fem.Function(V)
 
 
 # %% [markdown]
-# We also need to define a `fem.FunctionSpace` in which the output of the external
-# operator $k$ will live. For optimal convergence, $k$
-# must be evaluated directly at the Gauss points used in the integration of the
-# weak form. This can be enforced by constructing a quadrature function space
-# and an integration measure `dx` using the same rule.
+# We also need to define a functional space $Q$ of the external operator $k: V
+# \longrightarrow Q$. For optimal convergence, $k$ must be evaluated directly at
+# the Gauss points used in the integration of the weak form. This can be enforced
+# by constructing a quadrature function space and an integration measure `dx`
+# using the same rule.
 
 # %%
 quadrature_degree = 2
@@ -182,18 +188,30 @@ dx = Measure(
               "quadrature_degree": quadrature_degree},
 )
 
+
+# %% [markdown]
+# The behaviour of the external operator and its derivatives must be defined by a
+# user through a simple function. We will describe in detail its definition
+# further but at the moment we define the following function `k_external_dummy` as
+# a placeholder for the correct user implementation of the operator $k$.
+
+# %%
+def k_external_dummy(derivative):
+    return NotImplementedError
+
+
 # %% [markdown]
 # We can create the external operator $k$ by specifying its operand `T` and its value function space.
 
 # %%
-k = FEMExternalOperator(T, function_space=Q)
+k = FEMExternalOperator(T, function_space=Q, external_function=k_external_dummy)
 
 # %% [markdown]
 # Note that at this stage the object `k` is symbolic and we have not defined the
 # `Numpy` code to compute it. This will be done later in the example.
+#
 # ```{note}
-# `FEMExternalOperator` holds the `ref_coefficient` (a `fem.Function`) attribute
-# to store its evaluation.
+# Operands of a `FEMExternalOperator` can be any `ufl.Expr` object.
 # ```
 
 # %% [markdown]
@@ -227,10 +245,9 @@ A = 1.0
 B = 1.0
 gdim = domain.geometry.dim
 
-
 def k_impl(T):
-    # The input `T` is a `np.ndarray` and has the size equal to the number of
-    # DoFs of the space `V`.
+    # The input `T` is a `np.ndarray` having the shape equal to (number of
+    # cells, number of interpolation points per cell). The latter is defined according to the quadrature space Q, on which the operator `k` was defined previously.
     output = 1.0 / (A + B * T)
     # The output must be returned flattened to one dimension
     return output.reshape(-1)
@@ -270,7 +287,7 @@ def k_external(derivatives):
         at this operand.
 
     Returns:
-        a callable Python function.
+        a callable.
     """
     if derivatives == (0,):  # no derivation, the function itself
         return k_impl
@@ -347,7 +364,7 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 #
 # ### Assembly
 # We can now proceed with the finite element assembly in three key steps.
-# 1. Evaluate the operands (`T` and `sigma`) associated with the
+# 1. Evaluate the operand `T` associated with the
 # `FEMExternalOperator`(s) on the quadrature space `Q`.
 
 # %%
@@ -360,19 +377,13 @@ evaluated_operands = evaluate_operands(F_external_operators)
 # ```
 
 # %% [markdown]
-# 2a. Using the evaluated operands, evaluate the external operators in
-# `F_external_operators` and assemble the result into the `fem.Function` object
-# in `F_replaced`. This calls `q_impl` defined above.
+# 2. Using the evaluated operands, evaluate the external operators in the lists
+# `F_external_operators` and `J_external_operators` and assemble the result
+# into the `fem.Function` objects in `F_replaced` and `J_replaced`
+# respectively. These calls are defined above by `k_impl` and `dkdT_impl`.
 
 # %%
 evaluate_external_operators(F_external_operators, evaluated_operands)
-
-# %% [markdown]
-# 2b. Using the evaluated operands, evaluate the external operators in
-# `J_external_operators` and assemble the results into `fem.Function` objects
-# in `J_replaced`. This calls `dqdT_impl` and `dqdsigma_impl` defined above.
-
-# %%
 evaluate_external_operators(J_external_operators, evaluated_operands)
 
 # %% [markdown]

@@ -304,8 +304,8 @@ F_replaced, F_external_operators = replace_external_operators(F)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
 evaluated_operands = evaluate_operands(F_external_operators)
 evaluate_external_operators(F_external_operators, evaluated_operands)
-
 evaluate_external_operators(J_external_operators, evaluated_operands)
+
 F_compiled = fem.form(F_replaced)
 J_compiled = fem.form(J_replaced)
 b_vector = fem.assemble_vector(F_compiled)
