@@ -161,6 +161,16 @@ V = fem.functionspace(domain, ("CG", 1))
 
 # %%
 T = fem.Function(V)
+# %% [markdown]
+# To start the Newton method we require non-zero assembled residual and Jacobian,
+# thus we initialize the variable `T` with the following non-zero function
+#
+# $$
+#     T = x^2 + y
+# $$
+
+# %%
+T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 
 # %% [markdown]
