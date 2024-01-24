@@ -34,8 +34,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
         Args:
             operands: operands on which the external operator acts.
-            function_space: the `FunctionSpace`, or `MixedFunctionSpace`(?) on
-                which to build this Function.
+            function_space: the `FunctionSpace`.
             external_function: A callable Python function defining the
                 behaviour of the external operator and its derivatives.
             derivatives: A tuple specifiying the derivative multiindex with
