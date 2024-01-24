@@ -108,7 +108,6 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[Uni
     Returns:
         A map between UFL operand and the `ndarray`, the evaluation of the operand.
     """
-    # TODO: Generalise to evaluate operands on subset of cells.
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
@@ -120,7 +119,6 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[Uni
     cells = np.arange(0, num_cells, dtype=np.int32)
 
     # Evaluate unique operands in external operators
-    # Global map of unique operands presenting in provided external operators
     evaluated_operands = {}
     for external_operator in external_operators:
         # TODO: Is it possible to get the basix information out here?
@@ -131,8 +129,6 @@ def evaluate_operands(external_operators: List[FEMExternalOperator]) -> Dict[Uni
                 # TODO: Next call is potentially expensive in parallel.
                 expr = fem.Expression(operand, quadrature_points)
                 evaluated_operand = expr.eval(mesh, cells)
-                # TODO: to optimize!
-                # It's better to allocate memory in advance and just to copy it every time
                 evaluated_operands[operand] = evaluated_operand
 
     return evaluated_operands
@@ -160,7 +156,7 @@ def evaluate_external_operators(
 
         # TODO: It's not clear if this call should be here, or outside the
         # function - too implicit?
-        np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
+        np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
 
         evaluated_operators.append(external_operator_eval)
 
