@@ -365,7 +365,7 @@ evaluated_operands = evaluate_operands(F_external_operators)
 
 # %% [markdown]
 # ```{note}
-# `evaluated_operands` represents a map between operands `ufl.Expr` and their
+# `evaluated_operands` is a map between operands `ufl.Expr` and their
 # evaluations stored in `np.ndarray`-s.
 # ```
 
@@ -410,6 +410,8 @@ q_explicit = -k_explicit * grad(T)
 F_explicit = inner(q_explicit, grad(T_tilde)) * dx
 F_explicit_compiled = fem.form(F_explicit)
 b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
+print(b_explicit_vector.array)
+print(b_vector.array)
 assert np.allclose(b_explicit_vector.array, b_vector.array)
 
 # %% [markdown]
