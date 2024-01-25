@@ -51,8 +51,6 @@ nu = 0.3
 
 sigma_0 = 250.0  # yield strength
 
-# NOTE: Is this really necessary for initialising the Newton solver?
-TPV = np.finfo(PETSc.ScalarType).eps  # très petite value
 
 # %% [markdown]
 # ### Building the mesh
@@ -64,7 +62,8 @@ gdim = 2
 lc = 0.3
 verbosity = 0
 
-# TODO: Put this in another file? Can execute with cell magic?
+# TODO: Adds clutter. Put this in another file and import it? Interested users
+# will know gmsh.
 model_rank = 0
 gmsh.initialize()
 
@@ -175,10 +174,11 @@ p = fem.Function(P, name="cumulative_plastic_strain")
 dp = fem.Function(P, name="incremental_plastic_strain")
 sigma = fem.Function(S, name="stress")
 
+# NOTE: Having this here will allow LLVM to unroll quadrature loop
 num_quadrature_points = P_element.dim
 
 
-@numba.jit
+@numba.njit
 def return_mapping(deps_, sigma_, p_, dp_):
     """Performs the return-mapping procedure."""
     num_cells = deps_.shape[0]
@@ -188,7 +188,7 @@ def return_mapping(deps_, sigma_, p_, dp_):
     sigma_new_ = np.empty_like(sigma_)
     dp_new_ = np.empty_like(dp_)
 
-    # NOTE: LLVM will inline this.
+    # NOTE: LLVM will inline this function call.
     def _kernel(deps, sigma, p, dp):
         sigma_elastic = sigma + C_elas @ deps
         s = deviatoric @ sigma_elastic
@@ -266,6 +266,9 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 J_form = fem.form(J_replaced)
 
 # NOTE: Small test, to remove/move.
+# Avoid divide by zero
+eps = np.finfo(PETSc.ScalarType).eps
+Du.x.array[:] = eps
 evaluated_operands = evaluate_operands(F_external_operators)
 ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
