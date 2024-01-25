@@ -144,7 +144,8 @@ n = ufl.FacetNormal(mesh)
 loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
-F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+# TODO: think about the sign later
+F = ufl.inner(sigma, epsilon(v)) * dx + loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
 
 lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
