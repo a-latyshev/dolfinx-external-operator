@@ -28,16 +28,15 @@ import sys
 from mpi4py import MPI
 from petsc4py import PETSc
 
-import gmsh
 import numpy as np
-import solvers
+from solvers import LinearProblem
+from utilities import build_cylinder_quarter
 
 import basix
 import ufl
 import numba
 from dolfinx import fem
-import dolfinx.fem.petsc
-from dolfinx.io import gmshio
+import dolfinx.fem.petsc # bug, get rid of it
 from dolfinx_external_operator import (
     FEMExternalOperator,
     replace_external_operators,
@@ -59,59 +58,9 @@ sigma_0 = 250.0  # yield strength
 # ### Building the mesh
 
 # %%
-# Source: https://newfrac.github.io/fenicsx-fracture/notebooks/plasticity/plasticity.html
-# mesh parameters
-gdim = 2
-lc = 0.3
-verbosity = 0
+mesh, facet_tags, facet_tags_labels = build_cylinder_quarter()
 
-# TODO: Adds clutter. Put this in another file and import it? Interested users
-# will know gmsh.
-model_rank = 0
-gmsh.initialize()
-
-facet_tags_labels = {"Lx": 1, "Ly": 2, "inner": 3, "outer": 4}
-
-cell_tags_map = {"all": 20}
-if MPI.COMM_WORLD.rank == model_rank:
-    model = gmsh.model()
-    model.add("Quart_cylinder")
-    model.setCurrent("Quart_cylinder")
-    # Create the points
-    pix = model.occ.addPoint(R_i, 0.0, 0, lc)
-    pex = model.occ.addPoint(R_e, 0, 0, lc)
-    piy = model.occ.addPoint(0.0, R_i, 0, lc)
-    pey = model.occ.addPoint(0.0, R_e, 0, lc)
-    center = model.occ.addPoint(0.0, 0.0, 0, lc)
-    # Create the lines
-    lx = model.occ.addLine(pix, pex, tag=facet_tags_labels["Lx"])
-    lout = model.occ.addCircleArc(pex, center, pey, tag=facet_tags_labels["outer"])
-    ly = model.occ.addLine(pey, piy, tag=facet_tags_labels["Ly"])
-    lin = model.occ.addCircleArc(piy, center, pix, tag=facet_tags_labels["inner"])
-    # Create the surface
-    cloop1 = model.occ.addCurveLoop([lx, lout, ly, lin])
-    surface_1 = model.occ.addPlaneSurface([cloop1], tag=cell_tags_map["all"])
-    model.occ.synchronize()
-    # Assign mesh and facet tags
-    surface_entities = [entity[1] for entity in model.getEntities(2)]
-    model.addPhysicalGroup(2, surface_entities, tag=cell_tags_map["all"])
-    model.setPhysicalName(2, 2, "Quart_cylinder surface")
-    for key, value in facet_tags_labels.items():
-        # 1 : it is the dimension of the object (here a curve)
-        model.addPhysicalGroup(1, [value], tag=value)
-        model.setPhysicalName(1, value, key)
-    # Finalize mesh
-    model.occ.synchronize()
-    gmsh.option.setNumber("General.Verbosity", verbosity)
-    model.mesh.generate(gdim)
-
-mesh, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0.0, gdim=2)
-
-mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
-mesh.name = "quarter_cylinder"
-cell_tags.name = f"{mesh.name}_cells"
-facet_tags.name = f"{mesh.name}_facets"
-
+# %%
 k_u = 2
 V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
 
@@ -177,7 +126,7 @@ sigma_n = fem.Function(S, name="stress_n")
 num_quadrature_points = P_element.dim
 
 
-# @numba.njit
+@numba.njit
 def return_mapping(deps_global, sigma_n_global, p_global):
     """Performs the return-mapping procedure."""
     num_cells = deps_global.shape[0]
@@ -300,7 +249,7 @@ def find_cell_by_point(mesh, point):
 
 
 # %%
-external_operator_problem = solvers.LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
