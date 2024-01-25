@@ -193,29 +193,32 @@ num_quadrature_points = P_element.dim
 
 def C_tang_impl(deps):
     num_cells = deps.shape[0]
-
-    # Output
-    C_tang = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
-    sigma_new = np.empty((num_cells, num_quadrature_points, 4), dtype=PETSc.ScalarType)
-    dp = np.empty((num_cells, num_quadrature_points), dtype=PETSc.ScalarType)
-
     deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
 
     # Current state
     sigma_ = sigma.x.array.reshape((num_cells, num_quadrature_points, 4))
     p_ = p.x.array.reshape((num_cells, num_quadrature_points))
     dp_ = dp.x.array.reshape((num_cells, num_quadrature_points))
+    
+    # New state
+    C_tang = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
+    sigma_new = np.empty_like(sigma_)
+    dp_new = np.empty_like(dp_)
 
+    # NOTE: This is the only hot loop - you could move your hot loop to inside
+    # return_mapping and pass arrays and only njit that routine. Reshaping
+    # arrays and large memory allocations are the same speed in numba and
+    # inside Python intepreter (numpy C code).
     for i in range(num_cells):
         for j in range(num_quadrature_points):
-            C_tang[i, j], sigma_new[i, j], dp[i, j] = return_mapping(
+            C_tang[i, j], sigma_new[i, j], dp_new[i, j] = return_mapping(
                 deps_[i, j],
                 sigma_[i, j],
                 p_[i, j],
                 dp_[i, j]
             )
 
-    return C_tang.reshape(-1), sigma_new.reshape(-1), dp.reshape(-1)
+    return C_tang.reshape(-1), sigma_new.reshape(-1), dp_new.reshape(-1)
 
 
 def sigma_impl(deps):
@@ -231,7 +234,7 @@ def sigma_external(derivatives):
         return NotImplementedError
 
 
-sigma.external_function = sigma_external
+sigma_operator.external_function = sigma_external
 
 # Boundary conditions
 bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
@@ -253,9 +256,9 @@ J_expanded = ufl.algorithms.expand_derivatives(J)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
 J_form = fem.form(J_replaced)
 
-# NOTE: Small test, remove.
+# NOTE: Small test, to remove/move.
 evaluated_operands = evaluate_operands(F_external_operators)
-_, _, _ = evaluate_external_operators(J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 num_increments = 20
 load_steps = np.linspace(0, 1.1, num_increments + 1)[1:] ** 0.5

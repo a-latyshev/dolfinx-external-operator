@@ -155,7 +155,7 @@ def evaluate_external_operators(
 
         # TODO: It's not clear if this call should be here, or outside the
         # function - too implicit?
-        np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
+        np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
 
         evaluated_operators.append(external_operator_eval)
 
