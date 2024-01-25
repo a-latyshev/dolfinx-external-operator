@@ -169,10 +169,6 @@ deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
 
-# Internal state
-p = fem.Function(P, name="cumulative_plastic_strain")
-dp = fem.Function(P, name="incremental_plastic_strain")
-sigma = fem.Function(S, name="stress")
 
 # NOTE: Having this here will allow LLVM to unroll quadrature loop
 num_quadrature_points = P_element.dim
@@ -214,6 +210,12 @@ def return_mapping(deps_, sigma_, p_, dp_):
             C_tang_[i, j], sigma_new_[i, j], dp_new_[i, j] = _kernel(deps_[i, j], sigma_[i, j], p_[i, j], dp_[i, j])
 
     return C_tang_, sigma_new_, dp_new_
+
+
+# Internal state
+p = fem.Function(P, name="cumulative_plastic_strain")
+dp = fem.Function(P, name="incremental_plastic_strain")
+sigma = fem.Function(S, name="stress")
 
 
 def C_tang_impl(deps):
@@ -280,6 +282,6 @@ q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 u = fem.Function(V, name="displacement")
 
 # Continuation
-# TODO: Bring back and make a bit cleaner.
+# TODO: Bring back and then discuss.
 for i, load_step in enumerate(load_steps):
     loading.value = -load_step * q_lim
