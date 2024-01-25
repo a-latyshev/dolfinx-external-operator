@@ -1,7 +1,8 @@
-from dolfinx.geometry import (
-    bb_tree, compute_colliding_cells, compute_collisions_points)
 from mpi4py import MPI
+
 import gmsh
+
+from dolfinx.geometry import bb_tree, compute_colliding_cells, compute_collisions_points
 from dolfinx.io import gmshio
 
 
@@ -37,8 +38,7 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.):
             piy, center, pix, tag=facet_tags_labels["inner"])
         # Create the surface
         cloop1 = model.occ.addCurveLoop([lx, lout, ly, lin])
-        surface_1 = model.occ.addPlaneSurface(
-            [cloop1], tag=cell_tags_map["all"])
+        _ = model.occ.addPlaneSurface( [cloop1], tag=cell_tags_map["all"])
         model.occ.synchronize()
         # Assign mesh and facet tags
         surface_entities = [entity[1] for entity in model.getEntities(2)]

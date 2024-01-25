@@ -125,24 +125,24 @@
 # ### Preamble
 
 # %%
-import matplotlib.pyplot as plt
-import sys
+
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import matplotlib.pyplot as plt
+import numba
 import numpy as np
 from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
-import numba
-from dolfinx import fem, common
+from dolfinx import common, fem
 from dolfinx_external_operator import (
     FEMExternalOperator,
-    replace_external_operators,
     evaluate_external_operators,
-    evaluate_operands
+    evaluate_operands,
+    replace_external_operators,
 )
 
 # %%

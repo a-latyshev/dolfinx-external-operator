@@ -4,7 +4,6 @@ from petsc4py import PETSc
 
 import ufl
 from dolfinx import fem
-import dolfinx.fem.petsc  # bug?, get rid of it
 
 
 class LinearProblem:
