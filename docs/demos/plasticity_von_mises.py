@@ -39,8 +39,9 @@ from dolfinx.io import gmshio
 from dolfinx_external_operator import (
     FEMExternalOperator,
     replace_external_operators,
+    evaluate_external_operators,
+    evaluate_operands
 )
-from dolfinx_external_operator.external_operator import evaluate_external_operators, evaluate_operands
 
 # %%
 R_e, R_i = 1.3, 1.0  # external/internal radius
