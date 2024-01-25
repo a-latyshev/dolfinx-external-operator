@@ -134,23 +134,22 @@ sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V
 
 bcs = [sym_bottom, sym_left]
 
+
 # %%
-num_quadrature_points = P_element.dim
+# num_quadrature_points = P_element.dim
 # NOTE: if we have the above why not to have this one
 # num_cells = int(p.x.array.shape[0]/num_quadrature_points)
 
-
+# The underscore means "_" with "appropriate" shape
 @numba.njit
-def return_mapping(deps_global, sigma_n_global, p_global):
+def return_mapping(deps_, sigma_n_, p_):
     """Performs the return-mapping procedure."""
-    num_cells = deps_global.shape[0]
-    deps_ = deps_global.reshape((num_cells, num_quadrature_points, 4))
-    sigma_n_ = sigma_n_global
-    p_ = p_global
+    num_cells = deps_.shape[0]
+    num_quadrature_points = deps_.shape[1]
 
     C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
-    sigma_ = np.empty_like(sigma_n_global)
-    dp_ = np.empty_like(p_global)
+    sigma_ = np.empty_like(sigma_n_)
+    dp_ = np.empty_like(p_)
 
     # NOTE: LLVM will inline this function call.
     def _kernel(deps_local, sigma_n_local, p_local):
@@ -182,14 +181,16 @@ def return_mapping(deps_global, sigma_n_global, p_global):
 
 def C_tang_impl(deps):
     num_cells = deps.shape[0]
+    num_quadrature_points = int(deps.shape[1]/4)
+
     deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
     # Current state
     sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
     p_ = p.x.array.reshape((num_cells, num_quadrature_points))
 
-    C_tang, sigma_new, dp_new = return_mapping(deps_, sigma_n_, p_)
+    C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
 
-    return C_tang.reshape(-1), sigma_new.reshape(-1), dp_new.reshape(-1)
+    return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
 
 
 def sigma_impl(deps):
@@ -253,23 +254,17 @@ du = fem.Function(V, name="Newton_correction")
 external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
-num_increments = 20
-load_steps = np.linspace(0, 1.1, num_increments + 1)[1:] ** 0.5
-results = np.zeros((num_increments + 1, 2))
-q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-
-# %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
 # It is required to run this program via MPI in order to capture the process, to which this point is attached
-
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_proc = find_cell_by_point(mesh, x_point)
 
-Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
-Nincr = 20
+# %%
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-load_steps = np.linspace(0, 1.1, Nincr + 1)[1:] ** 0.5
-results = np.zeros((Nincr + 1, 2))
+Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
+num_increments = 20
+load_steps = np.linspace(0, 1.1, num_increments + 1)[1:] ** 0.5
+results = np.zeros((num_increments + 1, 2))
 
 # timer3 = common.Timer("Solving the problem")
 # start = MPI.Wtime()
@@ -297,12 +292,6 @@ for i, t in enumerate(load_steps):
         Du.vector.axpy(1, du.vector)  # Du = Du + 1*du
         Du.x.scatter_forward()
 
-        # Evaluation of new_eps(Du):
-        # evaluated_operands = evaluate_operands(F_external_operators)
-        # evaluate_operands_v2(operands_to_project, mesh)
-        # Return-mapping procedure and stress update:
-        # evaluate_external_operators(J_external_operators, evaluated_operands)
-
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         sigma.ref_coefficient.x.array[:] = sigma_new
@@ -319,9 +308,6 @@ for i, t in enumerate(load_steps):
 
     p.vector.axpy(1, dp.vector)
     p.x.scatter_forward()
-    # p.x.array[:] = p.x.array + dp
-    # NOTE: Isn't sigma_old already updated?
-    # ANSWER: No it's not! This is the history!!
     np.copyto(sigma_n.x.array, sigma.ref_coefficient.x.array)
 
     if len(points_on_proc) > 0:
