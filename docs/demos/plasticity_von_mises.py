@@ -112,26 +112,13 @@ facet_tags.name = f"{mesh.name}_facets"
 k_u = 2
 V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
 
-k_stress = 2 * (k_u - 1)
-P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
-S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
-
-P = fem.functionspace(mesh, P_element)
-S = fem.functionspace(mesh, S_element)
-
-Du = fem.Function(V, name="displacement_increment")
-
 
 def epsilon(v):
     grad_v = ufl.grad(v)
     return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
 
 
-sigma_operator = FEMExternalOperator(epsilon(Du), function_space=S)
-
-n = ufl.FacetNormal(mesh)
-loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
-
+k_stress = 2 * (k_u - 1)
 ds = ufl.Measure(
     "ds",
     domain=mesh,
@@ -145,11 +132,17 @@ dx = ufl.Measure(
     metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
 )
 
+Du = fem.Function(V, name="displacement_increment")
+S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
+S = fem.functionspace(mesh, S_element)
+sigma_operator = FEMExternalOperator(epsilon(Du), function_space=S)
+
+n = ufl.FacetNormal(mesh)
+loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
+
 v = ufl.TestFunction(V)
 F = ufl.inner(sigma_operator, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
-u_hat = ufl.TrialFunction(V)
-J = ufl.derivative(F, Du, u_hat)
 
 lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
 mu = E / 2.0 / (1.0 + nu)
@@ -169,8 +162,14 @@ deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
 
+# Internal state
+P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
+P = fem.functionspace(mesh, P_element)
 
-# NOTE: Having this here will allow LLVM to unroll quadrature loop
+p = fem.Function(P, name="cumulative_plastic_strain")
+dp = fem.Function(P, name="incremental_plastic_strain")
+sigma = fem.Function(S, name="stress")
+
 num_quadrature_points = P_element.dim
 
 
@@ -210,12 +209,6 @@ def return_mapping(deps_, sigma_, p_, dp_):
             C_tang_[i, j], sigma_new_[i, j], dp_new_[i, j] = _kernel(deps_[i, j], sigma_[i, j], p_[i, j], dp_[i, j])
 
     return C_tang_, sigma_new_, dp_new_
-
-
-# Internal state
-p = fem.Function(P, name="cumulative_plastic_strain")
-dp = fem.Function(P, name="incremental_plastic_strain")
-sigma = fem.Function(S, name="stress")
 
 
 def C_tang_impl(deps):
@@ -260,6 +253,9 @@ sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V
 bcs = [sym_bottom, sym_left]
 
 # Form manipulations
+u_hat = ufl.TrialFunction(V)
+J = ufl.derivative(F, Du, u_hat)
+
 F_replaced, F_external_operators = replace_external_operators(F)
 F_replaced = fem.form(F_replaced)
 
