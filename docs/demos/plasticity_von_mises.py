@@ -263,13 +263,6 @@ Nincr = 20
 load_steps = np.linspace(0, 1.1, Nincr + 1)[1:] ** 0.5
 results = np.zeros((Nincr + 1, 2))
 
-# timer3 = common.Timer("Solving the problem")
-# start = MPI.Wtime()
-# timer3.start()
-
-# TODO: Why can't we use NewtonSolver?
-# ANSWER: May be not for this example? it's heavy enough.
-# Mohr-Coulomb where the algo is more general suits better to introduce the nonlinear solver + external operators, IMHO.
 for i, t in enumerate(load_steps):
     loading.value = t * q_lim
     external_operator_problem.assemble_vector()
@@ -289,12 +282,6 @@ for i, t in enumerate(load_steps):
         Du.vector.axpy(1, du.vector)  # Du = Du + 1*du
         Du.x.scatter_forward()
 
-        # Evaluation of new_eps(Du):
-        # evaluated_operands = evaluate_operands(F_external_operators)
-        # evaluate_operands_v2(operands_to_project, mesh)
-        # Return-mapping procedure and stress update:
-        # evaluate_external_operators(J_external_operators, evaluated_operands)
-
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         sigma.ref_coefficient.x.array[:] = sigma_new
@@ -306,14 +293,12 @@ for i, t in enumerate(load_steps):
         if MPI.COMM_WORLD.rank == 0:
             print(f"    it# {niter} Residual: {nRes}")
         niter += 1
-    u.vector.axpy(1, Du.vector)  # u = u + 1*Du
+    u.vector.axpy(1., Du.vector)  # u = u + 1*Du
     u.x.scatter_forward()
 
-    p.vector.axpy(1, dp.vector)
+    p.vector.axpy(1., dp.vector)
     p.x.scatter_forward()
-    # p.x.array[:] = p.x.array + dp
-    # NOTE: Isn't sigma_old already updated?
-    # ANSWER: No it's not! This is the history!!
+    
     np.copyto(sigma_n.x.array, sigma.ref_coefficient.x.array)
 
     if len(points_on_proc) > 0:
