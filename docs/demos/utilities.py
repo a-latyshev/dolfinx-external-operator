@@ -1,3 +1,5 @@
+from dolfinx.geometry import (
+    bb_tree, compute_colliding_cells, compute_collisions_points)
 from mpi4py import MPI
 import gmsh
 from dolfinx.io import gmshio
@@ -60,3 +62,16 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.):
     facet_tags.name = f"{mesh.name}_facets"
 
     return mesh, facet_tags, facet_tags_labels
+
+
+def find_cell_by_point(mesh, point):
+    cells = []
+    points_on_proc = []
+    tree = bb_tree(mesh, mesh.geometry.dim)
+    cell_candidates = compute_collisions_points(tree, point)
+    colliding_cells = compute_colliding_cells(mesh, cell_candidates, point)
+    for i, point in enumerate(point):
+        if len(colliding_cells.links(i)) > 0:
+            points_on_proc.append(point)
+            cells.append(colliding_cells.links(i)[0])
+    return cells, points_on_proc

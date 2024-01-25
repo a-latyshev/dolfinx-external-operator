@@ -30,13 +30,12 @@ from petsc4py import PETSc
 
 import numpy as np
 from solvers import LinearProblem
-from utilities import build_cylinder_quarter
+from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
 import numba
-from dolfinx import fem
-import dolfinx.fem.petsc # bug, get rid of it
+from dolfinx import fem, common
 from dolfinx_external_operator import (
     FEMExternalOperator,
     replace_external_operators,
@@ -123,7 +122,22 @@ p = fem.Function(P, name="cumulative_plastic_strain")
 dp = fem.Function(P, name="incremental_plastic_strain")
 sigma_n = fem.Function(S, name="stress_n")
 
+# Boundary conditions
+bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
+left_facets = facet_tags.find(facet_tags_labels["Ly"])
+
+bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim - 1, bottom_facets)
+left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim - 1, left_facets)
+
+sym_bottom = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
+sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
+
+bcs = [sym_bottom, sym_left]
+
+# %%
 num_quadrature_points = P_element.dim
+# NOTE: if we have the above why not to have this one
+# num_cells = int(p.x.array.shape[0]/num_quadrature_points)
 
 
 @numba.njit
@@ -193,63 +207,56 @@ def sigma_external(derivatives):
 
 sigma.external_function = sigma_external
 
-# Boundary conditions
-bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
-left_facets = facet_tags.find(facet_tags_labels["Ly"])
-
-bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim - 1, bottom_facets)
-left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim - 1, left_facets)
-
-sym_bottom = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
-sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
-
-bcs = [sym_bottom, sym_left]
 
 # Form manipulations
 u_hat = ufl.TrialFunction(V)
 J = ufl.derivative(F, Du, u_hat)
+J_expanded = ufl.algorithms.expand_derivatives(J)
 
 F_replaced, F_external_operators = replace_external_operators(F)
-F_form = fem.form(F_replaced)
-
-J_expanded = ufl.algorithms.expand_derivatives(J)
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
+# %%
 # NOTE: Small test, to remove/move.
 # Avoid divide by zero
 eps = np.finfo(PETSc.ScalarType).eps
 Du.x.array[:] = eps
+
+# %%
+timer1 = common.Timer("1st numba pass")
+timer1.start()
 evaluated_operands = evaluate_operands(F_external_operators)
 ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+timer1.stop()
 
+timer2 = common.Timer("2nd numba pass")
+timer2.start()
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+timer2.stop()
+
+timer3 = common.Timer("3nd numba pass")
+timer3.start()
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+timer3.stop()
+
+# %%
+common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+
+# %%
+u = fem.Function(V, name="displacement")
+du = fem.Function(V, name="Newton_correction")
+external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+
+# %%
 num_increments = 20
 load_steps = np.linspace(0, 1.1, num_increments + 1)[1:] ** 0.5
 results = np.zeros((num_increments + 1, 2))
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-
-u = fem.Function(V, name="displacement")
-du = fem.Function(V, name="Newton_correction")
-
-# %%
-from dolfinx.geometry import (
-    bb_tree, compute_colliding_cells, compute_collisions_points)
-def find_cell_by_point(mesh, point):
-    cells = []
-    points_on_proc = []
-    tree = bb_tree(mesh, mesh.geometry.dim)
-    cell_candidates = compute_collisions_points(tree, point)
-    colliding_cells = compute_colliding_cells(mesh, cell_candidates, point)
-    for i, point in enumerate(point):
-        if len(colliding_cells.links(i)) > 0:
-            points_on_proc.append(point)
-            cells.append(colliding_cells.links(i)[0])
-    return cells, points_on_proc
-
-
-
-# %%
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
@@ -260,6 +267,7 @@ cells, points_on_proc = find_cell_by_point(mesh, x_point)
 
 Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
 Nincr = 20
+q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 load_steps = np.linspace(0, 1.1, Nincr + 1)[1:] ** 0.5
 results = np.zeros((Nincr + 1, 2))
 
