@@ -34,8 +34,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
         Args:
             operands: operands on which the external operator acts.
-            function_space: the `FunctionSpace`, or `MixedFunctionSpace`(?) on
-                which to build this Function.
+            function_space: the `FunctionSpace`.
             external_function: A callable Python function defining the
                 behaviour of the external operator and its derivatives.
             derivatives: A tuple specifiying the derivative multiindex with
@@ -154,9 +153,10 @@ def evaluate_external_operators(
         external_operator_eval = external_operator.external_function(
             external_operator.derivatives)(*ufl_operands_eval)
 
-        # TODO: It's not clear if this call should be here, or outside the
-        # function - too implicit?
-        np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
+        if type(external_operator_eval) is tuple:
+            np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
+        else:
+            np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
 
         evaluated_operators.append(external_operator_eval)
 
