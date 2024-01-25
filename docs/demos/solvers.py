@@ -4,6 +4,7 @@ from petsc4py import PETSc
 
 import ufl
 from dolfinx import fem
+import dolfinx.fem.petsc  # bug?, get rid of it
 
 
 class LinearProblem:
@@ -37,7 +38,8 @@ class LinearProblem:
         with self.b.localForm() as b_local:
             b_local.set(0.0)
         fem.petsc.assemble_vector(self.b, self.b_form)
-        self.b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        self.b.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                           mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(self.b, self.bcs)
 
     def assemble_matrix(self) -> None:
