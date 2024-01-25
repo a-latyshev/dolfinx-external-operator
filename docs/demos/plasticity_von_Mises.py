@@ -157,7 +157,7 @@ dx = ufl.Measure(
 )
 
 # %%
-sig_old = fem.Function(W, name="stress_from_previous_loading_step")
+sigma_old = fem.Function(W, name="stress_from_previous_loading_step")
 p = fem.Function(W0, name="cumulative_plastic_strain")
 dp = fem.Function(W0, name="increment_plastic_strain")
 
@@ -200,7 +200,7 @@ def epsilon(v):
     return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, SQRT2 * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
 
 
-sigma = FEMExternalOperator(epsilon(u), function_space=W, external_function=sigma_external_dummy)
+sigma = FEMExternalOperator(epsilon(u), sigma_old, p, function_space=W, external_function=sigma_external_dummy)
 
 F = ufl.inner(sigma, epsilon(v)) * dx - F_ext(v)
 J = ufl.derivative(F, u, u_hat)
@@ -221,7 +221,7 @@ deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
 @numba.njit
-def return_mapping(deps, sigma, sigma_old, p):
+def return_mapping(deps, sigma_old, p):
     """Performs the return-mapping procedure locally."""
     sigma_elastic = sigma_old + C_elas @ deps
     s = deviatoric @ sigma_elastic
@@ -243,7 +243,7 @@ def return_mapping(deps, sigma, sigma_old, p):
     return C_tang, sigma_new, dp
 
 @numba.njit
-def C_tang_impl(deps, sigma, sigma_old, p):
+def C_tang_impl(deps, sigma_old, p):
     num_cells = deps.shape[0]
     num_gauss_points = int(deps.shape[1]/4)
     C_tang_new = np.empty((num_cells, num_gauss_points, 4, 4), dtype=PETSc.ScalarType)
@@ -251,13 +251,12 @@ def C_tang_impl(deps, sigma, sigma_old, p):
     sigma_new = np.empty((num_cells, num_gauss_points, 4), dtype=PETSc.ScalarType)
 
     deps_ = deps.reshape((num_cells, num_gauss_points, 4))
-    sigma_ = sigma.reshape((num_cells, num_gauss_points, 4))
     sigma_old_ = sigma_old.reshape((num_cells, num_gauss_points, 4))
     p_ = p.reshape((num_cells, num_gauss_points))
 
     for i in range(num_cells):
         for q in range(num_gauss_points):
-            C_tang, sigma, dp = return_mapping(deps_[i][q], sigma_[i][q], sigma_old_[i][q], p_[i][q])
+            C_tang, sigma, dp = return_mapping(deps_[i][q], sigma_old_[i][q], p_[i][q])
             C_tang_new[i][q][:] = C_tang
             dp_new[i][q] = dp
             sigma_new[i][q][:,:] = sigma
