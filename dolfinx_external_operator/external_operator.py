@@ -153,7 +153,7 @@ def evaluate_external_operators(
         external_operator_eval = external_operator.external_function(
             external_operator.derivatives)(*ufl_operands_eval)
 
-        if external_operator_eval is tuple:
+        if type(external_operator_eval) is tuple:
             np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
         else:
             np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
