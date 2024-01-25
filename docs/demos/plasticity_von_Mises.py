@@ -20,11 +20,9 @@
 #
 # This tutorial aims to demonstrate an efficient implementation of the plasticity
 # model of von Mises using an external operator defining the elastoplastic
-# constitutive relations, which are written via the 3rd party package `Numba`.
+# constitutive relations written with the help of the 3rd party package `Numba`.
 # Here we consider a cylinder expansion problem in the two-dimensional case in a
 # symmetric formulation.
-#
-# <!-- Modelling of an elastoplastic material involves restoring equilibrium between internal and external forces acting on a solid. The Newton method is commonly used to reach this equilibrium on each loading step. -->
 #
 # This tutorial is based on the
 # [original implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
@@ -75,8 +73,7 @@
 #
 # The domain of the problem $\Omega$ represents the first quarter of the hollow
 # cylinder with inner $R_i$ and outer $R_o$ radii, where symmetry conditions are
-# set on the left and bottom sides and pressure is set on the inner wall. The
-# behaviour of cylinder material is defined by the von Mises yield criterion $f$
+# set on the left and bottom sides and pressure is set on the inner wall $\partial\Omega_\text{inner}$. The behaviour of cylinder material is defined by the von Mises yield criterion $f$
 # with the linear isotropic hardening law {eq}`eq_von_Mises`
 #
 # $$
@@ -84,23 +81,23 @@
 # $$ (eq_von_Mises)
 #
 # where $\sigma_0$ is a uniaxial strength and $H$ is an isotropic hardening
-# modulus, which is defined through the tangent elastic modulus $E_t$ and Young
-# modulus $E$.
+# modulus, which is defined through the Young modulus $E$ and the tangent elastic
+# modulus $E_t = \frac{EH}{E+H}$.
 #
 # Let V be the functional space of admissible displacement fields. Then, the weak
 # formulation of this problem can be written as follows:
 #
 # Find $\boldsymbol{u} \in V$ such that
 # $$
-#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)} d\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall \boldsymbol{v} \in V,
+#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)} d\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall \boldsymbol{v} \in V.
 # $$ (eq_main)
 #
-# where the external force $F_{\text{ext}}(\boldsymbol{v})$ represent the pressure inside the cylinder.
+# The external force $F_{\text{ext}}(\boldsymbol{v})$ represents the pressure inside the cylinder and is written as the following Neumann condition
 #
 # $$
 #     F_\text{ext}(\boldsymbol{v}) = q \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} .\boldsymbol{v} d\boldsymbol{x},
 # $$
-# where the loading parameter $q$ is progressively increased from 0 to
+# where the vector $\boldsymbol{n}$ is a normal to the cylinder surface and the loading parameter $q$ is progressively increased from 0 to
 # $q_\text{lim} = \frac{2}{\sqrt{3}}\sigma_0\log\left(\frac{R_o}{R_i}\right)$, the
 # analytical collapse load for the perfect plasticity model without hardening.
 #
