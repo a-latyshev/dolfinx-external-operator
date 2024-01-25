@@ -33,6 +33,7 @@ import numpy as np
 
 import basix
 import ufl
+import numba
 from dolfinx import fem
 from dolfinx.io import gmshio
 from dolfinx_external_operator import (
@@ -47,12 +48,8 @@ R_e, R_i = 1.3, 1.0  # external/internal radius
 # elastic parameters
 E = 70e3
 nu = 0.3
-lambda_ = E * nu / (1 + nu) / (1 - 2 * nu)
-mu_ = E / 2.0 / (1 + nu)
 
 sigma_0 = 250.0  # yield strength
-E_tangent = E / 100.0  # tangent modulus
-H = E * E_tangent / (E - E_tangent)  # hardening modulus
 
 # NOTE: Is this really necessary for initialising the Newton solver?
 TPV = np.finfo(PETSc.ScalarType).eps  # très petite value
@@ -68,14 +65,13 @@ lc = 0.3
 verbosity = 0
 
 # TODO: Put this in another file? Can execute with cell magic?
-mesh_comm = MPI.COMM_WORLD
 model_rank = 0
 gmsh.initialize()
 
 facet_tags_labels = {"Lx": 1, "Ly": 2, "inner": 3, "outer": 4}
 
 cell_tags_map = {"all": 20}
-if mesh_comm.rank == model_rank:
+if MPI.COMM_WORLD.rank == model_rank:
     model = gmsh.model()
     model.add("Quart_cylinder")
     model.setCurrent("Quart_cylinder")
@@ -107,7 +103,7 @@ if mesh_comm.rank == model_rank:
     gmsh.option.setNumber("General.Verbosity", verbosity)
     model.mesh.generate(gdim)
 
-mesh, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, mesh_comm, 0.0, gdim=2)
+mesh, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0.0, gdim=2)
 
 mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
 mesh.name = "quarter_cylinder"
@@ -115,7 +111,7 @@ cell_tags.name = f"{mesh.name}_cells"
 facet_tags.name = f"{mesh.name}_facets"
 
 k_u = 2
-V = fem.functionspace(mesh, ("CG", k_u, (2,)))
+V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
 
 k_stress = 2 * (k_u - 1)
 P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
@@ -125,6 +121,7 @@ P = fem.functionspace(mesh, P_element)
 S = fem.functionspace(mesh, S_element)
 
 Du = fem.Function(V, name="displacement_increment")
+
 
 def epsilon(v):
     grad_v = ufl.grad(v)
@@ -155,34 +152,23 @@ F = ufl.inner(sigma_operator, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(
 u_hat = ufl.TrialFunction(V)
 J = ufl.derivative(F, Du, u_hat)
 
-l, m = lambda_, mu_  # noqa: E741
+lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
+mu = E / 2.0 / (1.0 + nu)
 C_elas = np.array(
-    [[l + 2 * m, l, l, 0], [l, l + 2 * m, l, 0], [l, l, l + 2 * m, 0], [0, 0, 0, 2 * m]], dtype=PETSc.ScalarType
+    [
+        [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
+        [lmbda, lmbda + 2.0 * mu, lmbda, 0.0],
+        [lmbda, lmbda, lmbda + 2.0 * mu, 0.0],
+        [0.0, 0.0, 0.0, 2.0 * mu],
+    ],
+    dtype=PETSc.ScalarType,
 )
 
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-def return_mapping(deps, sigma, p, dp):
-    """Performs the return-mapping procedure."""
-    sigma_elastic = sigma + C_elas @ deps
-    s = deviatoric @ sigma_elastic
-    sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
-
-    f_elastic = sigma_eq - sigma_0 - H * p
-    f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
-
-    dp = f_elastic_plus / (3 * mu_ + H)
-
-    n_elas = s / sigma_eq * f_elastic_plus / f_elastic
-    beta = 3 * mu_ * dp / sigma_eq
-
-    sigma_new = sigma_elastic - beta * s
-
-    n_elas_matrix = np.outer(n_elas, n_elas)
-    C_tang = C_elas - 3 * mu_ * (3 * mu_ / (3 * mu_ + H) - beta) * n_elas_matrix - 2 * mu_ * beta * deviatoric
-
-    return C_tang, sigma_new, dp
+E_tangent = E / 100.0  # tangent modulus
+H = E * E_tangent / (E - E_tangent)  # hardening modulus
 
 # Internal state
 p = fem.Function(P, name="cumulative_plastic_strain")
@@ -190,6 +176,45 @@ dp = fem.Function(P, name="incremental_plastic_strain")
 sigma = fem.Function(S, name="stress")
 
 num_quadrature_points = P_element.dim
+
+
+@numba.jit
+def return_mapping(deps_, sigma_, p_, dp_):
+    """Performs the return-mapping procedure."""
+    num_cells = deps_.shape[0]
+
+    # New state
+    C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
+    sigma_new_ = np.empty_like(sigma_)
+    dp_new_ = np.empty_like(dp_)
+
+    # NOTE: LLVM will inline this.
+    def _kernel(deps, sigma, p, dp):
+        sigma_elastic = sigma + C_elas @ deps
+        s = deviatoric @ sigma_elastic
+        sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
+
+        f_elastic = sigma_eq - sigma_0 - H * p
+        f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
+
+        dp_new = f_elastic_plus / (3 * mu + H)
+
+        n_elas = s / sigma_eq * f_elastic_plus / f_elastic
+        beta = 3 * mu * dp / sigma_eq
+
+        sigma_new = sigma_elastic - beta * s
+
+        n_elas_matrix = np.outer(n_elas, n_elas)
+        C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
+
+        return C_tang, sigma_new, dp_new
+
+    for i in range(0, num_cells):
+        for j in range(0, num_quadrature_points):
+            C_tang_[i, j], sigma_new_[i, j], dp_new_[i, j] = _kernel(deps_[i, j], sigma_[i, j], p_[i, j], dp_[i, j])
+
+    return C_tang_, sigma_new_, dp_new_
+
 
 def C_tang_impl(deps):
     num_cells = deps.shape[0]
@@ -199,24 +224,8 @@ def C_tang_impl(deps):
     sigma_ = sigma.x.array.reshape((num_cells, num_quadrature_points, 4))
     p_ = p.x.array.reshape((num_cells, num_quadrature_points))
     dp_ = dp.x.array.reshape((num_cells, num_quadrature_points))
-    
-    # New state
-    C_tang = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
-    sigma_new = np.empty_like(sigma_)
-    dp_new = np.empty_like(dp_)
 
-    # NOTE: This is the only hot loop - you could move your hot loop to inside
-    # return_mapping and pass arrays and only njit that routine. Reshaping
-    # arrays and large memory allocations are the same speed in numba and
-    # inside Python intepreter (numpy C code).
-    for i in range(num_cells):
-        for j in range(num_quadrature_points):
-            C_tang[i, j], sigma_new[i, j], dp_new[i, j] = return_mapping(
-                deps_[i, j],
-                sigma_[i, j],
-                p_[i, j],
-                dp_[i, j]
-            )
+    C_tang, sigma_new, dp_new = return_mapping(deps_, sigma_, p_, dp_)
 
     return C_tang.reshape(-1), sigma_new.reshape(-1), dp_new.reshape(-1)
 
