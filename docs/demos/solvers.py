@@ -4,6 +4,7 @@ from petsc4py import PETSc
 
 import ufl
 from dolfinx import fem
+import dolfinx.fem.petsc  # fmt: skip
 
 
 class LinearProblem:
