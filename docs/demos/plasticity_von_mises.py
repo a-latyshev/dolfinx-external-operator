@@ -302,14 +302,10 @@ def C_tang_impl(deps):
     return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
 
 
-def sigma_impl(deps):
-    return NotImplementedError
-
-
 def sigma_external(derivatives):
     if derivatives == (0,):
-        return sigma_impl
-    elif derivatives == (1,):
+        return NotImplementedError
+    if derivatives == (1,):
         return C_tang_impl
     else:
         return NotImplementedError
