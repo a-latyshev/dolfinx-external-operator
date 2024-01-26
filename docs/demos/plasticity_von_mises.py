@@ -72,9 +72,11 @@
 # ## Problem formulation
 #
 # The domain of the problem $\Omega$ represents the first quarter of the hollow
-# cylinder with inner $R_i$ and outer $R_o$ radii, where symmetry conditions are
-# set on the left and bottom sides and pressure is set on the inner wall $\partial\Omega_\text{inner}$. The behaviour of cylinder material is defined by the von Mises yield criterion $f$
-# with the linear isotropic hardening law {eq}`eq_von_Mises`
+# cylinder with inner $R_i$ and outer $R_o$ radii, where symmetry conditions
+# are set on the left and bottom sides and pressure is set on the inner wall
+# $\partial\Omega_\text{inner}$. The behaviour of cylinder material is defined
+# by the von Mises yield criterion $f$ with the linear isotropic hardening law
+# {eq}`eq_von_Mises`
 #
 # $$
 #     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0 - Hp \leq 0,
@@ -89,17 +91,24 @@
 #
 # Find $\boldsymbol{u} \in V$ such that
 # $$
-#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)} d\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall \boldsymbol{v} \in V.
+#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
+#     \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)}
+#     d\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall
+#     \boldsymbol{v} \in V.
 # $$ (eq_main)
 #
-# The external force $F_{\text{ext}}(\boldsymbol{v})$ represents the pressure inside the cylinder and is written as the following Neumann condition
+# The external force $F_{\text{ext}}(\boldsymbol{v})$ represents the pressure
+# inside the cylinder and is written as the following Neumann condition
 #
 # $$
-#     F_\text{ext}(\boldsymbol{v}) = q \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} .\boldsymbol{v} d\boldsymbol{x},
+#     F_\text{ext}(\boldsymbol{v}) = q
+#     \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} .\boldsymbol{v}
+#     d\boldsymbol{x},
 # $$
-# where the vector $\boldsymbol{n}$ is a normal to the cylinder surface and the loading parameter $q$ is progressively increased from 0 to
-# $q_\text{lim} = \frac{2}{\sqrt{3}}\sigma_0\log\left(\frac{R_o}{R_i}\right)$, the
-# analytical collapse load for the perfect plasticity model without hardening.
+# where the vector $\boldsymbol{n}$ is a normal to the cylinder surface and the
+# loading parameter $q$ is progressively increased from 0 to $q_\text{lim} =
+# \frac{2}{\sqrt{3}}\sigma_0\log\left(\frac{R_o}{R_i}\right)$, the analytical
+# collapse load for the perfect plasticity model without hardening.
 #
 # The modelling is performed under assumptions of the plane strain and
 # an associative plasticity law.
@@ -116,9 +125,9 @@
 # In this tutorial, we treat the stress tensor $\boldsymbol{\sigma}$ as an
 # external operator acting on the displacement field $\boldsymbol{u}$ and
 # represent it through a `FEMExternalOperator` object. The analytical
-# return-mapping procedure of von Mises plasticity is used to define the behviour
-# of the stress operator and its derivative. The procedure is implemented using
-# some external (non-UFL) piece of code.
+# return-mapping procedure of von Mises plasticity is used to define the
+# behviour of the stress operator and its derivative. The procedure is
+# implemented using some external (non-UFL) piece of code.
 #
 # ## Implementation
 #
@@ -137,7 +146,6 @@ from utilities import build_cylinder_quarter, find_cell_by_point
 import basix
 import ufl
 from dolfinx import common, fem
-import dolfinx.fem.petsc
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -380,7 +388,7 @@ loadings = q_lim*load_steps
 results = np.zeros((num_increments, 2))
 
 for i, loading_v in enumerate(loadings):
-    loading.value = loading_v 
+    loading.value = loading_v
     external_operator_problem.assemble_vector()
 
     residual_0 = residual = external_operator_problem.b.norm()
@@ -401,7 +409,7 @@ for i, loading_v in enumerate(loadings):
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(
             J_external_operators, evaluated_operands)
-        
+
         sigma.ref_coefficient.x.array[:] = sigma_new
         dp.x.array[:] = dp_new
 
@@ -410,14 +418,14 @@ for i, loading_v in enumerate(loadings):
 
         if MPI.COMM_WORLD.rank == 0:
             print(f"    it# {iteration} residual: {residual}")
-    
+
     u.vector.axpy(1., Du.vector)
     u.x.scatter_forward()
 
     p.vector.axpy(1., dp.vector)
     # skip scatter forward, p is not ghosted.
-   
-    sigma_n.x.array[:] = sigma.ref_coefficient.x.array 
+
+    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
     # skip scatter forward, sigma is not ghosted.
 
     if len(points_on_process) > 0:
