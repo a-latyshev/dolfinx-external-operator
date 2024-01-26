@@ -182,14 +182,11 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %%
 quadrature_degree = 2
-Qe = basix.ufl.quadrature_element(
-    domain.topology.cell_name(), degree=quadrature_degree, value_shape=()
-)
+Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
 Q = fem.functionspace(domain, Qe)
 dx = Measure(
     "dx",
-    metadata={"quadrature_scheme": "default",
-              "quadrature_degree": quadrature_degree},
+    metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree},
 )
 
 # %% [markdown]
@@ -245,6 +242,7 @@ def k_impl(T):
     # The output must be returned flattened to one dimension
     return output.reshape(-1)
 
+
 # %% [markdown]
 # Because we also wish to assemble the Jacobian we will also require
 # implementations of the left part of the derivative
@@ -270,6 +268,7 @@ def dkdT_impl(T):
 # operator and its derivative) that takes in a derivative multi-index as its only
 # argument and returns the appropriate function from the two previous definitions.
 
+
 # %%
 def k_external(derivatives):
     """Defines behaviour of the external operator and its derivatives.
@@ -288,6 +287,7 @@ def k_external(derivatives):
         return dkdT_impl
     else:
         return NotImplementedError
+
 
 # %% [markdown]
 # We can now attach the implementation of the external function `k_external` to our

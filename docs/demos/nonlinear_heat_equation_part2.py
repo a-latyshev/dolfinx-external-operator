@@ -156,11 +156,9 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 # %%
 quadrature_degree = 2
-Qe = basix.ufl.quadrature_element(
-    domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
+Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
 Q = fem.functionspace(domain, Qe)
-dx = Measure("dx", metadata={
-             "quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
 
 # %% [markdown]
 # We now have all of the ingredients to define the external operator.
@@ -240,6 +238,7 @@ def q_impl(T, sigma):
 #     [Bk^2(T)\boldsymbol{\sigma}(T)] \hat{T}
 # \end{equation*}
 
+
 # %%
 def dqdT_impl(T, sigma):
     num_cells = T.shape[0]
@@ -255,10 +254,10 @@ def dqdT_impl(T, sigma):
 # [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}
 # \end{equation*}
 
+
 # %%
 def dqdsigma_impl(T, sigma):
-    output = -k(T)[:, :, np.newaxis, np.newaxis] * \
-        Id[np.newaxis, np.newaxis, :, :]
+    output = -k(T)[:, :, np.newaxis, np.newaxis] * Id[np.newaxis, np.newaxis, :, :]
     return output.reshape(-1)
 
 
@@ -272,6 +271,7 @@ def dqdsigma_impl(T, sigma):
 # as its only argument and returns the appropriate function from the three
 # previous definitions.
 
+
 # %%
 def q_external(derivatives):
     if derivatives == (0, 0):
@@ -282,6 +282,7 @@ def q_external(derivatives):
         return dqdsigma_impl
     else:
         return NotImplementedError
+
 
 # %% [markdown]
 # We can now attach the implementation of the external function `q` to our

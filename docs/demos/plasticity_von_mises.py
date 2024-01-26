@@ -194,8 +194,7 @@ dx = ufl.Measure(
 )
 
 Du = fem.Function(V, name="displacement_increment")
-S_element = basix.ufl.quadrature_element(
-    mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
+S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
 S = fem.functionspace(mesh, S_element)
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 
@@ -204,8 +203,7 @@ loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
 # TODO: think about the sign later
-F = ufl.inner(sigma, epsilon(v)) * dx + loading * \
-    ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx + loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
 
 lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
@@ -227,8 +225,7 @@ E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
 
 # Internal state
-P_element = basix.ufl.quadrature_element(
-    mesh.topology.cell_name(), degree=k_stress, value_shape=())
+P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
 P = fem.functionspace(mesh, P_element)
 
 p = fem.Function(P, name="cumulative_plastic_strain")
@@ -239,21 +236,18 @@ sigma_n = fem.Function(S, name="stress_n")
 bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
 left_facets = facet_tags.find(facet_tags_labels["Ly"])
 
-bottom_dofs_y = fem.locate_dofs_topological(
-    V.sub(1), mesh.topology.dim - 1, bottom_facets)
-left_dofs_x = fem.locate_dofs_topological(
-    V.sub(0), mesh.topology.dim - 1, left_facets)
+bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim - 1, bottom_facets)
+left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim - 1, left_facets)
 
-sym_bottom = fem.dirichletbc(
-    np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
-sym_left = fem.dirichletbc(
-    np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
+sym_bottom = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
+sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
 
 bcs = [sym_bottom, sym_left]
 
 
 # %%
 num_quadrature_points = P_element.dim
+
 
 # The underscore means "_" with appropriate shape, "_local" means local,
 # without underscore means raw global data or temporary outputs.
@@ -262,8 +256,7 @@ def return_mapping(deps_, sigma_n_, p_):
     """Performs the return-mapping procedure."""
     num_cells = deps_.shape[0]
 
-    C_tang_ = np.empty((num_cells, num_quadrature_points,
-                       4, 4), dtype=PETSc.ScalarType)
+    C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
     sigma_ = np.empty_like(sigma_n_)
     dp_ = np.empty_like(p_)
 
@@ -284,23 +277,20 @@ def return_mapping(deps_, sigma_n_, p_):
         sigma = sigma_elastic - beta * s
 
         n_elas_matrix = np.outer(n_elas, n_elas)
-        C_tang = C_elas - 3 * mu * \
-            (3 * mu / (3 * mu + H) - beta) * \
-            n_elas_matrix - 2 * mu * beta * deviatoric
+        C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
 
         return C_tang, sigma, dp
 
     for i in range(0, num_cells):
         for j in range(0, num_quadrature_points):
-            C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(
-                deps_[i, j], sigma_n_[i, j], p_[i, j])
+            C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(deps_[i, j], sigma_n_[i, j], p_[i, j])
 
     return C_tang_, sigma_, dp_
 
 
 def C_tang_impl(deps):
     num_cells = deps.shape[0]
-    num_quadrature_points = int(deps.shape[1]/4)
+    num_quadrature_points = int(deps.shape[1] / 4)
 
     deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
     # Current state
@@ -349,22 +339,19 @@ Du.x.array[:] = eps
 timer1 = common.Timer("1st numba pass")
 timer1.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer1.stop()
 
 timer2 = common.Timer("2nd numba pass")
 timer2.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer2.stop()
 
 timer3 = common.Timer("3nd numba pass")
 timer3.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer3.stop()
 
 
@@ -383,8 +370,8 @@ cells, points_on_process = find_cell_by_point(mesh, x_point)
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 num_increments = 20
 max_iterations, relative_tolerance = 200, 1e-8
-load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True)**0.5)[1:]
-loadings = q_lim*load_steps
+load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
+loadings = q_lim * load_steps
 results = np.zeros((num_increments, 2))
 
 for i, loading_v in enumerate(loadings):
@@ -403,12 +390,11 @@ for i, loading_v in enumerate(loadings):
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
 
-        Du.vector.axpy(1., du.vector)
+        Du.vector.axpy(1.0, du.vector)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new, dp_new),) = evaluate_external_operators(
-            J_external_operators, evaluated_operands)
+        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
         sigma.ref_coefficient.x.array[:] = sigma_new
         dp.x.array[:] = dp_new
@@ -419,10 +405,10 @@ for i, loading_v in enumerate(loadings):
         if MPI.COMM_WORLD.rank == 0:
             print(f"    it# {iteration} residual: {residual}")
 
-    u.vector.axpy(1., Du.vector)
+    u.vector.axpy(1.0, Du.vector)
     u.x.scatter_forward()
 
-    p.vector.axpy(1., dp.vector)
+    p.vector.axpy(1.0, dp.vector)
     # skip scatter forward, p is not ghosted.
 
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array

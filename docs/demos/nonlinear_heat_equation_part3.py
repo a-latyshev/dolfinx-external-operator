@@ -76,6 +76,7 @@ def q_impl(T, sigma):
     out = q_global(T_vectorized, sigma_vectorized)
     return out.reshape(-1)
 
+
 # %% [markdown]
 # Thus we do not need to think about how to manipulate data globally. Instead, we
 # just define the local behaviour of the operator.
@@ -113,6 +114,7 @@ def dqdsigma_impl(T, sigma):
     sigma_vectorized = sigma.reshape((-1, 2))
     out = dqdsigma_global(T_vectorized, sigma_vectorized)
     return out.reshape(-1)
+
 
 # %% [markdown]
 # The decorator `@jax.jit` guarantees that the first function call will take place at compile time.

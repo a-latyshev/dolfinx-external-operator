@@ -6,7 +6,7 @@ from dolfinx.geometry import bb_tree, compute_colliding_cells, compute_collision
 from dolfinx.io import gmshio
 
 
-def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.):
+def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.0):
     # Source: https://newfrac.github.io/fenicsx-fracture/notebooks/plasticity/plasticity.html
 
     # mesh parameters
@@ -31,14 +31,12 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.):
         center = model.occ.addPoint(0.0, 0.0, 0, lc)
         # Create the lines
         lx = model.occ.addLine(pix, pex, tag=facet_tags_labels["Lx"])
-        lout = model.occ.addCircleArc(
-            pex, center, pey, tag=facet_tags_labels["outer"])
+        lout = model.occ.addCircleArc(pex, center, pey, tag=facet_tags_labels["outer"])
         ly = model.occ.addLine(pey, piy, tag=facet_tags_labels["Ly"])
-        lin = model.occ.addCircleArc(
-            piy, center, pix, tag=facet_tags_labels["inner"])
+        lin = model.occ.addCircleArc(piy, center, pix, tag=facet_tags_labels["inner"])
         # Create the surface
         cloop1 = model.occ.addCurveLoop([lx, lout, ly, lin])
-        _ = model.occ.addPlaneSurface( [cloop1], tag=cell_tags_map["all"])
+        _ = model.occ.addPlaneSurface([cloop1], tag=cell_tags_map["all"])
         model.occ.synchronize()
         # Assign mesh and facet tags
         surface_entities = [entity[1] for entity in model.getEntities(2)]
@@ -53,8 +51,7 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.):
         gmsh.option.setNumber("General.Verbosity", verbosity)
         model.mesh.generate(gdim)
 
-    mesh, cell_tags, facet_tags = gmshio.model_to_mesh(
-        gmsh.model, MPI.COMM_WORLD, 0.0, gdim=2)
+    mesh, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0.0, gdim=2)
 
     mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
     mesh.name = "quarter_cylinder"
