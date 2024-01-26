@@ -125,7 +125,6 @@
 # ### Preamble
 
 # %%
-
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -138,6 +137,7 @@ from utilities import build_cylinder_quarter, find_cell_by_point
 import basix
 import ufl
 from dolfinx import common, fem
+import dolfinx.fem.petsc
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -245,18 +245,14 @@ bcs = [sym_bottom, sym_left]
 
 
 # %%
-# num_quadrature_points = P_element.dim
-# NOTE: if we have the above why not to have this one
-# num_cells = int(p.x.array.shape[0]/num_quadrature_points)
+num_quadrature_points = P_element.dim
 
-# The underscore means "_" with "appropriate" shape
-# "_local" means local
-# without underscore means raw global data or tmp outputs
+# The underscore means "_" with appropriate shape, "_local" means local,
+# without underscore means raw global data or temporary outputs.
 @numba.njit
 def return_mapping(deps_, sigma_n_, p_):
     """Performs the return-mapping procedure."""
     num_cells = deps_.shape[0]
-    num_quadrature_points = deps_.shape[1]
 
     C_tang_ = np.empty((num_cells, num_quadrature_points,
                        4, 4), dtype=PETSc.ScalarType)
@@ -363,8 +359,6 @@ evaluated_operands = evaluate_operands(F_external_operators)
     J_external_operators, evaluated_operands)
 timer3.stop()
 
-# %%
-common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
 
 # %%
 u = fem.Function(V, name="displacement")
@@ -375,70 +369,70 @@ external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
 # It is required to run this program via MPI in order to capture the process, to which this point is attached
 x_point = np.array([[R_i, 0, 0]])
-cells, points_on_proc = find_cell_by_point(mesh, x_point)
+cells, points_on_process = find_cell_by_point(mesh, x_point)
 
 # %%
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
 num_increments = 20
-load_steps = np.linspace(0, 1.1, num_increments + 1)[1:] ** 0.5
-results = np.zeros((num_increments + 1, 2))
+max_iterations, relative_tolerance = 200, 1e-8
+load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True)**0.5)[1:]
+loadings = q_lim*load_steps
+results = np.zeros((num_increments, 2))
 
-for i, t in enumerate(load_steps):
-    loading.value = t * q_lim
+for i, loading_v in enumerate(loadings):
+    loading.value = loading_v 
     external_operator_problem.assemble_vector()
 
-    nRes0 = external_operator_problem.b.norm()
-    nRes = nRes0
-    Du.x.array[:] = 0
+    residual_0 = residual = external_operator_problem.b.norm()
+    Du.x.array[:] = 0.0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"\nnRes0 , {nRes0} \n Increment: {i+1!s}, load = {t * q_lim}")
-    niter = 0
+        print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
 
-    while nRes / nRes0 > tol and niter < Nitermax:
+    for iteration in range(0, max_iterations):
+        if residual / residual_0 < relative_tolerance:
+            break
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
 
-        Du.vector.axpy(1, du.vector)  # Du = Du + 1*du
+        Du.vector.axpy(1., du.vector)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(
             J_external_operators, evaluated_operands)
+        
         sigma.ref_coefficient.x.array[:] = sigma_new
         dp.x.array[:] = dp_new
 
         external_operator_problem.assemble_vector()
-        nRes = external_operator_problem.b.norm()
+        residual = external_operator_problem.b.norm()
 
         if MPI.COMM_WORLD.rank == 0:
-            print(f"    it# {niter} Residual: {nRes}")
-        niter += 1
-    u.vector.axpy(1., Du.vector)  # u = u + 1*Du
+            print(f"    it# {iteration} residual: {residual}")
+    
+    u.vector.axpy(1., Du.vector)
     u.x.scatter_forward()
 
     p.vector.axpy(1., dp.vector)
-    p.x.scatter_forward()
-    np.copyto(sigma_n.x.array, sigma.ref_coefficient.x.array)
+    # skip scatter forward, p is not ghosted.
+   
+    sigma_n.x.array[:] = sigma.ref_coefficient.x.array 
+    # skip scatter forward, sigma is not ghosted.
 
-    if len(points_on_proc) > 0:
-        results[i + 1, :] = (u.eval(points_on_proc, cells)[0], t)
+    if len(points_on_process) > 0:
+        results[i + 1, :] = (u.eval(points_on_process, cells)[0], loading.value)
 
-# end = MPI.Wtime()
-# timer3.stop()
-
-# total_time = end - start
-# compilation_overhead = time1 - time2
-
-# print(f'rank#{MPI.COMM_WORLD.rank}: Time = {total_time:.3f} (s)')
-# print(f'rank#{MPI.COMM_WORLD.rank}: Compilation overhead: {compilation_overhead:.3f} s')
+print(results)
 
 # %%
-if len(points_on_proc) > 0:
+if len(points_on_process) > 0:
     plt.plot(results[:, 0], results[:, 1], "-o", label="via ExternalOperator")
     plt.xlabel("Displacement of inner boundary")
     plt.ylabel(r"Applied pressure $q/q_{lim}$")
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.legend()
     plt.show()
+
+# %%
+common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
