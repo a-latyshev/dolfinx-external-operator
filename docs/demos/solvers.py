@@ -2,9 +2,9 @@ from typing import List
 
 from petsc4py import PETSc
 
+import dolfinx.fem.petsc  # noqa: F401
 import ufl
 from dolfinx import fem
-import dolfinx.fem.petsc  # fmt: skip
 
 
 class LinearProblem:
