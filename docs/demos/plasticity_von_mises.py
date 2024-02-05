@@ -15,6 +15,7 @@
 # ---
 
 # %% [markdown]
+#
 # %% [markdown]
 # # Plasticity of von Mises
 #
@@ -90,12 +91,13 @@
 # formulation of this problem can be written as follows:
 #
 # Find $\boldsymbol{u} \in V$ such that
+#
 # $$
 #     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
 #     \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)}
 #     d\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall
 #     \boldsymbol{v} \in V.
-# $$ (eq_main)
+# $$ (eq_von_Mises_main)
 #
 # The external force $F_{\text{ext}}(\boldsymbol{v})$ represents the pressure
 # inside the cylinder and is written as the following Neumann condition
@@ -113,12 +115,12 @@
 # The modelling is performed under assumptions of the plane strain and
 # an associative plasticity law.
 #
-# In the above nonlinear problem {eq}`eq_main` the elastoplastic constitutive
+# In the above nonlinear problem {eq}`eq_von_Mises_main` the elastoplastic constitutive
 # relation $\boldsymbol{\sigma}(\boldsymbol{u})$ is restored by applying the
 # return-mapping procedure. The main bottleneck of this procedure is a computation
 # of derivatives of quantities of interest including one of the stress tensor,
 # so-called the tangent stiffness matrix $\boldsymbol{C}_\text{tang}$ required for
-# the Newton method to solve the nonlinear equation {eq}`eq_main`. The advantage
+# the Newton method to solve the nonlinear equation {eq}`eq_von_Mises_main`. The advantage
 # of the von Mises model is that the return-mapping procedure may be performed
 # analytically, so the derivatives may be expressed explicitly.
 #
