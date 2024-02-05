@@ -1,3 +1,16 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+# ---
+
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
 #
@@ -130,14 +143,13 @@ sym_left = fem.dirichletbc(
 
 bcs = [sym_bottom, sym_left]
 
+
 # %% [markdown]
 # ### JAX implementation
 #
-# #### Local implementation
+# #### Defining yield surface and plastic potential
 
 # %%
-
-
 def J3(sigma_local):
     return sigma_local[2] * (sigma_local[0]*sigma_local[1] - sigma_local[3]*sigma_local[3]/2.)
 
@@ -181,9 +193,6 @@ def K(theta, angle):
 def a_G(angle):
     return a * jnp.tan(phi) / jnp.tan(angle)
 
-# %%
-
-
 def surface(sigma_local, angle):
     s = dev @ sigma_local
     I1 = tr @ sigma_local
@@ -199,38 +208,57 @@ def surface(sigma_local, angle):
 def f_MC(sigma_local): return surface(sigma_local, phi)
 def g_MC(sigma_local): return surface(sigma_local, psi)
 
-# %%
-
-
-@jax.jit
-def theta(sigma_local):
-    s = dev @ sigma_local
-    J2 = 0.5 * jnp.vdot(s, s)
-    arg = -3*jnp.sqrt(3) * J3(s) / (2 * jnp.sqrt(J2*J2*J2))
-    arg = jnp.clip(arg, -1, 1)
-    return 1/3. * jnp.arcsin(arg)
+# @jax.jit
+# def theta(sigma_local):
+#     s = dev @ sigma_local
+#     J2 = 0.5 * jnp.vdot(s, s)
+#     arg = -3*jnp.sqrt(3) * J3(s) / (2 * jnp.sqrt(J2*J2*J2))
+#     arg = jnp.clip(arg, -1, 1)
+#     return 1/3. * jnp.arcsin(arg)
 
 
 # %%
-dthetadsigma = jax.jit(jax.jacfwd(theta, argnums=(0)))
+# dthetadsigma = jax.jit(jax.jacfwd(theta, argnums=(0)))
 dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
 
-# %%
-deps_local = jnp.array([TPV, 0.0, 0.0, 0.0])
-sigma_local = jnp.array([1, 1, 1.0, 1.0])
-print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
 
 # %%
-deps_local = jnp.array([0.0006, 0.0003, 0.0, 0.0])
-sigma_local = C_elas @ deps_local
-print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
+# deps_local = jnp.array([TPV, 0.0, 0.0, 0.0])
+# sigma_local = jnp.array([1, 1, 1.0, 1.0])
+# print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
+
+# %%
+# deps_local = jnp.array([0.0006, 0.0003, 0.0, 0.0])
+# sigma_local = C_elas @ deps_local
+# print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
 
 # %% [markdown]
-# #### Vectorization
+# #### Solving perfect plasticity
+#
+# $$
+#     \begin{cases}
+#         \Delta\boldsymbol{\varepsilon} - \Delta\boldsymbol{\varepsilon} + \Delta\lambda \frac{d G_F}{d\boldsymbol{\sigma}} \vert_{n+1} = 0, \\
+#         F(\boldsymbol{\sigma}_{n+1}) = 0,
+#     \end{cases}
+# $$
+#
+# $$
+#     \boldsymbol{r}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
+# $$
+# where $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$
+# where $F$ is the yield surface.
+#
+# $$
+#     \boldsymbol{j} = \frac{\partial \boldsymbol{r}}{\partial \boldsymbol{x}}
+# $$
+#
+# $$
+#     \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{j}^{-1}
+# $$
 
 # %%
 
-
+# %%
 @jax.jit
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
