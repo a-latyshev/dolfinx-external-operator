@@ -1,20 +1,3 @@
-# -*- coding: utf-8 -*-
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: -all
-#     custom_cell_magics: kql
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.11.2
-#   kernelspec:
-#     display_name: Python 3
-#     language: python
-#     name: python3
-# ---
-
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
 #
@@ -51,27 +34,32 @@ jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 # ### Model parameters
 
 # %%
-R_i = 1  # [m]
-R_e = 21  # [m]
+R_i = 1  # [m] Inner radius
+R_e = 21  # [m] Outer radius
 
 E = 6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
-lambda_ = E*nu/(1+nu)/(1-2*nu)
-mu_ = E/2./(1+nu)
 # sigma_u = 27.6 #[MPa]
 P_i_value = 3.45  # [MPa]
 
 c = 3.45  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
-theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
-a = 0.5 * c / np.tan(phi) # [MPa] tension cuff-off parameter
+# [rad] transition angle as defined by Abbo and Sloan
+theta_T = 20 * np.pi / 180
+a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
-l, m = lambda_, mu_
-C_elas = np.array([[l+2*m, l, l, 0],
-                   [l, l+2*m, l, 0],
-                   [l, l, l+2*m, 0],
-                   [0, 0, 0, 2*m]], dtype=PETSc.ScalarType)
+lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
+mu = E / 2.0 / (1.0 + nu)
+C_elas = np.array(
+    [
+        [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
+        [lmbda, lmbda + 2.0 * mu, lmbda, 0.0],
+        [lmbda, lmbda, lmbda + 2.0 * mu, 0.0],
+        [0.0, 0.0, 0.0, 2.0 * mu],
+    ],
+    dtype=PETSc.ScalarType,
+)
 
 dev = np.array([[2/3., -1/3., -1/3., 0],
                 [-1/3., 2/3., -1/3., 0],
@@ -80,11 +68,67 @@ dev = np.array([[2/3., -1/3., -1/3., 0],
 
 TPV = np.finfo(PETSc.ScalarType).eps  # très petite value
 SQRT2 = np.sqrt(2.)
-
-zero_vec = jnp.array([TPV, TPV, TPV, TPV])
-
 tr = np.array([1, 1, 1, 0])
 
+# %%
+mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
+
+k_u = 2
+V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
+
+k_stress = 2 * (k_u - 1)
+ds = ufl.Measure(
+    "ds",
+    domain=mesh,
+    subdomain_data=facet_tags,
+    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
+)
+
+dx = ufl.Measure(
+    "dx",
+    domain=mesh,
+    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
+)
+
+S_element = basix.ufl.quadrature_element(
+    mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
+S = fem.functionspace(mesh, S_element)
+
+# P_element = basix.ufl.quadrature_element(
+#     mesh.topology.cell_name(), degree=k_stress, value_shape=())
+# P = fem.functionspace(mesh, P_element)
+
+
+def epsilon(v):
+    grad_v = ufl.grad(v)
+    return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
+
+
+Du = fem.Function(V, name="displacement_increment")
+u = fem.Function(V, name="Total_displacement")
+du = fem.Function(V, name="du")
+v = ufl.TrialFunction(V)
+u_ = ufl.TestFunction(V)
+
+sigma = FEMExternalOperator(epsilon(Du), function_space=S)
+sigma_n = fem.Function(S, name="sigma_n")
+# p = fem.Function(P, name="p")
+# dp = fem.Function(P, name="dp")
+
+bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
+left_facets = facet_tags.find(facet_tags_labels["Ly"])
+
+bottom_dofs_y = fem.locate_dofs_topological(
+    V.sub(1), mesh.topology.dim-1, bottom_facets)
+left_dofs_x = fem.locate_dofs_topological(
+    V.sub(0), mesh.topology.dim-1, left_facets)
+
+sym_bottom = fem.dirichletbc(
+    np.array(0., dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
+sym_left = fem.dirichletbc(
+    np.array(0., dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
+
+bcs = [sym_bottom, sym_left]
 
 # %% [markdown]
 # ### JAX implementation
@@ -92,12 +136,12 @@ tr = np.array([1, 1, 1, 0])
 # #### Local implementation
 
 # %%
-@jax.jit
+
+
 def J3(sigma_local):
     return sigma_local[2] * (sigma_local[0]*sigma_local[1] - sigma_local[3]*sigma_local[3]/2.)
 
 
-@jax.jit
 def sign(x):
     return jax.lax.cond(x < -TPV, lambda x: -1, lambda x: 1, x)
 
@@ -125,7 +169,6 @@ def A(theta, angle):
     return - 1/jnp.sqrt(3) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T) - B(theta, angle) * sign(theta) * jnp.sin(theta_T) - C(theta, angle) * jnp.sin(3 * theta_T)*jnp.sin(3 * theta_T) + jnp.cos(theta_T)
 
 
-@jax.jit
 def K(theta, angle):
     def K_true(theta, angle): return jnp.cos(theta) - 1 / \
         jnp.sqrt(3) * jnp.sin(angle) * jnp.sin(theta)
@@ -135,13 +178,12 @@ def K(theta, angle):
     return jax.lax.cond(jnp.abs(theta) < theta_T, K_true, K_false, theta, angle)
 
 
-@jax.jit
 def a_G(angle):
     return a * jnp.tan(phi) / jnp.tan(angle)
 
-
 # %%
-@jax.jit
+
+
 def surface(sigma_local, angle):
     s = dev @ sigma_local
     I1 = tr @ sigma_local
@@ -154,11 +196,12 @@ def surface(sigma_local, angle):
 
 
 # %%
-f_MC = jax.jit(lambda sigma_local: surface(sigma_local, phi))
-g_MC = jax.jit(lambda sigma_local: surface(sigma_local, psi))
-
+def f_MC(sigma_local): return surface(sigma_local, phi)
+def g_MC(sigma_local): return surface(sigma_local, psi)
 
 # %%
+
+
 @jax.jit
 def theta(sigma_local):
     s = dev @ sigma_local
@@ -172,8 +215,6 @@ def theta(sigma_local):
 dthetadsigma = jax.jit(jax.jacfwd(theta, argnums=(0)))
 dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
 
-# dthetadJ2 = jax.jit(jax.jacfwd(theta, argnums=(1)))
-
 # %%
 deps_local = jnp.array([TPV, 0.0, 0.0, 0.0])
 sigma_local = jnp.array([1, 1, 1.0, 1.0])
@@ -184,11 +225,12 @@ deps_local = jnp.array([0.0006, 0.0003, 0.0, 0.0])
 sigma_local = C_elas @ deps_local
 print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
 
-
 # %% [markdown]
 # #### Vectorization
 
 # %%
+
+
 @jax.jit
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -249,7 +291,6 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
 
-    # jax.debug.print("norm {} {} {}", jnp.linalg.norm(res_sigma), jnp.linalg.norm(res_f), yielding)
     def cond_fun(state):
         norm_res, niter, _ = state
         return (norm_res/norm_res0 > tol) & (niter < Nitermax)
@@ -285,75 +326,8 @@ dsigma_ddeps = jax.jacfwd(sigma_return_mapping, argnums=(0,), has_aux=True)
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
 # %%
-mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
-
-# %%
-k_u = 2
-V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
-
-# %%
-k_stress = 2 * (k_u - 1)
-ds = ufl.Measure(
-    "ds",
-    domain=mesh,
-    subdomain_data=facet_tags,
-    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
-)
-
-dx = ufl.Measure(
-    "dx",
-    domain=mesh,
-    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
-)
-
-S_element = basix.ufl.quadrature_element(
-    mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
-S = fem.functionspace(mesh, S_element)
-
-P_element = basix.ufl.quadrature_element(
-    mesh.topology.cell_name(), degree=k_stress, value_shape=())
-P = fem.functionspace(mesh, P_element)
-
-def epsilon(v):
-    grad_v = ufl.grad(v)
-    return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
 
 
-# %%
-Du = fem.Function(V, name="displacement_increment")
-u = fem.Function(V, name="Total_displacement")
-du = fem.Function(V, name="du")
-v = ufl.TrialFunction(V)
-u_ = ufl.TestFunction(V)
-
-sigma = FEMExternalOperator(epsilon(Du), function_space=S)
-sigma_n = fem.Function(S, name="sigma_n")
-sig = fem.Function(S, name="sig")
-p = fem.Function(P, name="p")
-dp = fem.Function(P, name="dp")
-
-# %%
-bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
-left_facets = facet_tags.find(facet_tags_labels["Ly"])
-
-bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim-1, bottom_facets)
-left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim-1, left_facets)
-
-sym_bottom = fem.dirichletbc(np.array(0.,dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
-sym_left = fem.dirichletbc(np.array(0.,dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
-
-bcs = [sym_bottom, sym_left]
-
-# %%
-n = ufl.FacetNormal(mesh)
-P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
-P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
-
-def F_ext(v):
-    return -P_o * ufl.inner(n, v)*ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v)*ds(facet_tags_labels["outer"])
-
-
-# %%
 def C_tang_impl(deps):
     deps_ = deps.reshape((-1, 4))
     sigma_n_ = sigma_n.x.array.reshape((-1, 4))
@@ -374,7 +348,8 @@ def C_tang_impl(deps):
     # res = output[1][3].reshape((27144, -1, 5))
     # norm_res = jnp.linalg.norm(res, axis=0)
     print("\tSubNewton:")
-    print(f"\t  unique counts niter-s = {jnp.unique(niter, return_counts=True)}")
+    print(
+        f"\t  unique counts niter-s = {jnp.unique(niter, return_counts=True)}")
     # print(f"\t  sigma = {np.linalg.norm(sigma)}")
     print(f"\t  max yielding = {jnp.max(yielding)}")
     # print(f"\t  norm_res = {jnp.min(norm_res), jnp.max(norm_res), jnp.mean(norm_res)}")
@@ -384,8 +359,9 @@ def C_tang_impl(deps):
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
-
 # %%
+
+
 def sigma_external(derivatives):
     if derivatives == (0,):
         return NotImplementedError
@@ -394,9 +370,19 @@ def sigma_external(derivatives):
     else:
         return NotImplementedError
 
+
 sigma.external_function = sigma_external
 
 # %%
+n = ufl.FacetNormal(mesh)
+P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
+P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
+
+
+def F_ext(v):
+    return -P_o * ufl.inner(n, v)*ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v)*ds(facet_tags_labels["outer"])
+
+
 u_hat = ufl.TrialFunction(V)
 F = ufl.inner(epsilon(u_), sigma)*dx - F_ext(u_)
 J = ufl.derivative(F, Du, u_hat)
@@ -409,21 +395,22 @@ F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
 # %%
-Du.x.array[:] = 1. # For faster test
+Du.x.array[:] = 1.  # For faster test
 sigma_n.x.array[:] = TPV
 
 # %%
 evaluated_operands = evaluate_operands(F_external_operators)
 
 # %%
-((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+((_, sigma_new),) = evaluate_external_operators(
+    J_external_operators, evaluated_operands)
 
 # %%
 external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
-# It is required to run this program via MPI in order to capture the process, to which this point is attached 
+# It is required to run this program via MPI in order to capture the process, to which this point is attached
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_process = find_cell_by_point(mesh, x_point)
 
@@ -441,7 +428,7 @@ for (i, load) in enumerate(load_steps):
     P_o.value = load
     external_operator_problem.assemble_vector()
 
-    nRes0 = external_operator_problem.b.norm() 
+    nRes0 = external_operator_problem.b.norm()
     nRes = nRes0
     Du.x.array[:] = 0
 
@@ -453,7 +440,7 @@ for (i, load) in enumerate(load_steps):
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
 
-        Du.vector.axpy(1, du.vector) # Du = Du + 1*du
+        Du.vector.axpy(1, du.vector)  # Du = Du + 1*du
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
@@ -468,7 +455,7 @@ for (i, load) in enumerate(load_steps):
         if MPI.COMM_WORLD.rank == 0:
             print(f"    it# {niter} Residual: {nRes}")
         niter += 1
-    u.vector.axpy(1, Du.vector) # u = u + 1*Du
+    u.vector.axpy(1, Du.vector)  # u = u + 1*Du
     u.x.scatter_forward()
 
     # p.vector.axpy(1, dp.vector)
@@ -496,5 +483,3 @@ if len(points_on_process) > 0:
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.legend()
     plt.show()
-
-# %%
