@@ -62,10 +62,10 @@ mu_ = E/2./(1+nu)
 P_i_value = 3.45  # [MPa]
 
 c = 3.45  # [MPa] cohesion
-phi = 30 * np.pi / 180  # [rads] friction angle
-psi = 30 * np.pi / 180  # [rads] dilatancy angle
-theta_T = 20 * np.pi / 180  # [rads] angle
-a = 0.5 * c / np.tan(phi)
+phi = 30 * np.pi / 180  # [rad] friction angle
+psi = 30 * np.pi / 180  # [rad] dilatancy angle
+theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
+a = 0.5 * c / np.tan(phi) # [MPa] tension cuff-off parameter
 
 l, m = lambda_, mu_
 C_elas = np.array([[l+2*m, l, l, 0],
@@ -327,7 +327,7 @@ v = ufl.TrialFunction(V)
 u_ = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
-sig_old = fem.Function(S, name="sig_old")
+sigma_n = fem.Function(S, name="sigma_n")
 sig = fem.Function(S, name="sig")
 p = fem.Function(P, name="p")
 dp = fem.Function(P, name="dp")
@@ -354,24 +354,20 @@ def F_ext(v):
 
 
 # %%
-num_quadrature_points = P_element.dim
+def C_tang_impl(deps):
+    deps_ = deps.reshape((-1, 4))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
 
-def C_tang_impl(deps, sigma, sigma_n, dp):
-    num_cells = deps.shape[0]
-
-    deps_global = deps.reshape((num_cells*num_quadrature_points, 4))
-    sigma_n_global = sigma_n.reshape((num_cells*num_quadrature_points, 4))
-
-    output = dsigma_ddeps_vec(deps_global, sigma_n_global)
+    output = dsigma_ddeps_vec(deps_, sigma_n_)
 
     C_tang_global = output[0][0]
     sigma_global = output[1][0]
     # dp_global = output[1][1]
     # print(np.linalg.norm(dp_global))
     # np.copyto(dp, dp_global)
-    dp[:] = 0.
+    # dp[:] = 0.
 
-    np.copyto(sigma, sigma_global.reshape(-1))
+    # np.copyto(sigma, sigma_global.reshape(-1))
 
     niter = output[1][1]
     yielding = output[1][2]
@@ -379,14 +375,14 @@ def C_tang_impl(deps, sigma, sigma_n, dp):
     # norm_res = jnp.linalg.norm(res, axis=0)
     print("\tSubNewton:")
     print(f"\t  unique counts niter-s = {jnp.unique(niter, return_counts=True)}")
-    print(f"\t  sigma = {np.linalg.norm(sigma)}")
+    # print(f"\t  sigma = {np.linalg.norm(sigma)}")
     print(f"\t  max yielding = {jnp.max(yielding)}")
     # print(f"\t  norm_res = {jnp.min(norm_res), jnp.max(norm_res), jnp.mean(norm_res)}")
     # print(f"\t  res = {jnp.min(res), jnp.max(res), jnp.mean(res)}")
     # print(f"\t  nans = {jnp.argwhere(jnp.isnan(res))}")
     # print(f"\t  deps_global = {deps_global[0]}")
 
-    return C_tang_global.reshape(-1)
+    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
 
 # %%
@@ -413,9 +409,92 @@ F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
 # %%
-evaluated_operands = evaluate_operands(F_external_operators)
-
+Du.x.array[:] = 1. # For faster test
+sigma_n.x.array[:] = TPV
 
 # %%
-# ((_, sigma_new, dp_new),) = 
-evaluate_external_operators(J_external_operators, evaluated_operands)
+evaluated_operands = evaluate_operands(F_external_operators)
+
+# %%
+((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+# %%
+external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+
+# %%
+# Defining a cell containing (Ri, 0) point, where we calculate a value of u
+# It is required to run this program via MPI in order to capture the process, to which this point is attached 
+x_point = np.array([[R_i, 0, 0]])
+cells, points_on_process = find_cell_by_point(mesh, x_point)
+
+Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
+Nincr = 20
+load_steps = np.linspace(0, 1.05, Nincr+1)[1:]**0.5
+load_steps = np.linspace(0.9, 1.06, Nincr+1)[1:]
+results = np.zeros((Nincr+1, 2))
+
+timer3 = common.Timer("Solving the problem")
+start = MPI.Wtime()
+timer3.start()
+
+for (i, load) in enumerate(load_steps):
+    P_o.value = load
+    external_operator_problem.assemble_vector()
+
+    nRes0 = external_operator_problem.b.norm() 
+    nRes = nRes0
+    Du.x.array[:] = 0
+
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"\nnRes0 , {nRes0} \n Increment: {str(i+1)}, load = {load}")
+    niter = 0
+
+    while nRes/nRes0 > tol and niter < Nitermax:
+        external_operator_problem.assemble_matrix()
+        external_operator_problem.solve(du)
+
+        Du.vector.axpy(1, du.vector) # Du = Du + 1*du
+        Du.x.scatter_forward()
+
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new),) = evaluate_external_operators(
+            J_external_operators, evaluated_operands)
+
+        sigma.ref_coefficient.x.array[:] = sigma_new
+
+        external_operator_problem.assemble_vector()
+        nRes = external_operator_problem.b.norm()
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"    it# {niter} Residual: {nRes}")
+        niter += 1
+    u.vector.axpy(1, Du.vector) # u = u + 1*Du
+    u.x.scatter_forward()
+
+    # p.vector.axpy(1, dp.vector)
+    # p.x.scatter_forward()
+
+    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+
+    if len(points_on_process) > 0:
+        results[i+1, :] = (u.eval(points_on_process, cells)[0], load)
+
+end = MPI.Wtime()
+timer3.stop()
+
+# total_time = end - start
+# compilation_overhead = time1 - time2
+
+# print(f'rank#{MPI.COMM_WORLD.rank}: Time = {total_time:.3f} (s)')
+# print(f'rank#{MPI.COMM_WORLD.rank}: Compilation overhead: {compilation_overhead:.3f} s')
+
+# %%
+if len(points_on_process) > 0:
+    plt.plot(results[:, 0], results[:, 1], "-o", label="via ExternalOperator")
+    plt.xlabel("Displacement of inner boundary")
+    plt.ylabel(r"Applied pressure $q/q_{lim}$")
+    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
+    plt.legend()
+    plt.show()
+
+# %%
