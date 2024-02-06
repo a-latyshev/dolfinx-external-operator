@@ -14,6 +14,10 @@
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
 #
+# ```{math}
+# \newcommand\bsigma{\boldsymbol{\sigma}}
+# ```
+#
 # ## Problem formulation
 # https://thelfer.github.io/tfel/web/MohrCoulomb.html
 #
@@ -237,11 +241,11 @@ dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
 #
 # $$
 #     \begin{cases}
-#         \Delta\boldsymbol{\varepsilon} - \Delta\boldsymbol{\varepsilon} + \Delta\lambda \frac{d G_F}{d\boldsymbol{\sigma}} \vert_{n+1} = 0, \\
-#         F(\boldsymbol{\sigma}_{n+1}) = 0,
+#         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \mathbb{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G_F}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{r}_{\boldsymbol{\sigma}}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = 0, \\
+#         F(\boldsymbol{\sigma}_{n+1}) = r_F(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
 # $$
-#
+# We solve:
 # $$
 #     \boldsymbol{r}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
 # $$
@@ -253,10 +257,16 @@ dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
 # $$
 #
 # $$
-#     \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{j}^{-1}
+#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) + \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n})
 # $$
-
-# %%
+#
+# $$
+#     \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = - \boldsymbol{r}(\boldsymbol{x}_{n})
+# $$
+#
+# $$
+#     \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y}
+# $$
 
 # %%
 @jax.jit
