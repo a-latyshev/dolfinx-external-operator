@@ -14,12 +14,68 @@
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
 #
-# ```{math}
-# \newcommand\bsigma{\boldsymbol{\sigma}}
-# ```
+# The current tutorial implements the plasticity model of Mohr-Coulomb, where the
+# constitutive relations are defined using the external package JAX. Here we
+# consider the same cylinder expansion problem in the two-dimensional case in a
+# symmetric formulation, which was considered in the previous tutorial on von
+# Mises plasticity.
+#
+# The tutorial is based on the MFront/TFEL
+# [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of the
+# Mohr-Coulomb elastoplastic model with apex smoothing.
 #
 # ## Problem formulation
-# https://thelfer.github.io/tfel/web/MohrCoulomb.html
+#
+# We solve the same cylinder expansion problem from the previous tutorial of von
+# Mises plasticity and follow the same Voigt-Mandel notation. Thus, we focus here on the constitutive model definition and its implementation.
+#
+# As we consider a non-associative plasticity law without hardening, the material behaviour is defined by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$. Both quantities may be expressed through the folloing function 
+#
+# \begin{align*}
+#     & H(\boldsymbol{\sigma}, \alpha) = \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha + \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} - c\cos\alpha, \\
+#     & F(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \phi), \\
+#     & G(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \psi), 
+# \end{align*}
+# where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion, $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first invariant of the stress tensor and $J_2(\boldsymbol{\sigma}) = \frac{1}{2}\boldsymbol{s}:\boldsymbol{s}$ is the second invariant of the deviatoric part of the stress tensor. The expression of the coefficient $K(\alpha)$ may be found in the MFront/TFEL
+# [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html).
+#
+# During the plastic loading the stress-strain state of the solid must satisfy the following system of nonlinear equations
+# $$
+#     \begin{cases}
+#         \boldsymbol{r}_{\boldsymbol{\sigma}}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
+#         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
+#     \end{cases}
+# $$ (eq_MC)
+# where the index $n$ is associated with values from previous loading step.
+#
+# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{\boldsymbol{\sigma}}^T, r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following equation:
+# $$
+#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
+# $$
+#
+# To solve this system we apply the Newton method and then introduce the Jacobian of the residual vector $\boldsymbol{j} = \frac{\partial \boldsymbol{r}}{\partial \boldsymbol{x}}$
+#
+# $$
+#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) + \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n})
+# $$
+#
+# $$
+#     \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = - \boldsymbol{r}(\boldsymbol{x}_{n})
+# $$
+#
+# $$
+#     \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y}
+# $$
+#
+# During the elastic loading, we consider a trivial system of equations
+# $$
+#     \begin{cases}
+#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n + \boldsymbol{C}.\Delta\boldsymbol{\varepsilon} , \\
+#         \Delta\lambda = 0.
+#     \end{cases}
+# $$ 
+#
+# We reference to solutions of the described above systems as return-mapping corrections of the stress tensor.
 #
 # ## Implementation
 #
@@ -90,8 +146,30 @@ tr = np.array([1, 1, 1, 0])
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
 
+# %%
 k_u = 2
 V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
+# Boundary conditions
+bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
+left_facets = facet_tags.find(facet_tags_labels["Ly"])
+
+bottom_dofs_y = fem.locate_dofs_topological(
+    V.sub(1), mesh.topology.dim-1, bottom_facets)
+left_dofs_x = fem.locate_dofs_topological(
+    V.sub(0), mesh.topology.dim-1, left_facets)
+
+sym_bottom = fem.dirichletbc(
+    np.array(0., dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
+sym_left = fem.dirichletbc(
+    np.array(0., dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
+
+bcs = [sym_bottom, sym_left]
+
+
+def epsilon(v):
+    grad_v = ufl.grad(v)
+    return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
+
 
 k_stress = 2 * (k_u - 1)
 ds = ufl.Measure(
@@ -111,15 +189,6 @@ S_element = basix.ufl.quadrature_element(
     mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
 S = fem.functionspace(mesh, S_element)
 
-# P_element = basix.ufl.quadrature_element(
-#     mesh.topology.cell_name(), degree=k_stress, value_shape=())
-# P = fem.functionspace(mesh, P_element)
-
-
-def epsilon(v):
-    grad_v = ufl.grad(v)
-    return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
-
 
 Du = fem.Function(V, name="displacement_increment")
 u = fem.Function(V, name="Total_displacement")
@@ -129,31 +198,15 @@ u_ = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
-# p = fem.Function(P, name="p")
-# dp = fem.Function(P, name="dp")
-
-bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
-left_facets = facet_tags.find(facet_tags_labels["Ly"])
-
-bottom_dofs_y = fem.locate_dofs_topological(
-    V.sub(1), mesh.topology.dim-1, bottom_facets)
-left_dofs_x = fem.locate_dofs_topological(
-    V.sub(0), mesh.topology.dim-1, left_facets)
-
-sym_bottom = fem.dirichletbc(
-    np.array(0., dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
-sym_left = fem.dirichletbc(
-    np.array(0., dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
-
-bcs = [sym_bottom, sym_left]
-
 
 # %% [markdown]
-# ### JAX implementation
+# ### Defining the external operator
 #
 # #### Defining yield surface and plastic potential
 
 # %%
+
+
 def J3(sigma_local):
     return sigma_local[2] * (sigma_local[0]*sigma_local[1] - sigma_local[3]*sigma_local[3]/2.)
 
@@ -197,6 +250,7 @@ def K(theta, angle):
 def a_G(angle):
     return a * jnp.tan(phi) / jnp.tan(angle)
 
+
 def surface(sigma_local, angle):
     s = dev @ sigma_local
     I1 = tr @ sigma_local
@@ -207,8 +261,9 @@ def surface(sigma_local, angle):
     theta = 1/3. * jnp.arcsin(arg)
     return I1/3 * jnp.sin(angle) + jnp.sqrt(J2 * K(theta, angle)*K(theta, angle) + a_G(angle)*a_G(angle) * jnp.sin(angle)*jnp.sin(angle)) - c * jnp.cos(angle)
 
-
 # %%
+
+
 def f_MC(sigma_local): return surface(sigma_local, phi)
 def g_MC(sigma_local): return surface(sigma_local, psi)
 
@@ -224,7 +279,6 @@ def g_MC(sigma_local): return surface(sigma_local, psi)
 # %%
 # dthetadsigma = jax.jit(jax.jacfwd(theta, argnums=(0)))
 dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
-
 
 # %%
 # deps_local = jnp.array([TPV, 0.0, 0.0, 0.0])
@@ -269,6 +323,8 @@ dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
 # $$
 
 # %%
+
+
 @jax.jit
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -418,7 +474,7 @@ P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 
 def F_ext(v):
-    return -P_o * ufl.inner(n, v)*ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v)*ds(facet_tags_labels["outer"])
+    return -P_i * ufl.inner(n, v)*ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v)*ds(facet_tags_labels["outer"])
 
 
 u_hat = ufl.TrialFunction(V)
@@ -455,7 +511,7 @@ cells, points_on_process = find_cell_by_point(mesh, x_point)
 Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
 Nincr = 20
 load_steps = np.linspace(0, 1.05, Nincr+1)[1:]**0.5
-load_steps = np.linspace(0.9, 1.06, Nincr+1)[1:]
+load_steps = np.linspace(0.9, 5, Nincr+1)[1:]
 results = np.zeros((Nincr+1, 2))
 
 timer3 = common.Timer("Solving the problem")
@@ -463,7 +519,7 @@ start = MPI.Wtime()
 timer3.start()
 
 for (i, load) in enumerate(load_steps):
-    P_o.value = load
+    P_i.value = load
     external_operator_problem.assemble_vector()
 
     nRes0 = external_operator_problem.b.norm()
@@ -484,7 +540,6 @@ for (i, load) in enumerate(load_steps):
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new),) = evaluate_external_operators(
             J_external_operators, evaluated_operands)
-
         sigma.ref_coefficient.x.array[:] = sigma_new
 
         external_operator_problem.assemble_vector()
@@ -496,9 +551,6 @@ for (i, load) in enumerate(load_steps):
     u.vector.axpy(1, Du.vector)  # u = u + 1*Du
     u.x.scatter_forward()
 
-    # p.vector.axpy(1, dp.vector)
-    # p.x.scatter_forward()
-
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
     if len(points_on_process) > 0:
@@ -506,12 +558,6 @@ for (i, load) in enumerate(load_steps):
 
 end = MPI.Wtime()
 timer3.stop()
-
-# total_time = end - start
-# compilation_overhead = time1 - time2
-
-# print(f'rank#{MPI.COMM_WORLD.rank}: Time = {total_time:.3f} (s)')
-# print(f'rank#{MPI.COMM_WORLD.rank}: Compilation overhead: {compilation_overhead:.3f} s')
 
 # %%
 if len(points_on_process) > 0:
@@ -521,3 +567,5 @@ if len(points_on_process) > 0:
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.legend()
     plt.show()
+
+# %%
