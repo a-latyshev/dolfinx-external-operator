@@ -213,11 +213,19 @@ sigma_n = fem.Function(S, name="sigma_n")
 # %% [markdown]
 # ### Defining the external operator
 #
-# In order to define the behaviour of the external operator and its derivatives, we need to implement the return-mapping procedure solving the constitutive equations `eq`{eq_MC_1}--`eq`{eq_MC_2} and apply the automatic differentiation tool to this algorithm.
+# In order to define the behaviour of the external operator and its derivatives,
+# we need to implement the return-mapping procedure solving the constitutive
+# equations `eq`{eq_MC_1}--`eq`{eq_MC_2} and apply the automatic differentiation
+# tool to this algorithm.
 #
 # #### Defining yield surface and plastic potential
 #
-# First of all, we define supplementary functions that help us to express the yield surface $F$ and the plastic potential $G$. In the following definitions, we use built-in functions of the JAX package, in particular, the conditional primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool and compilation. For more details, please, visit the JAX [documentation](https://jax.readthedocs.io/en/latest/).
+# First of all, we define supplementary functions that help us to express the
+# yield surface $F$ and the plastic potential $G$. In the following definitions,
+# we use built-in functions of the JAX package, in particular, the conditional
+# primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool
+# and just-in-time compilation. For more details, please, visit the JAX
+# [documentation](https://jax.readthedocs.io/en/latest/).
 
 # %%
 def J3(sigma_local):
@@ -276,7 +284,7 @@ def surface(sigma_local, angle):
 
 
 # %% [markdown]
-# By picking up an appropriate angle we define he yield surface $F$ and the
+# By picking up an appropriate angle we define the yield surface $F$ and the
 # plastic potential $G$.
 
 # %%
@@ -307,38 +315,39 @@ print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(si
 
 
 # %% [markdown]
-# #### Solving perfect plasticity
+# #### Solving constitutive equations
 #
-# $$
-#     \begin{cases}
-#         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \mathbb{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G_F}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{r}_{\boldsymbol{\sigma}}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = 0, \\
-#         F(\boldsymbol{\sigma}_{n+1}) = r_F(\boldsymbol{\sigma}_{n+1}) = 0,
+# In this section, we define the constitutive model by solving the following systems
+#
+# \begin{align*}
+#     & \text{Plastic flow:} \\
+#     & \begin{cases}
+#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
+#         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
+#      \end{cases} \\
+#     & \text{Elastic flow:} \\
+#     &\begin{cases}
+#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n + \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\
+#         \Delta\lambda = 0.
 #     \end{cases}
-# $$
-# We solve:
-# $$
-#     \boldsymbol{r}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
-# $$
-# where $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$
-# where $F$ is the yield surface.
+# \end{align*}
 #
+# As the second one is trivial we focus on the first system only and rewrite it in the following form.
 # $$
-#     \boldsymbol{j} = \frac{\partial \boldsymbol{r}}{\partial \boldsymbol{x}}
+#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0},
 # $$
+# where $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$.
 #
-# $$
-#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) + \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n})
-# $$
+# This nonlinear equation must be solved at each Gauss point, so we apply the Newton method, implement the whole algorithm locally and then vectorize the final result using `jax.vmap`.
 #
-# $$
-#     \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = - \boldsymbol{r}(\boldsymbol{x}_{n})
-# $$
-#
-# $$
-#     \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y}
-# $$
+# In the following cell, we define locally the residual $\boldsymbol{r}$ and its jacobian $\boldsymbol{j}$.
 
 # %%
+# NOTE: Actually, I put conditionals inside local functions, but we may
+# implement two "branches" of the algo separetly and check the yielding condition
+# in the main Newton loop. It may be more efficient, but idk. Anyway, as it is,
+# it looks fancier.
+
 @jax.jit
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -368,7 +377,6 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
 dr_sigma = jax.jit(jax.jacfwd(r_sigma, argnums=(0, 1)))
 dr_f = jax.jit(jax.jacfwd(r_f, argnums=(0, 1)))
 
-
 @jax.jit
 def j(sigma_local, dlambda, deps_local, sigma_n_local):
     dr_sigmadsigma, dr_sigmaddlambda = dr_sigma(
@@ -380,11 +388,26 @@ def j(sigma_local, dlambda, deps_local, sigma_n_local):
     return jnp.block([[dr_sigmadsigma, dr_sigmaddlambda_T],
                      [dr_fdsigma, dr_fddlambda]])
 
+@jax.jit
+def r(x_local, deps_local, sigma_n_local):
+    # Normally, the following lines allocate new memory
+    sigma_local = x_local[:4]
+    dlambda_local = x_local[-1]
+    res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
+    res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
+    # As well as this one
+    res = jnp.c_['0,1,-1', res_sigma, res_f]
+    return res
 
+# NOTE: Instead of the definition of j above we may use this one
+# TODO: Less efficient? 
+dr = jax.jit(jax.jacfwd(r, argnums=(0)))
+
+# %% [markdown]
+# Then we define the function that implements the algorithm.
 
 # %%
 Nitermax, tol = 200, 1e-8
-
 
 @jax.jit
 def sigma_return_mapping(deps_local, sigma_n_local):
@@ -398,10 +421,12 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     dlambda = jnp.array(0.)  # init guess
     sigma_local = sigma_n_local  # init guess
+    x_local = jnp.c_['0,1,-1', sigma_local, dlambda]# init guess
 
-    res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
-    res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
-    res = jnp.c_['0,1,-1', res_sigma, res_f]
+    # res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
+    # res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
+    # res = jnp.c_['0,1,-1', res_sigma, res_f]
+    res = r(x_local, deps_local, sigma_n_local)
 
     norm_res0 = jnp.linalg.norm(res)
     sigma_elas_local = C_elas @ deps_local
@@ -414,14 +439,19 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     def body_fun(state):
         norm_res, niter, history = state
         sigma_local, dlambda, deps_local, sigma_n_local, res = history
-        J = j(sigma_local, dlambda, deps_local, sigma_n_local)
+        x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
+
+        # J = j(sigma_local, dlambda, deps_local, sigma_n_local)
+        J = dr(x_local, deps_local, sigma_n_local)
         j_inv_vp = jnp.linalg.solve(J, -res)
         sigma_local = sigma_local + j_inv_vp[:4]
         dlambda = dlambda + j_inv_vp[-1]
 
-        res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
-        res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
-        res = jnp.c_['0,1,-1', res_sigma, res_f]
+        # res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
+        # res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
+        # res = jnp.c_['0,1,-1', res_sigma, res_f]
+        x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
+        res = r(x_local, deps_local, sigma_n_local)
         norm_res = jnp.linalg.norm(res)
         niter += 1
         history = sigma_local, dlambda, deps_local, sigma_n_local, res
@@ -438,12 +468,12 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     return sigma_local, (sigma_local, niter_total, yielding, res)
 
 
+# %%
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, argnums=(0,), has_aux=True)
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
+
 # %%
-
-
 def C_tang_impl(deps):
     deps_ = deps.reshape((-1, 4))
     sigma_n_ = sigma_n.x.array.reshape((-1, 4))
@@ -471,9 +501,8 @@ def C_tang_impl(deps):
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
+
 # %%
-
-
 def sigma_external(derivatives):
     if derivatives == (0,):
         return NotImplementedError
@@ -507,6 +536,7 @@ F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
 # %%
+# TODO: I have an impression that it compiles the elastic and plastic parts separately.
 Du.x.array[:] = 1.  # For faster test
 sigma_n.x.array[:] = TPV
 
