@@ -9,16 +9,20 @@
 #       format_name: percent
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
 # ---
 
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
 #
-# The current tutorial implements the plasticity model of Mohr-Coulomb, where the
-# constitutive relations are defined using the external package JAX. Here we
-# consider the same cylinder expansion problem in the two-dimensional case in a
-# symmetric formulation, which was considered in the previous tutorial on von
-# Mises plasticity.
+# The current tutorial implements the non-associative plasticity model of
+# Mohr-Coulomb with apex-smoothing, where the constitutive relations are defined
+# using the external package JAX. Here we consider the same cylinder expansion
+# problem in the two-dimensional case in a symmetric formulation, which was
+# considered in the previous tutorial on von Mises plasticity.
 #
 # The tutorial is based on the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of the
@@ -27,9 +31,9 @@
 # ## Problem formulation
 #
 # We solve the same cylinder expansion problem from the previous tutorial of von
-# Mises plasticity and follow the same Voigt-Mandel notation. Thus, we focus here on the constitutive model definition and its implementation.
+# Mises plasticity and follow the same Mandel-Voigt notation. Thus, we focus here on the constitutive model definition and its implementation.
 #
-# As we consider a non-associative plasticity law without hardening, the material behaviour is defined by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$. Both quantities may be expressed through the folloing function 
+# We consider a non-associative plasticity law without hardening that is defined by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$. Both quantities may be expressed through the following function $H$
 #
 # \begin{align*}
 #     & H(\boldsymbol{\sigma}, \alpha) = \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha + \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} - c\cos\alpha, \\
@@ -42,13 +46,13 @@
 # During the plastic loading the stress-strain state of the solid must satisfy the following system of nonlinear equations
 # $$
 #     \begin{cases}
-#         \boldsymbol{r}_{\boldsymbol{\sigma}}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
+#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
 #         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
-# $$ (eq_MC)
+# $$ (eq_MC_1)
 # where the index $n$ is associated with values from previous loading step.
 #
-# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{\boldsymbol{\sigma}}^T, r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following equation:
+# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{G}^T, r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following equation:
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
 # $$
@@ -70,12 +74,18 @@
 # During the elastic loading, we consider a trivial system of equations
 # $$
 #     \begin{cases}
-#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n + \boldsymbol{C}.\Delta\boldsymbol{\varepsilon} , \\
+#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n + \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\
 #         \Delta\lambda = 0.
 #     \end{cases}
-# $$ 
+# $$ (eq_MC_2)
 #
-# We reference to solutions of the described above systems as return-mapping corrections of the stress tensor.
+# The algorithm solving the systems `eq`{eq_MC_1}--`eq`{eq_MC_2} is called the return-mapping procedure and the solution defines the return-mapping correction of the stress tensor. By implementation of the external operator $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping procedure. By applying the automatic differentiation (AD) technique to this algorithm we may restore the stress derivative $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$. 
+#
+# The JAX library was used to implement the external operator and its derivative.
+#
+# ```{note}
+# Although the tutorial shows the implementation of the Mohr-Coulomb model, it is quite general to be adapted to a wide rage of plasticity models that may be defined through a yield surface and a plastic potential.
+# ```
 #
 # ## Implementation
 #
@@ -117,7 +127,7 @@ P_i_value = 3.45  # [MPa]
 
 c = 3.45  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
-psi = 30 * np.pi / 180  # [rad] dilatancy angle
+psi = 60 * np.pi / 180  # [rad] dilatancy angle
 # [rad] transition angle as defined by Abbo and Sloan
 theta_T = 20 * np.pi / 180
 a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
@@ -199,14 +209,17 @@ u_ = ufl.TestFunction(V)
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
 
+
 # %% [markdown]
 # ### Defining the external operator
 #
+# In order to define the behaviour of the external operator and its derivatives, we need to implement the return-mapping procedure solving the constitutive equations `eq`{eq_MC_1}--`eq`{eq_MC_2} and apply the automatic differentiation tool to this algorithm.
+#
 # #### Defining yield surface and plastic potential
+#
+# First of all, we define supplementary functions that help us to express the yield surface $F$ and the plastic potential $G$. In the following definitions, we use built-in functions of the JAX package, in particular, the conditional primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool and compilation. For more details, please, visit the JAX [documentation](https://jax.readthedocs.io/en/latest/).
 
 # %%
-
-
 def J3(sigma_local):
     return sigma_local[2] * (sigma_local[0]*sigma_local[1] - sigma_local[3]*sigma_local[3]/2.)
 
@@ -261,34 +274,37 @@ def surface(sigma_local, angle):
     theta = 1/3. * jnp.arcsin(arg)
     return I1/3 * jnp.sin(angle) + jnp.sqrt(J2 * K(theta, angle)*K(theta, angle) + a_G(angle)*a_G(angle) * jnp.sin(angle)*jnp.sin(angle)) - c * jnp.cos(angle)
 
+
+# %% [markdown]
+# By picking up an appropriate angle we define he yield surface $F$ and the
+# plastic potential $G$.
+
 # %%
-
-
 def f_MC(sigma_local): return surface(sigma_local, phi)
 def g_MC(sigma_local): return surface(sigma_local, psi)
 
-# @jax.jit
-# def theta(sigma_local):
-#     s = dev @ sigma_local
-#     J2 = 0.5 * jnp.vdot(s, s)
-#     arg = -3*jnp.sqrt(3) * J3(s) / (2 * jnp.sqrt(J2*J2*J2))
-#     arg = jnp.clip(arg, -1, 1)
-#     return 1/3. * jnp.arcsin(arg)
-
 
 # %%
-# dthetadsigma = jax.jit(jax.jacfwd(theta, argnums=(0)))
+# NOTE: For testing/remove
+@jax.jit
+def theta(sigma_local):
+    s = dev @ sigma_local
+    J2 = 0.5 * jnp.vdot(s, s)
+    arg = -3*jnp.sqrt(3) * J3(s) / (2 * jnp.sqrt(J2*J2*J2))
+    arg = jnp.clip(arg, -1, 1)
+    return 1/3. * jnp.arcsin(arg)
+
+dthetadsigma = jax.jit(jax.jacfwd(theta, argnums=(0)))
 dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
 
-# %%
-# deps_local = jnp.array([TPV, 0.0, 0.0, 0.0])
-# sigma_local = jnp.array([1, 1, 1.0, 1.0])
-# print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
+deps_local = jnp.array([TPV, 0.0, 0.0, 0.0])
+sigma_local = jnp.array([1, 1, 1.0, 1.0])
+print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
 
-# %%
-# deps_local = jnp.array([0.0006, 0.0003, 0.0, 0.0])
-# sigma_local = C_elas @ deps_local
-# print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
+deps_local = jnp.array([0.0006, 0.0003, 0.0, 0.0])
+sigma_local = C_elas @ deps_local
+print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
+
 
 # %% [markdown]
 # #### Solving perfect plasticity
@@ -323,8 +339,6 @@ dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
 # $$
 
 # %%
-
-
 @jax.jit
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -367,11 +381,19 @@ def j(sigma_local, dlambda, deps_local, sigma_n_local):
                      [dr_fdsigma, dr_fddlambda]])
 
 
+
+# %%
 Nitermax, tol = 200, 1e-8
 
 
 @jax.jit
 def sigma_return_mapping(deps_local, sigma_n_local):
+    """Performs the return-mapping procedure.
+
+    It solves elastoplastic constitutive equations numerically by applying the
+    Newton method in a single Gauss point. The Newton loop is implement via
+    `jax.lax.while_loop`.
+    """
     niter = 0
 
     dlambda = jnp.array(0.)  # init guess
@@ -430,17 +452,13 @@ def C_tang_impl(deps):
 
     C_tang_global = output[0][0]
     sigma_global = output[1][0]
-    # dp_global = output[1][1]
-    # print(np.linalg.norm(dp_global))
-    # np.copyto(dp, dp_global)
-    # dp[:] = 0.
-
-    # np.copyto(sigma, sigma_global.reshape(-1))
-
     niter = output[1][1]
     yielding = output[1][2]
     # res = output[1][3].reshape((27144, -1, 5))
     # norm_res = jnp.linalg.norm(res, axis=0)
+
+    # NOTE: The following code prints some details about the second Newton solver, solving the constitutive equations.
+    # Do we need this or it's better to have the code as clean as possible?
     print("\tSubNewton:")
     print(
         f"\t  unique counts niter-s = {jnp.unique(niter, return_counts=True)}")
