@@ -404,7 +404,8 @@ def r(x_local, deps_local, sigma_n_local):
 dr = jax.jit(jax.jacfwd(r, argnums=(0)))
 
 # %% [markdown]
-# Then we define the function that implements the algorithm.
+# Then we define the function `return_mapping` that implements the return-mapping
+# algorithm numerically via the Newton method.
 
 # %%
 Nitermax, tol = 200, 1e-8
@@ -468,12 +469,23 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     return sigma_local, (sigma_local, niter_total, yielding, res)
 
 
+# %% [markdown]
+# The `return_mapping` function returns a tuple with two elements. The first element is an array containing values of the external operator $\boldsymbol{\sigma}$ and the second one is another tuple containing additional data such as e.g. information on a convergence of the Newton method. Once we apply the JAX AD tool, the latter "converts" the first element of the `return_mapping` output into an array with values of the derivative $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$ and leaves untouched the second one. That is why we return `sigma_local` twice in the `return_mapping`: ....
+#
+# COMMENT: Well, looks too wordy...
+
 # %%
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, argnums=(0,), has_aux=True)
-dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
+# NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
+# `C_tang_local, (sigma_local, niter_total, yielding, res)`
+
+# %% [markdown]
+# Once we defined the function `dsigma_ddeps`, which evaluates both the external operator and its derivative locally, we can just vectorize it and define the final implementation of the external operator derivative.
 
 # %%
+dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
+
 def C_tang_impl(deps):
     deps_ = deps.reshape((-1, 4))
     sigma_n_ = sigma_n.x.array.reshape((-1, 4))
@@ -502,6 +514,12 @@ def C_tang_impl(deps):
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
 
+# %% [markdown]
+# Similarly to the von Mises example, we do not implement explicitly the
+# evaluation of the external operator. Instead, we obtain its values during the
+# evaluation of its derivative and then update the values of the operator in the
+# main Newton loop.
+
 # %%
 def sigma_external(derivatives):
     if derivatives == (0,):
@@ -513,6 +531,9 @@ def sigma_external(derivatives):
 
 
 sigma.external_function = sigma_external
+
+# %% [markdown]
+# ### Defining the forms
 
 # %%
 n = ufl.FacetNormal(mesh)
@@ -535,6 +556,9 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
+# %% [markdown]
+# ### JAX compilation
+
 # %%
 # TODO: I have an impression that it compiles the elastic and plastic parts separately.
 Du.x.array[:] = 1.  # For faster test
@@ -546,6 +570,9 @@ evaluated_operands = evaluate_operands(F_external_operators)
 # %%
 ((_, sigma_new),) = evaluate_external_operators(
     J_external_operators, evaluated_operands)
+
+# %% [markdown]
+# ### Solving the problem
 
 # %%
 external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
@@ -606,6 +633,9 @@ for (i, load) in enumerate(load_steps):
 
 end = MPI.Wtime()
 timer3.stop()
+
+# %% [markdown]
+# ### Post-processing
 
 # %%
 if len(points_on_process) > 0:
