@@ -37,7 +37,7 @@
 # \begin{align*}
 #     & H(\boldsymbol{\sigma}, \alpha) = \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha + \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} - c\cos\alpha, \\
 #     & F(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \phi), \\
-#     & G(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \psi), 
+#     & G(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \psi),
 # \end{align*}
 # where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion, $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first invariant of the stress tensor and $J_2(\boldsymbol{\sigma}) = \frac{1}{2}\boldsymbol{s}:\boldsymbol{s}$ is the second invariant of the deviatoric part of the stress tensor. The expression of the coefficient $K(\alpha)$ may be found in the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html).
@@ -78,7 +78,7 @@
 #     \end{cases}
 # $$ (eq_MC_2)
 #
-# The algorithm solving the systems `eq`{eq_MC_1}--`eq`{eq_MC_2} is called the return-mapping procedure and the solution defines the return-mapping correction of the stress tensor. By implementation of the external operator $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping procedure. By applying the automatic differentiation (AD) technique to this algorithm we may restore the stress derivative $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$. 
+# The algorithm solving the systems `eq`{eq_MC_1}--`eq`{eq_MC_2} is called the return-mapping procedure and the solution defines the return-mapping correction of the stress tensor. By implementation of the external operator $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping procedure. By applying the automatic differentiation (AD) technique to this algorithm we may restore the stress derivative $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
 #
 # The JAX library was used to implement the external operator and its derivative.
 #
@@ -114,6 +114,8 @@ jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 # %% [markdown]
 # ### Model parameters
+#
+# Here we define geometrical and material parameters of the problem as well as some useful constants.
 
 # %%
 R_i = 1  # [m] Inner radius
@@ -126,7 +128,7 @@ P_i_value = 3.45  # [MPa]
 
 c = 3.45  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
-psi = 60 * np.pi / 180  # [rad] dilatancy angle
+psi = 30 * np.pi / 180  # [rad] dilatancy angle
 # [rad] transition angle as defined by Abbo and Sloan
 theta_T = 20 * np.pi / 180
 a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
@@ -301,6 +303,7 @@ def theta(sigma_local):
     arg = jnp.clip(arg, -1, 1)
     return 1/3. * jnp.arcsin(arg)
 
+
 dthetadsigma = jax.jit(jax.jacfwd(theta, argnums=(0)))
 dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
 
@@ -347,7 +350,6 @@ print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(si
 # in the main Newton loop. It may be more efficient, but idk. Anyway, as it is,
 # it looks fancier.
 
-@jax.jit
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     yielding = f_MC(sigma_elas_local)
@@ -356,14 +358,10 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
         sigma_local, dlambda): return dlambda * dgdsigma(sigma_local)
     return jax.lax.cond(yielding <= TPV, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
 
-
-@jax.jit
 def r_sigma(sigma_local, dlambda, deps_local, sigma_n_local):
     deps_p_local = deps_p(sigma_local, dlambda, deps_local, sigma_n_local)
     return sigma_local - sigma_n_local - C_elas @ (deps_local - deps_p_local)
 
-
-@jax.jit
 def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     yielding = f_MC(sigma_elas_local)
@@ -372,11 +370,9 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     def r_f_plastic(sigma_local, dlambda): return f_MC(sigma_local)
     return jax.lax.cond(yielding <= TPV, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
-
 dr_sigma = jax.jit(jax.jacfwd(r_sigma, argnums=(0, 1)))
 dr_f = jax.jit(jax.jacfwd(r_f, argnums=(0, 1)))
 
-@jax.jit
 def j(sigma_local, dlambda, deps_local, sigma_n_local):
     dr_sigmadsigma, dr_sigmaddlambda = dr_sigma(
         sigma_local, dlambda, deps_local, sigma_n_local)
@@ -387,7 +383,6 @@ def j(sigma_local, dlambda, deps_local, sigma_n_local):
     return jnp.block([[dr_sigmadsigma, dr_sigmaddlambda_T],
                      [dr_fdsigma, dr_fddlambda]])
 
-@jax.jit
 def r(x_local, deps_local, sigma_n_local):
     # Normally, the following lines allocate new memory
     sigma_local = x_local[:4]
@@ -399,8 +394,8 @@ def r(x_local, deps_local, sigma_n_local):
     return res
 
 # NOTE: Instead of the definition of j above we may use this one
-# TODO: Less efficient? 
-dr = jax.jit(jax.jacfwd(r, argnums=(0)))
+# TODO: Less efficient?
+dr = jax.jacfwd(r, argnums=(0))
 
 # %% [markdown]
 # Then we define the function `return_mapping` that implements the return-mapping
@@ -409,7 +404,6 @@ dr = jax.jit(jax.jacfwd(r, argnums=(0)))
 # %%
 Nitermax, tol = 200, 1e-8
 
-@jax.jit
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
 
@@ -421,12 +415,12 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     dlambda = jnp.array(0.)  # init guess
     sigma_local = sigma_n_local  # init guess
-    x_local = jnp.c_['0,1,-1', sigma_local, dlambda]# init guess
+    # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]  # init guess
 
-    # res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
-    # res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
-    # res = jnp.c_['0,1,-1', res_sigma, res_f]
-    res = r(x_local, deps_local, sigma_n_local)
+    res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
+    res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
+    res = jnp.c_['0,1,-1', res_sigma, res_f]
+    # res = r(x_local, deps_local, sigma_n_local)
 
     norm_res0 = jnp.linalg.norm(res)
     sigma_elas_local = C_elas @ deps_local
@@ -439,19 +433,19 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     def body_fun(state):
         norm_res, niter, history = state
         sigma_local, dlambda, deps_local, sigma_n_local, res = history
-        x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
+        # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
 
-        # J = j(sigma_local, dlambda, deps_local, sigma_n_local)
-        J = dr(x_local, deps_local, sigma_n_local)
+        J = j(sigma_local, dlambda, deps_local, sigma_n_local)
+        # J = dr(x_local, deps_local, sigma_n_local)
         j_inv_vp = jnp.linalg.solve(J, -res)
         sigma_local = sigma_local + j_inv_vp[:4]
         dlambda = dlambda + j_inv_vp[-1]
 
-        # res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
-        # res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
-        # res = jnp.c_['0,1,-1', res_sigma, res_f]
-        x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
-        res = r(x_local, deps_local, sigma_n_local)
+        res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
+        res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
+        res = jnp.c_['0,1,-1', res_sigma, res_f]
+        # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
+        # res = r(x_local, deps_local, sigma_n_local)
         norm_res = jnp.linalg.norm(res)
         niter += 1
         history = sigma_local, dlambda, deps_local, sigma_n_local, res
@@ -485,6 +479,7 @@ dsigma_ddeps = jax.jacfwd(sigma_return_mapping, argnums=(0,), has_aux=True)
 # %%
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
+
 def C_tang_impl(deps):
     deps_ = deps.reshape((-1, 4))
     sigma_n_ = sigma_n.x.array.reshape((-1, 4))
@@ -495,20 +490,20 @@ def C_tang_impl(deps):
     sigma_global = output[1][0]
     niter = output[1][1]
     yielding = output[1][2]
-    # res = output[1][3].reshape((27144, -1, 5))
-    # norm_res = jnp.linalg.norm(res, axis=0)
+    res = output[1][3]
 
-    # NOTE: The following code prints some details about the second Newton solver, solving the constitutive equations.
-    # Do we need this or it's better to have the code as clean as possible?
+    unique_iters, counts = jnp.unique(niter, return_counts=True)
+    norm_res = jnp.linalg.norm(res, axis=1)
+
+    # NOTE: The following code prints some details about the second Newton
+    # solver, solving the constitutive equations. Do we need this or it's better
+    # to have the code as clean as possible?
     print("\tSubNewton:")
-    print(
-        f"\t  unique counts niter-s = {jnp.unique(niter, return_counts=True)}")
-    # print(f"\t  sigma = {np.linalg.norm(sigma)}")
-    print(f"\t  max yielding = {jnp.max(yielding)}")
-    # print(f"\t  norm_res = {jnp.min(norm_res), jnp.max(norm_res), jnp.mean(norm_res)}")
-    # print(f"\t  res = {jnp.min(res), jnp.max(res), jnp.mean(res)}")
+    print(f"\t  {unique_iters} - unique number of iterations")
+    print(f"\t  {counts} - counts of unique number of iterations")
+    print(f"\t  max F = {jnp.max(yielding)}")
+    print(f"\t  max SubResidual = {jnp.max(norm_res)}")
     # print(f"\t  nans = {jnp.argwhere(jnp.isnan(res))}")
-    # print(f"\t  deps_global = {deps_global[0]}")
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -556,22 +551,57 @@ F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
 # %% [markdown]
-# ### JAX compilation
-
+# ### Variables initialization and compilation
+# Before solving the problem it is required.
 # %%
-# TODO: I have an impression that it compiles the elastic and plastic parts separately.
-Du.x.array[:] = 1.  # For faster test
-sigma_n.x.array[:] = TPV
+# Initialize variables to start the algorithm
+# NOTE: Actually we need to evaluate operators before the Newton solver
+# in order to assemble the matrix, where we expect elastic stiffness matrix
+# Shell we discuss it? The same states for the von Mises.
+Du.x.array[:] = 1.0  # still the elastic flow
+# sigma_n.x.array[:] = TPV
 
-# %%
+timer1 = common.Timer("1st JAX pass")
+timer1.start()
+
 evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(
+    J_external_operators, evaluated_operands)
+
+timer1.stop()
+
+timer2 = common.Timer("2nd JAX pass")
+timer2.start()
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(
+    J_external_operators, evaluated_operands)
+
+timer2.stop()
+
+timer3 = common.Timer("3rd JAX pass")
+timer3.start()
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(
+    J_external_operators, evaluated_operands)
+
+timer3.stop()
 
 # %%
-((_, sigma_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+# TODO: Is there a more elegant way to extract the data?
+# TODO: Maybe we analyze the compilation time in-place?
+common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+
 
 # %% [markdown]
 # ### Solving the problem
+#
+# Summing up, we apply the Newton method to solve the main weak problem. On each
+# iteration of the main Newton loop, we solve elastoplastic constitutive equations
+# by using the second Newton method at each Gauss point. Thanks to the framework
+# and the JAX library, the final interface is general enough to be reused for
+# other plasticity models.
 
 # %%
 external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
@@ -582,29 +612,28 @@ external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_process = find_cell_by_point(mesh, x_point)
 
-Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
-Nincr = 20
-load_steps = np.linspace(0, 1.05, Nincr+1)[1:]**0.5
-load_steps = np.linspace(0.9, 5, Nincr+1)[1:]
-results = np.zeros((Nincr+1, 2))
-
-timer3 = common.Timer("Solving the problem")
-start = MPI.Wtime()
-timer3.start()
+# parameters of the manual Newton method
+max_iterations, relative_tolerance = 200, 1e-8
+num_increments = 20
+load_steps = np.linspace(0.9, 5, num_increments, endpoint=True)[1:]
+results = np.zeros((num_increments, 2))
 
 for (i, load) in enumerate(load_steps):
     P_i.value = load
     external_operator_problem.assemble_vector()
 
-    nRes0 = external_operator_problem.b.norm()
-    nRes = nRes0
+    residual_0 = external_operator_problem.b.norm()
+    residual = residual_0
     Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"\nnRes0 , {nRes0} \n Increment: {str(i+1)}, load = {load}")
+        print(
+            f"Increment: {i+1!s}, load = {load}, residual0 = {residual_0} ")
     niter = 0
 
-    while nRes/nRes0 > tol and niter < Nitermax:
+    while residual / residual_0 > relative_tolerance and niter < max_iterations:
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tit# {niter}:")
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
 
@@ -617,10 +646,10 @@ for (i, load) in enumerate(load_steps):
         sigma.ref_coefficient.x.array[:] = sigma_new
 
         external_operator_problem.assemble_vector()
-        nRes = external_operator_problem.b.norm()
+        residual = external_operator_problem.b.norm()
 
         if MPI.COMM_WORLD.rank == 0:
-            print(f"    it# {niter} Residual: {nRes}")
+            print(f"\tresidual: {residual}\n")
         niter += 1
     u.vector.axpy(1, Du.vector)  # u = u + 1*Du
     u.x.scatter_forward()
@@ -630,8 +659,7 @@ for (i, load) in enumerate(load_steps):
     if len(points_on_process) > 0:
         results[i+1, :] = (u.eval(points_on_process, cells)[0], load)
 
-end = MPI.Wtime()
-timer3.stop()
+# %%
 
 # %% [markdown]
 # ### Post-processing
@@ -646,3 +674,15 @@ if len(points_on_process) > 0:
     plt.show()
 
 # %%
+# TODO: Is there a more elegant way to extract the data?
+# common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+
+# %%
+# # NOTE: There is the warning `[WARNING] yaksa: N leaked handle pool objects` for
+# # the call `.assemble_vector()` and `.vector`.
+# # NOTE: The following lines eleminate the leakes (except the mesh ones).
+# # NOTE: To test this for the newest version of the DOLFINx.
+external_operator_problem.__del__()
+Du.vector.destroy()
+du.vector.destroy()
+u.vector.destroy()
