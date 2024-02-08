@@ -272,7 +272,7 @@ loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
 # TODO: think about the sign later
-F = ufl.inner(sigma, epsilon(v)) * dx + loading * \
+F = ufl.inner(sigma, epsilon(v)) * dx - loading * \
     ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
 # Internal state
@@ -312,9 +312,6 @@ sigma_n = fem.Function(S, name="stress_n")
 # of this problem for the legacy FEniCS 2019.
 
 # %%
-# NOTE: LLVM will inline this function call.
-
-
 # %% [markdown]
 # Then we iterate over each Gauss node and compute the quantities of interest
 # globally in the `return_mapping` function with the `@numba.njit` decorator. The
@@ -322,13 +319,13 @@ sigma_n = fem.Function(S, name="stress_n")
 # ordinary `for`-loops will be efficiently processed (?).
 
 # %%
-# num_quadrature_points = P_element.dim
+num_quadrature_points = P_element.dim
 
 @numba.njit
 def return_mapping(deps_, sigma_n_, p_):
     """Performs the return-mapping procedure."""
     num_cells = deps_.shape[0]
-    num_quadrature_points = deps_.shape[1] # TODO: If we define everything inside, maybe it's better in this way?
+    print(num_cells)
 
     C_tang_ = np.empty((num_cells, num_quadrature_points,
                        4, 4), dtype=PETSc.ScalarType)
@@ -477,7 +474,7 @@ timer3.stop()
 # %%
 u = fem.Function(V, name="displacement")
 du = fem.Function(V, name="Newton_correction")
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
@@ -510,8 +507,9 @@ for i, loading_v in enumerate(loadings):
             break
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
+        du.x.scatter_forward()
 
-        Du.vector.axpy(1.0, du.vector)
+        Du.vector.axpy(-1.0, du.vector)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
