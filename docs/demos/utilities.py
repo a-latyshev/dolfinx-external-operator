@@ -11,18 +11,20 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.0):
 
     # mesh parameters
     gdim = 2
-    lc = 0.3
     verbosity = 0
     model_rank = 0
+
     gmsh.initialize()
+    gmsh.option.setNumber("General.Verbosity", verbosity)
 
     facet_tags_labels = {"Lx": 1, "Ly": 2, "inner": 3, "outer": 4}
 
     cell_tags_map = {"all": 20}
+    model = gmsh.model()
+    model.add("quarter_cylinder")
+    model.setCurrent("quarter_cylinder")
+
     if MPI.COMM_WORLD.rank == model_rank:
-        model = gmsh.model()
-        model.add("Quart_cylinder")
-        model.setCurrent("Quart_cylinder")
         # Create the points
         pix = model.occ.addPoint(R_i, 0.0, 0, lc)
         pex = model.occ.addPoint(R_e, 0, 0, lc)
@@ -31,9 +33,11 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.0):
         center = model.occ.addPoint(0.0, 0.0, 0, lc)
         # Create the lines
         lx = model.occ.addLine(pix, pex, tag=facet_tags_labels["Lx"])
-        lout = model.occ.addCircleArc(pex, center, pey, tag=facet_tags_labels["outer"])
+        lout = model.occ.addCircleArc(
+            pex, center, pey, tag=facet_tags_labels["outer"])
         ly = model.occ.addLine(pey, piy, tag=facet_tags_labels["Ly"])
-        lin = model.occ.addCircleArc(piy, center, pix, tag=facet_tags_labels["inner"])
+        lin = model.occ.addCircleArc(
+            piy, center, pix, tag=facet_tags_labels["inner"])
         # Create the surface
         cloop1 = model.occ.addCurveLoop([lx, lout, ly, lin])
         _ = model.occ.addPlaneSurface([cloop1], tag=cell_tags_map["all"])
@@ -48,15 +52,19 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.0):
             model.setPhysicalName(1, value, key)
         # Finalize mesh
         model.occ.synchronize()
-        gmsh.option.setNumber("General.Verbosity", verbosity)
         model.mesh.generate(gdim)
 
-    mesh, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0.0, gdim=2)
+    # NOTE: Do not forget to check the leaks produced by the following line of code
+    # [WARNING] yaksa: 2 leaked handle pool objects
+    mesh, cell_tags, facet_tags = gmshio.model_to_mesh(
+        gmsh.model, MPI.COMM_WORLD, rank=model_rank, gdim=2)
 
     mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
     mesh.name = "quarter_cylinder"
     cell_tags.name = f"{mesh.name}_cells"
     facet_tags.name = f"{mesh.name}_facets"
+
+    gmsh.finalize()
 
     return mesh, facet_tags, facet_tags_labels
 
