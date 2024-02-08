@@ -122,7 +122,7 @@ from dolfinx_external_operator import (
 )
 from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner
 
-domain = mesh.create_unit_square(MPI.COMM_WORLD, 1, 1)
+domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
 V = fem.functionspace(domain, ("CG", 1))
 
 # %% [markdown]
