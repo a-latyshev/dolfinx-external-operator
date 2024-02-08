@@ -150,7 +150,7 @@ from dolfinx_external_operator import (
 )
 from ufl import Identity, Measure, TestFunction, TrialFunction, derivative, grad, inner
 
-domain = mesh.create_unit_square(MPI.COMM_WORLD, 5, 5)
+domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
 V = fem.functionspace(domain, ("CG", 1))
 
 # %% [markdown]
@@ -410,8 +410,6 @@ q_explicit = -k_explicit * grad(T)
 F_explicit = inner(q_explicit, grad(T_tilde)) * dx
 F_explicit_compiled = fem.form(F_explicit)
 b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
-print(b_explicit_vector.array)
-print(b_vector.array)
 assert np.allclose(b_explicit_vector.array, b_vector.array)
 
 # %% [markdown]

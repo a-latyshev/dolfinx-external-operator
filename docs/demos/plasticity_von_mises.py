@@ -41,7 +41,8 @@
 # $\boldsymbol{\varepsilon}$ as follows
 #
 # $$
-#     \boldsymbol{\varepsilon} = \frac{1}{2}\left( \nabla\boldsymbol{u} + \nabla\boldsymbol{u}^T \right).
+#     \boldsymbol{\varepsilon} = \frac{1}{2}\left( \nabla\boldsymbol{u} +
+#     \nabla\boldsymbol{u}^T \right).
 # $$
 #
 # Throughout the tutorial, we stick to the Mandel-Voigt notation, according to
@@ -50,8 +51,10 @@
 # components
 #
 # \begin{align*}
-#     & \boldsymbol{\sigma} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}]^T, \\
-#     & \boldsymbol{\varepsilon} = [\varepsilon_{xx}, \varepsilon_{yy}, \varepsilon_{zz}, \sqrt{2}\varepsilon_{xy}]^T.
+#     & \boldsymbol{\sigma} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz},
+#     \sqrt{2}\sigma_{xy}]^T, \\
+#     & \boldsymbol{\varepsilon} = [\varepsilon_{xx}, \varepsilon_{yy},
+#     \varepsilon_{zz}, \sqrt{2}\varepsilon_{xy}]^T.
 # \end{align*}
 #
 # Denoting the deviatoric operator $\mathrm{dev}$, we introduce two additional
@@ -67,7 +70,6 @@
 # $\boldsymbol{s} = \mathrm{dev}\boldsymbol{\sigma}$ are deviatoric parts of the
 # stain and stress tensors respectively.
 #
-#
 # ## Problem formulation
 #
 # The domain of the problem $\Omega$ represents the first quarter of the hollow
@@ -78,7 +80,8 @@
 # {eq}`eq_von_Mises`
 #
 # $$
-#     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0 - Hp \leq 0,
+#     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0
+#     - Hp \leq 0,
 # $$ (eq_von_Mises)
 #
 # where $\sigma_0$ is a uniaxial strength and $H$ is an isotropic hardening
@@ -115,27 +118,47 @@
 #
 # In this tutorial, we treat the stress tensor $\boldsymbol{\sigma}$ as an
 # external operator acting on the displacement field $\boldsymbol{u}$ and
-# represent it through a `FEMExternalOperator` object. By the implementation of this external operator, we mean an implementation of the return-mapping procedure, the most common approach to solve plasticity problems. With the help of this procedure, we compute both values of the stress tensor $\boldsymbol{\sigma}$ and its derivative, so-called the tangent stiffness matrix $\boldsymbol{C}_\text{tang}$. 
+# represent it through a `FEMExternalOperator` object. By the implementation of
+# this external operator, we mean an implementation of the return-mapping
+# procedure, the most common approach to solve plasticity problems. With the
+# help of this procedure, we compute both values of the stress tensor
+# $\boldsymbol{\sigma}$ and its derivative, so-called the tangent stiffness
+# matrix $\boldsymbol{C}_\text{tang}$.
 #
-# As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main` we need to compute the Gateaux derivative of $F$ in the direction $\boldsymbol{\hat{u}} \in V$.
+# As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main`
+# we need to compute the Gateaux derivative of $F$ in the direction
+# $\boldsymbol{\hat{u}} \in V$.
 #
 # $$
-#     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) := D_{\boldsymbol{u}} F(\boldsymbol{u}; \boldsymbol{v})(\boldsymbol{\hat{u}}) := \int\limits_\Omega
-#     D_{\boldsymbol{u}} \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) . \boldsymbol{\varepsilon(v)}
-#     d\boldsymbol{x}, \quad \forall
-#     \boldsymbol{v} \in V.
+#     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) :=
+#     D_{\boldsymbol{u}} F(\boldsymbol{u};
+#     \boldsymbol{v})(\boldsymbol{\hat{u}}) := \int\limits_\Omega
+#     D_{\boldsymbol{u}}
+#     \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) .
+#     \boldsymbol{\varepsilon(v)} d\boldsymbol{x}, \quad \forall \boldsymbol{v}
+#     \in V.
 # $$
 #
 # The derivative $D_{\boldsymbol{u}} \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}})$ (TODO: it cannot be the Gateau derivative of sigma, Corrado is right. We need to find a way how to explain this.) is written as following
 #
 # $$
-#     D_{\boldsymbol{u}} \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) = \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}(\boldsymbol{u}) . \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) = \boldsymbol{C}_\text{tang} . \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
+#     D_{\boldsymbol{u}}
+#     \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) =
+#     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d}
+#     \boldsymbol{\varepsilon}}(\boldsymbol{u}) .
+#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) =
+#     \boldsymbol{C}_\text{tang} .
+#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
 # $$
 # where the trial part ....
 #
-# The advantage of the von Mises model is that the return-mapping procedure may be performed analytically, so the stress tensor and the tangent stiffness matrix may be expressed explicitly using any package. In our case, we the Numba library to define the behaviour of the external operator and its derivative.
+# The advantage of the von Mises model is that the return-mapping procedure may
+# be performed analytically, so the stress tensor and the tangent stiffness
+# matrix may be expressed explicitly using any package. In our case, we the
+# Numba library to define the behaviour of the external operator and its
+# derivative.
 #
-# <!-- 
+# <!--
 # In the above nonlinear problem {eq}`eq_von_Mises_main` the elastoplastic constitutive
 # relation $\boldsymbol{\sigma}(\boldsymbol{u})$ is restored by applying the
 # return-mapping procedure. The main bottleneck of this procedure is a computation
@@ -175,7 +198,7 @@ from dolfinx_external_operator import (
 # %%
 R_e, R_i = 1.3, 1.0  # external/internal radius
 
-E, nu = 70e3, 0.3 # elastic parameters
+E, nu = 70e3, 0.3  # elastic parameters
 E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
 sigma_0 = 250.0  # yield strength
@@ -207,17 +230,14 @@ V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
 bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
 left_facets = facet_tags.find(facet_tags_labels["Ly"])
 
-bottom_dofs_y = fem.locate_dofs_topological(
-    V.sub(1), mesh.topology.dim - 1, bottom_facets)
-left_dofs_x = fem.locate_dofs_topological(
-    V.sub(0), mesh.topology.dim - 1, left_facets)
+bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim - 1, bottom_facets)
+left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim - 1, left_facets)
 
-sym_bottom = fem.dirichletbc(
-    np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
-sym_left = fem.dirichletbc(
-    np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
+sym_bottom = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
+sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
 
 bcs = [sym_bottom, sym_left]
+
 
 def epsilon(v):
     grad_v = ufl.grad(v)
@@ -239,8 +259,7 @@ dx = ufl.Measure(
 )
 
 Du = fem.Function(V, name="displacement_increment")
-S_element = basix.ufl.quadrature_element(
-    mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
+S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
 S = fem.functionspace(mesh, S_element)
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 
@@ -249,12 +268,10 @@ loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
 # TODO: think about the sign later
-F = ufl.inner(sigma, epsilon(v)) * dx + loading * \
-    ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
 # Internal state
-P_element = basix.ufl.quadrature_element(
-    mesh.topology.cell_name(), degree=k_stress, value_shape=())
+P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
 P = fem.functionspace(mesh, P_element)
 
 p = fem.Function(P, name="cumulative_plastic_strain")
@@ -269,7 +286,11 @@ sigma_n = fem.Function(S, name="stress_n")
 # appear in the Jacobian
 #
 # $$
-#     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}(\boldsymbol{u}) . \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) = \boldsymbol{C}_\text{tang} . \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
+#     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d}
+#     \boldsymbol{\varepsilon}}(\boldsymbol{u}) .
+#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) =
+#     \boldsymbol{C}_\text{tang} .
+#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
 # $$
 #
 # where the "trial" part $\boldsymbol{\varepsilon}(\boldsymbol{\hat{u}})$ will be
@@ -277,36 +298,14 @@ sigma_n = fem.Function(S, name="stress_n")
 # $\frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}$
 # must be implemented by the user. In this tutorial, we implement the derivative using the Numba package.
 #
-# First of all, we implement the return-mapping procedure locally in the function
-# `_kernel`. It computes the values of the stress tensor, the tangent stiffness matrix
-# and the increment of cumulative plastic strain at a single Gausse node. For more details, visit the [original implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html) of this problem for the legacy FEniCS 2019.
+# First of all, we implement the return-mapping procedure locally in the
+# function `_kernel`. It computes the values of the stress tensor, the tangent
+# stiffness matrix and the increment of cumulative plastic strain at a single
+# Gausse node. For more details, visit the [original
+# implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
+# of this problem for the legacy FEniCS 2019.
 
 # %%
-# NOTE: LLVM will inline this function call.
-def _kernel(deps_local, sigma_n_local, p_local):
-    """Performs the return-mapping procedure locally."""
-    sigma_elastic = sigma_n_local + C_elas @ deps_local
-    s = deviatoric @ sigma_elastic
-    sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
-
-    f_elastic = sigma_eq - sigma_0 - H * p_local
-    f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
-
-    dp = f_elastic_plus / (3 * mu + H)
-
-    n_elas = s / sigma_eq * f_elastic_plus / f_elastic
-    beta = 3 * mu * dp / sigma_eq
-
-    sigma = sigma_elastic - beta * s
-
-    n_elas_matrix = np.outer(n_elas, n_elas)
-    C_tang = C_elas - 3 * mu * \
-        (3 * mu / (3 * mu + H) - beta) * \
-        n_elas_matrix - 2 * mu * beta * deviatoric
-
-    return C_tang, sigma, dp
-
-
 # %% [markdown]
 # Then we iterate over each Gauss node and compute the quantities of interest
 # globally in the `return_mapping` function with the `@numba.njit` decorator. The
@@ -314,23 +313,43 @@ def _kernel(deps_local, sigma_n_local, p_local):
 # ordinary `for`-loops will be efficiently processed (?).
 
 # %%
-# num_quadrature_points = P_element.dim
+num_quadrature_points = P_element.dim
+
 
 @numba.njit
 def return_mapping(deps_, sigma_n_, p_):
     """Performs the return-mapping procedure."""
     num_cells = deps_.shape[0]
-    num_quadrature_points = deps_.shape[1] # TODO: If we define everything inside, maybe it's better in this way?
+    print(num_cells)
 
-    C_tang_ = np.empty((num_cells, num_quadrature_points,
-                       4, 4), dtype=PETSc.ScalarType)
+    C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
     sigma_ = np.empty_like(sigma_n_)
     dp_ = np.empty_like(p_)
 
+    def _kernel(deps_local, sigma_n_local, p_local):
+        """Performs the return-mapping procedure locally."""
+        sigma_elastic = sigma_n_local + C_elas @ deps_local
+        s = deviatoric @ sigma_elastic
+        sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
+
+        f_elastic = sigma_eq - sigma_0 - H * p_local
+        f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
+
+        dp = f_elastic_plus / (3 * mu + H)
+
+        n_elas = s / sigma_eq * f_elastic_plus / f_elastic
+        beta = 3 * mu * dp / sigma_eq
+
+        sigma = sigma_elastic - beta * s
+
+        n_elas_matrix = np.outer(n_elas, n_elas)
+        C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
+
+        return C_tang, sigma, dp
+
     for i in range(0, num_cells):
         for j in range(0, num_quadrature_points):
-            C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(
-                deps_[i, j], sigma_n_[i, j], p_[i, j])
+            C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(deps_[i, j], sigma_n_[i, j], p_[i, j])
 
     return C_tang_, sigma_, dp_
 
@@ -340,6 +359,7 @@ def return_mapping(deps_, sigma_n_, p_):
 # derivative (the stiffness tangent tensor $\boldsymbol{C}_\text{tang}$) in the
 # function `C_tang_impl`. It returns global values of the derivative, stress
 # tensor and the cumulative plastic increment.
+
 
 # %%
 def C_tang_impl(deps):
@@ -362,6 +382,7 @@ def C_tang_impl(deps):
 # of the `C_tang_impl` to update values of the external operator further in the
 # Newton loop.
 
+
 # %%
 def sigma_external(derivatives):
     if derivatives == (0,):
@@ -371,18 +392,22 @@ def sigma_external(derivatives):
     else:
         return NotImplementedError
 
+
 sigma.external_function = sigma_external
 
 # %% [markdown]
-# ```{note}
-# The framework allows implementations of external operators and its derivatives to return additional outputs. In our example, the function `C_tang_impl` returns values of the derivative, which will be used by the framework, and values of stress tensor and the cumulative plastic increment. Both additional outputs may be reused by user afterwards in the Newton loop.
+# ```{note} The framework allows implementations of external operators and its
+# derivatives to return additional outputs. In our example, the function
+# `C_tang_impl` returns values of the derivative, which will be used by the
+# framework, and values of stress tensor and the cumulative plastic increment.
+# Both additional outputs may be reused by user afterwards in the Newton loop.
 # ```
 
 # %% [markdown]
 # ### Form manipulations
 #
-# As in the previous tutorials before solving the problem we need to perform some
-# transformation of both linear and bilinear forms.
+# As in the previous tutorials before solving the problem we need to perform
+# some transformation of both linear and bilinear forms.
 
 # %%
 u_hat = ufl.TrialFunction(V)
@@ -396,9 +421,11 @@ F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
 # %% [markdown]
-# ```{note}
-# We remind that in the code above we replace `FEMExternalOperator` objects by their `fem.Function` representatives, the coefficients which are allocated during the call of the `FEMExternalOperator` constructor. The access to these coefficients may be carried out through the field `ref_coefficient` of an `FEMExternalOperator` object.
-# ```
+# ```{note} We remind that in the code above we replace `FEMExternalOperator`
+# objects by their `fem.Function` representatives, the coefficients which are
+# allocated during the call of the `FEMExternalOperator` constructor. The
+# access to these coefficients may be carried out through the field
+# `ref_coefficient` of an `FEMExternalOperator` object. ```
 
 # %% [markdown]
 # ### Numba compilation
@@ -414,22 +441,19 @@ Du.x.array[:] = eps
 timer1 = common.Timer("1st numba pass")
 timer1.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer1.stop()
 
 timer2 = common.Timer("2nd numba pass")
 timer2.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer2.stop()
 
 timer3 = common.Timer("3nd numba pass")
 timer3.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer3.stop()
 
 
@@ -441,7 +465,7 @@ timer3.stop()
 # %%
 u = fem.Function(V, name="displacement")
 du = fem.Function(V, name="Newton_correction")
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
@@ -466,16 +490,16 @@ for i, loading_v in enumerate(loadings):
     Du.x.array[:] = 0.0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(
-            f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
+        print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
 
     for iteration in range(0, max_iterations):
         if residual / residual_0 < relative_tolerance:
             break
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
+        du.x.scatter_forward()
 
-        Du.vector.axpy(1.0, du.vector)
+        Du.vector.axpy(-1.0, du.vector)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
@@ -483,8 +507,7 @@ for i, loading_v in enumerate(loadings):
         # Implementation of an external operator may return several outputs and
         # not only its evaluation. For example, `C_tang_impl` returns a tuple of
         # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
-        ((_, sigma_new, dp_new),) = evaluate_external_operators(
-            J_external_operators, evaluated_operands)
+        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
         # In order to update the values of the external operator we may directly
         # access them and avoid the call of
@@ -509,8 +532,7 @@ for i, loading_v in enumerate(loadings):
     # skip scatter forward, sigma is not ghosted.
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process,
-                             cells)[0], loading.value)
+        results[i + 1, :] = (u.eval(points_on_process, cells)[0], loading.value)
 
 # %% [markdown]
 # ### Post-processing
