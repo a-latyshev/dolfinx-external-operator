@@ -292,6 +292,7 @@ def surface(sigma_local, angle):
 # %%
 def f_MC(sigma_local): return surface(sigma_local, phi)
 def g_MC(sigma_local): return surface(sigma_local, psi)
+dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 
 
 # %% [markdown]
