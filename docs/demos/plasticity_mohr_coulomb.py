@@ -140,7 +140,7 @@ P_i_value = 3.45  # [MPa]
 
 c = 3.45  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
-psi = 30 * np.pi / 180  # [rad] dilatancy angle
+psi = 60 * np.pi / 180  # [rad] dilatancy angle
 # [rad] transition angle as defined by Abbo and Sloan
 theta_T = 20 * np.pi / 180
 a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
@@ -277,7 +277,6 @@ def K(theta, angle):
         jnp.sqrt(3) * jnp.sin(angle) * jnp.sin(theta)
     def K_false(theta, angle): return A(theta, angle) + B(theta, angle) * \
         jnp.sin(3*theta) + C(theta, angle) * jnp.sin(3*theta)*jnp.sin(3*theta)
-    return K_true(theta, angle)
     return jax.lax.cond(jnp.abs(theta) < theta_T, K_true, K_false, theta, angle)
 
 
@@ -433,7 +432,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     output = jax.lax.while_loop(
         cond_fun, body_fun, (norm_res0, niter, history))
-    sigma_local = output[2][0][4:]  # or `.at[:4].get()` is better?
+    sigma_local = output[2][0][:4]  # or `.at[:4].get()` is better?
     niter_total = output[1]
     norm_res = output[0]
     sigma_elas_local = C_elas @ deps_local
