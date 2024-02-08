@@ -313,28 +313,6 @@ sigma_n = fem.Function(S, name="stress_n")
 
 # %%
 # NOTE: LLVM will inline this function call.
-def _kernel(deps_local, sigma_n_local, p_local):
-    """Performs the return-mapping procedure locally."""
-    sigma_elastic = sigma_n_local + C_elas @ deps_local
-    s = deviatoric @ sigma_elastic
-    sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
-
-    f_elastic = sigma_eq - sigma_0 - H * p_local
-    f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
-
-    dp = f_elastic_plus / (3 * mu + H)
-
-    n_elas = s / sigma_eq * f_elastic_plus / f_elastic
-    beta = 3 * mu * dp / sigma_eq
-
-    sigma = sigma_elastic - beta * s
-
-    n_elas_matrix = np.outer(n_elas, n_elas)
-    C_tang = C_elas - 3 * mu * \
-        (3 * mu / (3 * mu + H) - beta) * \
-        n_elas_matrix - 2 * mu * beta * deviatoric
-
-    return C_tang, sigma, dp
 
 
 # %% [markdown]
@@ -356,6 +334,29 @@ def return_mapping(deps_, sigma_n_, p_):
                        4, 4), dtype=PETSc.ScalarType)
     sigma_ = np.empty_like(sigma_n_)
     dp_ = np.empty_like(p_)
+
+    def _kernel(deps_local, sigma_n_local, p_local):
+        """Performs the return-mapping procedure locally."""
+        sigma_elastic = sigma_n_local + C_elas @ deps_local
+        s = deviatoric @ sigma_elastic
+        sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
+
+        f_elastic = sigma_eq - sigma_0 - H * p_local
+        f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
+
+        dp = f_elastic_plus / (3 * mu + H)
+
+        n_elas = s / sigma_eq * f_elastic_plus / f_elastic
+        beta = 3 * mu * dp / sigma_eq
+
+        sigma = sigma_elastic - beta * s
+
+        n_elas_matrix = np.outer(n_elas, n_elas)
+        C_tang = C_elas - 3 * mu * \
+            (3 * mu / (3 * mu + H) - beta) * \
+            n_elas_matrix - 2 * mu * beta * deviatoric
+
+        return C_tang, sigma, dp
 
     for i in range(0, num_cells):
         for j in range(0, num_quadrature_points):
