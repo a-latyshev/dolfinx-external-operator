@@ -396,7 +396,7 @@ def r(x_local, deps_local, sigma_n_local):
 
 # NOTE: Instead of the definition of j above we may use this one
 # TODO: Less efficient?
-dr = jax.jacfwd(r, argnums=(0))
+drdx = jax.jacfwd(r, argnums=(0))
 
 # %% [markdown]
 # Then we define the function `return_mapping` that implements the return-mapping
@@ -416,12 +416,12 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     dlambda = jnp.array(0.)  # init guess
     sigma_local = sigma_n_local  # init guess
-    # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]  # init guess
+    x_local = jnp.c_['0,1,-1', sigma_local, dlambda]  # init guess
 
-    res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
-    res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
-    res = jnp.c_['0,1,-1', res_sigma, res_f]
-    # res = r(x_local, deps_local, sigma_n_local)
+    # res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
+    # res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
+    # res = jnp.c_['0,1,-1', res_sigma, res_f]
+    res = r(x_local, deps_local, sigma_n_local)
 
     norm_res0 = jnp.linalg.norm(res)
     sigma_elas_local = C_elas @ deps_local
@@ -433,34 +433,37 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     def body_fun(state):
         norm_res, niter, history = state
-        sigma_local, dlambda, deps_local, sigma_n_local, res = history
+        x_local, deps_local, sigma_n_local, res = history
+        # sigma_local, dlambda, deps_local, sigma_n_local, res = history
         # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
-
-        J = j(sigma_local, dlambda, deps_local, sigma_n_local)
-        # J = dr(x_local, deps_local, sigma_n_local)
+        # J = j(sigma_local, dlambda, deps_local, sigma_n_local)
+        J = drdx(x_local, deps_local, sigma_n_local)
         j_inv_vp = jnp.linalg.solve(J, -res)
-        sigma_local = sigma_local + j_inv_vp[:4]
-        dlambda = dlambda + j_inv_vp[-1]
+        # sigma_local = sigma_local + j_inv_vp[:4]
+        # dlambda = dlambda + j_inv_vp[-1]
+        x_local = x_local + j_inv_vp
 
-        res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
-        res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
-        res = jnp.c_['0,1,-1', res_sigma, res_f]
+        # res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
+        # res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
+        # res = jnp.c_['0,1,-1', res_sigma, res_f]
         # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
-        # res = r(x_local, deps_local, sigma_n_local)
+        res = r(x_local, deps_local, sigma_n_local)
         norm_res = jnp.linalg.norm(res)
         niter += 1
-        history = sigma_local, dlambda, deps_local, sigma_n_local, res
+        history = x_local, deps_local, sigma_n_local, res
+        # history = sigma_local, dlambda, deps_local, sigma_n_local, res
         return (norm_res, niter, history)
 
-    history = (sigma_local, dlambda, deps_local, sigma_n_local, res)
+    history = (x_local, deps_local, sigma_n_local, res)
+    # history = (sigma_local, dlambda, deps_local, sigma_n_local, res)
 
     output = jax.lax.while_loop(
         cond_fun, body_fun, (norm_res0, niter, history))
     niter_total = output[1]
-    sigma_local = output[2][0]
-    # norm_res = output[0]
+    sigma_local = output[2][0][:4] # or `at` is better?
+    norm_res = output[0]
 
-    return sigma_local, (sigma_local, niter_total, yielding, res)
+    return sigma_local, (sigma_local, niter_total, yielding, norm_res)
 
 
 # %% [markdown]
@@ -491,20 +494,20 @@ def C_tang_impl(deps):
     sigma_global = output[1][0]
     niter = output[1][1]
     yielding = output[1][2]
-    res = output[1][3]
+    norm_res = output[1][3]
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
-    norm_res = jnp.linalg.norm(res, axis=1)
 
     # NOTE: The following code prints some details about the second Newton
     # solver, solving the constitutive equations. Do we need this or it's better
     # to have the code as clean as possible?
     print("\tSubNewton:")
+    print(f"\t  max F = {jnp.max(yielding)}")
     print(f"\t  {unique_iters} - unique number of iterations")
     print(f"\t  {counts} - counts of unique number of iterations")
-    print(f"\t  max F = {jnp.max(yielding)}")
     print(f"\t  max SubResidual = {jnp.max(norm_res)}")
     # print(f"\t  nans = {jnp.argwhere(jnp.isnan(res))}")
+
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
