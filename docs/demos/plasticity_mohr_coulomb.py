@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -39,7 +38,9 @@
 # quantities may be expressed through the following function $H$
 #
 # \begin{align*}
-#     & H(\boldsymbol{\sigma}, \alpha) = \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha + \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} - c\cos\alpha, \\
+#     & H(\boldsymbol{\sigma}, \alpha) =
+#     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha + \sqrt{J_2(\boldsymbol{\sigma})
+#     K^2(\alpha) + a^2(\alpha)\sin^2\alpha} - c\cos\alpha, \\
 #     & F(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \phi), \\
 #     & G(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \psi),
 # \end{align*}
@@ -57,18 +58,26 @@
 #
 # $$
 #     \begin{cases}
-#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
+#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
+#         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
+#         \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d
+#         G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
 #         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
 # $$ (eq_MC_1)
 #
-# where the index $n$ is associated with values from previous loading step.
+# where the index $n$ is associated with values from the previous loading step.
 #
-# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{G}^T, r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following equation:
+# By introducing the residual vector $\boldsymbol{r} =
+# [\boldsymbol{r}_{G}^T, r_F]^T$ and its argument vector $\boldsymbol{x} =
+# [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$
+# we solve the following equation:
 #
 # $$ \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0} $$
 #
-# To solve this system we apply the Newton method and then introduce the Jacobian of the residual vector $\boldsymbol{j} = \frac{\partial \boldsymbol{r}}{\partial \boldsymbol{x}}$
+# To solve this system we apply the Newton method and then introduce the
+# Jacobian of the residual vector $\boldsymbol{j} = \frac{\partial
+# \boldsymbol{r}}{\partial \boldsymbol{x}}$
 #
 # $$ \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) +
 # \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n}) $$
@@ -88,7 +97,13 @@
 #     \end{cases}
 # $$ (eq_MC_2)
 #
-# The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the return-mapping procedure and the solution defines the return-mapping correction of the stress tensor. By implementation of the external operator $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping procedure. By applying the automatic differentiation (AD) technique to this algorithm we may restore the stress derivative $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
+#  The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
+# return-mapping procedure and the solution defines the return-mapping correction
+# of the stress tensor. By implementation of the external operator
+# $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping
+# procedure. By applying the automatic differentiation (AD) technique to this
+# algorithm we may restore the stress derivative
+# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
 #
 # The JAX library was used to implement the external operator and its derivative.
 #
@@ -103,24 +118,26 @@
 # ### Preamble
 
 # %%
+from mpi4py import MPI
+from petsc4py import PETSc
+
+import jax
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import numpy as np
+from solvers import LinearProblem
+from utilities import build_cylinder_quarter, find_cell_by_point
+
+import basix
+import ufl
+from dolfinx import common, fem
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
 )
-from dolfinx import common, fem
-import ufl
-import basix
-from utilities import build_cylinder_quarter, find_cell_by_point
-from solvers import LinearProblem
-import jax.numpy as jnp
-from mpi4py import MPI
-from petsc4py import PETSc
 
-import matplotlib.pyplot as plt
-import numpy as np
-import jax
 jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 # %% [markdown]
@@ -261,15 +278,19 @@ coeff3 = 18 * jnp.cos(3*theta_T)*jnp.cos(3*theta_T)*jnp.cos(3*theta_T)
 
 
 def C(theta, angle):
-    return (- jnp.cos(3*theta_T) * coeff1(theta, angle) - 3 * sign(theta) * jnp.sin(3*theta_T) * coeff2(theta, angle)) / coeff3
+    return (- jnp.cos(3*theta_T) * coeff1(theta, angle) - 3 * sign(theta) * jnp.sin(3*theta_T) * coeff2(theta, angle)) \
+    / coeff3
 
 
 def B(theta, angle):
-    return (sign(theta) * jnp.sin(6*theta_T) * coeff1(theta, angle) - 6 * jnp.cos(6*theta_T) * coeff2(theta, angle)) / coeff3
+    return (sign(theta) * jnp.sin(6*theta_T) * coeff1(theta, angle) - 6 * jnp.cos(6*theta_T) * coeff2(theta, angle)) \
+        / coeff3
 
 
 def A(theta, angle):
-    return - 1/jnp.sqrt(3) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T) - B(theta, angle) * sign(theta) * jnp.sin(theta_T) - C(theta, angle) * jnp.sin(3 * theta_T)*jnp.sin(3 * theta_T) + jnp.cos(theta_T)
+    return - 1/jnp.sqrt(3) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T) - B(theta, angle) * sign(theta) * \
+        jnp.sin(theta_T) - C(theta, angle) * jnp.sin(3 * theta_T) * \
+        jnp.sin(3 * theta_T) + jnp.cos(theta_T)
 
 
 def K(theta, angle):
@@ -292,7 +313,8 @@ def surface(sigma_local, angle):
     arg = jnp.clip(arg, -1, 1)
     # arcsin returns nan if its argument is equal to -1 + smth around 1e-16!!!
     theta = 1/3. * jnp.arcsin(arg)
-    return I1/3 * jnp.sin(angle) + jnp.sqrt(J2 * K(theta, angle)*K(theta, angle) + a_G(angle)*a_G(angle) * jnp.sin(angle)*jnp.sin(angle)) - c * jnp.cos(angle)
+    return I1/3 * jnp.sin(angle) + jnp.sqrt(J2 * K(theta, angle)*K(theta, angle) + a_G(angle)*a_G(angle) * \
+    jnp.sin(angle)*jnp.sin(angle)) - c * jnp.cos(angle)
 
 
 # %% [markdown]
@@ -316,7 +338,10 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 # \begin{align*}
 #     & \text{Plastic flow:} \\
 #     & \begin{cases}
-#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
+# \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
+# \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
+# \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d
+# G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
 #         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
 #      \end{cases} \\
 #     & \text{Elastic flow:} \\
