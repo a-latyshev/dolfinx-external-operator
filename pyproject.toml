@@ -37,9 +37,10 @@ ci = [
 [tool.ruff]
 line-length = 120
 indent-width = 4
-ignore-init-module-imports = true
 
 [tool.ruff.lint]
+ignore-init-module-imports = true
+
 select = [
     # "B",
     # "D", # pydocstyle
