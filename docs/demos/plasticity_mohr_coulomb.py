@@ -31,18 +31,29 @@
 # ## Problem formulation
 #
 # We solve the same cylinder expansion problem from the previous tutorial of von
-# Mises plasticity and follow the same Mandel-Voigt notation. Thus, we focus here on the constitutive model definition and its implementation.
+# Mises plasticity and follow the same Mandel-Voigt notation. Thus, we focus here
+# on the constitutive model definition and its implementation.
 #
-# We consider a non-associative plasticity law without hardening that is defined by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$. Both quantities may be expressed through the following function $H$
+# We consider a non-associative plasticity law without hardening that is defined
+# by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$. Both
+# quantities may be expressed through the following function $H$
+#
 # \begin{align*}
 #     & H(\boldsymbol{\sigma}, \alpha) = \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha + \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} - c\cos\alpha, \\
 #     & F(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \phi), \\
 #     & G(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \psi),
 # \end{align*}
-# where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion, $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first invariant of the stress tensor and $J_2(\boldsymbol{\sigma}) = \frac{1}{2}\boldsymbol{s}:\boldsymbol{s}$ is the second invariant of the deviatoric part of the stress tensor. The expression of the coefficient $K(\alpha)$ may be found in the MFront/TFEL
+#
+# where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion,
+# $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first
+# invariant of the stress tensor and $J_2(\boldsymbol{\sigma}) =
+# \frac{1}{2}\boldsymbol{s}:\boldsymbol{s}$ is the second invariant of the
+# deviatoric part of the stress tensor. The expression of the coefficient
+# $K(\alpha)$ may be found in the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html).
 #
-# During the plastic loading the stress-strain state of the solid must satisfy the following system of nonlinear equations
+# During the plastic loading the stress-strain state of the solid must satisfy the
+# following system of nonlinear equations
 #
 # $$
 #     \begin{cases}
@@ -55,29 +66,24 @@
 #
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{G}^T, r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following equation:
 #
-# $$
-#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
-# $$
+# $$ \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0} $$
 #
 # To solve this system we apply the Newton method and then introduce the Jacobian of the residual vector $\boldsymbol{j} = \frac{\partial \boldsymbol{r}}{\partial \boldsymbol{x}}$
 #
-# $$
-#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) + \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n})
-# $$
+# $$ \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) +
+# \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n}) $$
 #
-# $$
-#     \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = - \boldsymbol{r}(\boldsymbol{x}_{n})
-# $$
+# $$ \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
+# \boldsymbol{r}(\boldsymbol{x}_{n}) $$
 #
-# $$
-#     \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y}
-# $$
+# $$ \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y} $$
 #
 # During the elastic loading, we consider a trivial system of equations
 #
 # $$
 #     \begin{cases}
-#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n + \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\
+#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
+#         \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\
 #         \Delta\lambda = 0.
 #     \end{cases}
 # $$ (eq_MC_2)
@@ -87,7 +93,9 @@
 # The JAX library was used to implement the external operator and its derivative.
 #
 # ```{note}
-# Although the tutorial shows the implementation of the Mohr-Coulomb model, it is quite general to be adapted to a wide rage of plasticity models that may be defined through a yield surface and a plastic potential.
+# Although the tutorial shows the implementation of the Mohr-Coulomb model, it is
+# quite general to be adapted to a wide rage of plasticity models that may be
+# defined through a yield surface and a plastic potential.
 # ```
 #
 # ## Implementation
@@ -118,7 +126,8 @@ jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 # %% [markdown]
 # ### Model parameters
 #
-# Here we define geometrical and material parameters of the problem as well as some useful constants.
+# Here we define geometrical and material parameters of the problem as well as
+# some useful constants.
 
 # %%
 R_i = 1  # [m] Inner radius
@@ -302,7 +311,8 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 # %% [markdown]
 # #### Solving constitutive equations
 #
-# In this section, we define the constitutive model by solving the following systems
+# In this section, we define the constitutive model by solving the following
+# systems
 #
 # \begin{align*}
 #     & \text{Plastic flow:} \\
@@ -317,21 +327,27 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 #     \end{cases}
 # \end{align*}
 #
-# As the second one is trivial we focus on the first system only and rewrite it in the following form.
+# As the second one is trivial we focus on the first system only and rewrite it in
+# the following form.
+#
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0},
 # $$
+#
 # where $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$.
 #
-# This nonlinear equation must be solved at each Gauss point, so we apply the Newton method, implement the whole algorithm locally and then vectorize the final result using `jax.vmap`.
+# This nonlinear equation must be solved at each Gauss point, so we apply the
+# Newton method, implement the whole algorithm locally and then vectorize the
+# final result using `jax.vmap`.
 #
-# In the following cell, we define locally the residual $\boldsymbol{r}$ and its jacobian $\boldsymbol{j}$.
+# In the following cell, we define locally the residual $\boldsymbol{r}$ and its
+# jacobian $\boldsymbol{j}$.
 
 # %%
 # NOTE: Actually, I put conditionals inside local functions, but we may
-# implement two "branches" of the algo separetly and check the yielding condition
-# in the main Newton loop. It may be more efficient, but idk. Anyway, as it is,
-# it looks fancier.
+# implement two "branches" of the algo separetly and check the yielding
+# condition in the main Newton loop. It may be more efficient, but idk. Anyway,
+# as it is, it looks fancier.
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -417,7 +433,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     output = jax.lax.while_loop(
         cond_fun, body_fun, (norm_res0, niter, history))
-    sigma_local = output[2][0][:4]  # or `.at[:4].get()` is better?
+    sigma_local = output[2][0][4:]  # or `.at[:4].get()` is better?
     niter_total = output[1]
     norm_res = output[0]
     sigma_elas_local = C_elas @ deps_local
@@ -428,7 +444,15 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
 
 # %% [markdown]
-# The `return_mapping` function returns a tuple with two elements. The first element is an array containing values of the external operator $\boldsymbol{\sigma}$ and the second one is another tuple containing additional data such as e.g. information on a convergence of the Newton method. Once we apply the JAX AD tool, the latter "converts" the first element of the `return_mapping` output into an array with values of the derivative $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$ and leaves untouched the second one. That is why we return `sigma_local` twice in the `return_mapping`: ....
+# The `return_mapping` function returns a tuple with two elements. The first
+# element is an array containing values of the external operator
+# $\boldsymbol{\sigma}$ and the second one is another tuple containing additional
+# data such as e.g. information on a convergence of the Newton method. Once we
+# apply the JAX AD tool, the latter "converts" the first element of the
+# `return_mapping` output into an array with values of the derivative
+# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$ and
+# leaves untouched the second one. That is why we return `sigma_local` twice in
+# the `return_mapping`: ....
 #
 # COMMENT: Well, looks too wordy...
 
@@ -439,7 +463,9 @@ dsigma_ddeps = jax.jacfwd(sigma_return_mapping, argnums=(0,), has_aux=True)
 # `C_tang_local, (sigma_local, niter_total, yielding, res)`
 
 # %% [markdown]
-# Once we defined the function `dsigma_ddeps`, which evaluates both the external operator and its derivative locally, we can just vectorize it and define the final implementation of the external operator derivative.
+# Once we defined the function `dsigma_ddeps`, which evaluates both the external
+# operator and its derivative locally, we can just vectorize it and define the
+# final implementation of the external operator derivative.
 
 # %%
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
