@@ -41,7 +41,8 @@
 # $\boldsymbol{\varepsilon}$ as follows
 #
 # $$
-#     \boldsymbol{\varepsilon} = \frac{1}{2}\left( \nabla\boldsymbol{u} + \nabla\boldsymbol{u}^T \right).
+#     \boldsymbol{\varepsilon} = \frac{1}{2}\left( \nabla\boldsymbol{u} +
+#     \nabla\boldsymbol{u}^T \right).
 # $$
 #
 # Throughout the tutorial, we stick to the Mandel-Voigt notation, according to
@@ -50,8 +51,10 @@
 # components
 #
 # \begin{align*}
-#     & \boldsymbol{\sigma} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}]^T, \\
-#     & \boldsymbol{\varepsilon} = [\varepsilon_{xx}, \varepsilon_{yy}, \varepsilon_{zz}, \sqrt{2}\varepsilon_{xy}]^T.
+#     & \boldsymbol{\sigma} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz},
+#     \sqrt{2}\sigma_{xy}]^T, \\
+#     & \boldsymbol{\varepsilon} = [\varepsilon_{xx}, \varepsilon_{yy},
+#     \varepsilon_{zz}, \sqrt{2}\varepsilon_{xy}]^T.
 # \end{align*}
 #
 # Denoting the deviatoric operator $\mathrm{dev}$, we introduce two additional
@@ -67,7 +70,6 @@
 # $\boldsymbol{s} = \mathrm{dev}\boldsymbol{\sigma}$ are deviatoric parts of the
 # stain and stress tensors respectively.
 #
-#
 # ## Problem formulation
 #
 # The domain of the problem $\Omega$ represents the first quarter of the hollow
@@ -78,7 +80,8 @@
 # {eq}`eq_von_Mises`
 #
 # $$
-#     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0 - Hp \leq 0,
+#     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0
+#     - Hp \leq 0,
 # $$ (eq_von_Mises)
 #
 # where $\sigma_0$ is a uniaxial strength and $H$ is an isotropic hardening
@@ -115,25 +118,45 @@
 #
 # In this tutorial, we treat the stress tensor $\boldsymbol{\sigma}$ as an
 # external operator acting on the displacement field $\boldsymbol{u}$ and
-# represent it through a `FEMExternalOperator` object. By the implementation of this external operator, we mean an implementation of the return-mapping procedure, the most common approach to solve plasticity problems. With the help of this procedure, we compute both values of the stress tensor $\boldsymbol{\sigma}$ and its derivative, so-called the tangent stiffness matrix $\boldsymbol{C}_\text{tang}$. 
+# represent it through a `FEMExternalOperator` object. By the implementation of
+# this external operator, we mean an implementation of the return-mapping
+# procedure, the most common approach to solve plasticity problems. With the
+# help of this procedure, we compute both values of the stress tensor
+# $\boldsymbol{\sigma}$ and its derivative, so-called the tangent stiffness
+# matrix $\boldsymbol{C}_\text{tang}$. 
 #
-# As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main` we need to compute the Gateaux derivative of $F$ in the direction $\boldsymbol{\hat{u}} \in V$.
+# As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main`
+# we need to compute the Gateaux derivative of $F$ in the direction
+# $\boldsymbol{\hat{u}} \in V$.
 #
 # $$
-#     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) := D_{\boldsymbol{u}} F(\boldsymbol{u}; \boldsymbol{v})(\boldsymbol{\hat{u}}) := \int\limits_\Omega
-#     D_{\boldsymbol{u}} \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) . \boldsymbol{\varepsilon(v)}
-#     d\boldsymbol{x}, \quad \forall
-#     \boldsymbol{v} \in V.
+#     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) :=
+#     D_{\boldsymbol{u}} F(\boldsymbol{u};
+#     \boldsymbol{v})(\boldsymbol{\hat{u}}) := \int\limits_\Omega
+#     D_{\boldsymbol{u}}
+#     \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) .
+#     \boldsymbol{\varepsilon(v)} d\boldsymbol{x}, \quad \forall \boldsymbol{v}
+#     \in V.
 # $$
 #
 # The derivative $D_{\boldsymbol{u}} \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}})$ (TODO: it cannot be the Gateau derivative of sigma, Corrado is right. We need to find a way how to explain this.) is written as following
 #
 # $$
-#     D_{\boldsymbol{u}} \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) = \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}(\boldsymbol{u}) . \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) = \boldsymbol{C}_\text{tang} . \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
+#     D_{\boldsymbol{u}}
+#     \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) =
+#     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d}
+#     \boldsymbol{\varepsilon}}(\boldsymbol{u}) .
+#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) =
+#     \boldsymbol{C}_\text{tang} .
+#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
 # $$
 # where the trial part ....
 #
-# The advantage of the von Mises model is that the return-mapping procedure may be performed analytically, so the stress tensor and the tangent stiffness matrix may be expressed explicitly using any package. In our case, we the Numba library to define the behaviour of the external operator and its derivative.
+# The advantage of the von Mises model is that the return-mapping procedure may
+# be performed analytically, so the stress tensor and the tangent stiffness
+# matrix may be expressed explicitly using any package. In our case, we the
+# Numba library to define the behaviour of the external operator and its
+# derivative.
 #
 # <!-- 
 # In the above nonlinear problem {eq}`eq_von_Mises_main` the elastoplastic constitutive
@@ -269,7 +292,11 @@ sigma_n = fem.Function(S, name="stress_n")
 # appear in the Jacobian
 #
 # $$
-#     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}(\boldsymbol{u}) . \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) = \boldsymbol{C}_\text{tang} . \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
+#     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d}
+#     \boldsymbol{\varepsilon}}(\boldsymbol{u}) .
+#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) =
+#     \boldsymbol{C}_\text{tang} .
+#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
 # $$
 #
 # where the "trial" part $\boldsymbol{\varepsilon}(\boldsymbol{\hat{u}})$ will be
@@ -277,9 +304,12 @@ sigma_n = fem.Function(S, name="stress_n")
 # $\frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}$
 # must be implemented by the user. In this tutorial, we implement the derivative using the Numba package.
 #
-# First of all, we implement the return-mapping procedure locally in the function
-# `_kernel`. It computes the values of the stress tensor, the tangent stiffness matrix
-# and the increment of cumulative plastic strain at a single Gausse node. For more details, visit the [original implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html) of this problem for the legacy FEniCS 2019.
+# First of all, we implement the return-mapping procedure locally in the
+# function `_kernel`. It computes the values of the stress tensor, the tangent
+# stiffness matrix and the increment of cumulative plastic strain at a single
+# Gausse node. For more details, visit the [original
+# implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
+# of this problem for the legacy FEniCS 2019.
 
 # %%
 # NOTE: LLVM will inline this function call.
@@ -374,15 +404,18 @@ def sigma_external(derivatives):
 sigma.external_function = sigma_external
 
 # %% [markdown]
-# ```{note}
-# The framework allows implementations of external operators and its derivatives to return additional outputs. In our example, the function `C_tang_impl` returns values of the derivative, which will be used by the framework, and values of stress tensor and the cumulative plastic increment. Both additional outputs may be reused by user afterwards in the Newton loop.
+# ```{note} The framework allows implementations of external operators and its
+# derivatives to return additional outputs. In our example, the function
+# `C_tang_impl` returns values of the derivative, which will be used by the
+# framework, and values of stress tensor and the cumulative plastic increment.
+# Both additional outputs may be reused by user afterwards in the Newton loop.
 # ```
 
 # %% [markdown]
 # ### Form manipulations
 #
-# As in the previous tutorials before solving the problem we need to perform some
-# transformation of both linear and bilinear forms.
+# As in the previous tutorials before solving the problem we need to perform
+# some transformation of both linear and bilinear forms.
 
 # %%
 u_hat = ufl.TrialFunction(V)
@@ -396,9 +429,11 @@ F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
 # %% [markdown]
-# ```{note}
-# We remind that in the code above we replace `FEMExternalOperator` objects by their `fem.Function` representatives, the coefficients which are allocated during the call of the `FEMExternalOperator` constructor. The access to these coefficients may be carried out through the field `ref_coefficient` of an `FEMExternalOperator` object.
-# ```
+# ```{note} We remind that in the code above we replace `FEMExternalOperator`
+# objects by their `fem.Function` representatives, the coefficients which are
+# allocated during the call of the `FEMExternalOperator` constructor. The
+# access to these coefficients may be carried out through the field
+# `ref_coefficient` of an `FEMExternalOperator` object. ```
 
 # %% [markdown]
 # ### Numba compilation
