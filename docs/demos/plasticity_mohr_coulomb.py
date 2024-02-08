@@ -371,32 +371,35 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     def r_f_plastic(sigma_local, dlambda): return f_MC(sigma_local)
     return jax.lax.cond(yielding <= TPV, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
-dr_sigma = jax.jit(jax.jacfwd(r_sigma, argnums=(0, 1)))
-dr_f = jax.jit(jax.jacfwd(r_f, argnums=(0, 1)))
-
-def j(sigma_local, dlambda, deps_local, sigma_n_local):
-    dr_sigmadsigma, dr_sigmaddlambda = dr_sigma(
-        sigma_local, dlambda, deps_local, sigma_n_local)
-    # normally this creates two copies(?) but jit will "eat" them
-    dr_sigmaddlambda_T = jnp.atleast_2d(dr_sigmaddlambda).T
-    dr_fdsigma, dr_fddlambda = dr_f(
-        sigma_local, dlambda, deps_local, sigma_n_local)
-    return jnp.block([[dr_sigmadsigma, dr_sigmaddlambda_T],
-                     [dr_fdsigma, dr_fddlambda]])
-
 def r(x_local, deps_local, sigma_n_local):
-    # Normally, the following lines allocate new memory
-    sigma_local = x_local[:4]
-    dlambda_local = x_local[-1]
+    # The following code may be very consuming. We call it at each iteration of
+    # the SubNewton at each Gauss node. # Normally, the following lines allocate
+    # new memory or JIT is clever enough...
+
+    sigma_local = x_local[:4] # or `.at[:4].get()` is better?
+    dlambda_local = x_local[-1] # or `.at[-1].get()` is better?
     res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
     # As well as this one
     res = jnp.c_['0,1,-1', res_sigma, res_f]
     return res
 
-# NOTE: Instead of the definition of j above we may use this one
-# TODO: Less efficient?
 drdx = jax.jacfwd(r, argnums=(0))
+
+# TODO: Less efficient?
+# TODO: To remove?
+# dr_sigma = jax.jit(jax.jacfwd(r_sigma, argnums=(0, 1)))
+# dr_f = jax.jit(jax.jacfwd(r_f, argnums=(0, 1)))
+
+# def j(sigma_local, dlambda, deps_local, sigma_n_local):
+#     dr_sigmadsigma, dr_sigmaddlambda = dr_sigma(
+#         sigma_local, dlambda, deps_local, sigma_n_local)
+#     # normally this creates two copies(?) but jit will "eat" them
+#     dr_sigmaddlambda_T = jnp.atleast_2d(dr_sigmaddlambda).T
+#     dr_fdsigma, dr_fddlambda = dr_f(
+#         sigma_local, dlambda, deps_local, sigma_n_local)
+#     return jnp.block([[dr_sigmadsigma, dr_sigmaddlambda_T],
+#                      [dr_fdsigma, dr_fddlambda]])
 
 # %% [markdown]
 # Then we define the function `return_mapping` that implements the return-mapping
@@ -460,7 +463,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     output = jax.lax.while_loop(
         cond_fun, body_fun, (norm_res0, niter, history))
     niter_total = output[1]
-    sigma_local = output[2][0][:4] # or `at` is better?
+    sigma_local = output[2][0][:4] # or `.at[:4].get()` is better?
     norm_res = output[0]
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res)
