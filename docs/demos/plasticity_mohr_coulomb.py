@@ -34,7 +34,6 @@
 # Mises plasticity and follow the same Mandel-Voigt notation. Thus, we focus here on the constitutive model definition and its implementation.
 #
 # We consider a non-associative plasticity law without hardening that is defined by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$. Both quantities may be expressed through the following function $H$
-#
 # \begin{align*}
 #     & H(\boldsymbol{\sigma}, \alpha) = \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha + \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} - c\cos\alpha, \\
 #     & F(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \phi), \\
@@ -44,15 +43,18 @@
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html).
 #
 # During the plastic loading the stress-strain state of the solid must satisfy the following system of nonlinear equations
+#
 # $$
 #     \begin{cases}
 #         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
 #         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
 # $$ (eq_MC_1)
+#
 # where the index $n$ is associated with values from previous loading step.
 #
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{G}^T, r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following equation:
+#
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
 # $$
@@ -72,6 +74,7 @@
 # $$
 #
 # During the elastic loading, we consider a trivial system of equations
+#
 # $$
 #     \begin{cases}
 #         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n + \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\
@@ -79,7 +82,7 @@
 #     \end{cases}
 # $$ (eq_MC_2)
 #
-# The algorithm solving the systems `eq`{eq_MC_1}--`eq`{eq_MC_2} is called the return-mapping procedure and the solution defines the return-mapping correction of the stress tensor. By implementation of the external operator $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping procedure. By applying the automatic differentiation (AD) technique to this algorithm we may restore the stress derivative $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
+# The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the return-mapping procedure and the solution defines the return-mapping correction of the stress tensor. By implementation of the external operator $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping procedure. By applying the automatic differentiation (AD) technique to this algorithm we may restore the stress derivative $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
 #
 # The JAX library was used to implement the external operator and its derivative.
 #
@@ -108,7 +111,6 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import matplotlib.pyplot as plt
-import numba
 import numpy as np
 import jax
 jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
@@ -217,7 +219,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 #
 # In order to define the behaviour of the external operator and its derivatives,
 # we need to implement the return-mapping procedure solving the constitutive
-# equations `eq`{eq_MC_1}--`eq`{eq_MC_2} and apply the automatic differentiation
+# equations {eq}`eq_MC_1`--{eq}`eq_MC_2` and apply the automatic differentiation
 # tool to this algorithm.
 #
 # #### Defining yield surface and plastic potential
@@ -292,6 +294,8 @@ def surface(sigma_local, angle):
 # %%
 def f_MC(sigma_local): return surface(sigma_local, phi)
 def g_MC(sigma_local): return surface(sigma_local, psi)
+
+
 dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 
 
@@ -337,9 +341,11 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
         sigma_local, dlambda): return dlambda * dgdsigma(sigma_local)
     return jax.lax.cond(yielding <= TPV, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
 
+
 def r_sigma(sigma_local, dlambda, deps_local, sigma_n_local):
     deps_p_local = deps_p(sigma_local, dlambda, deps_local, sigma_n_local)
     return sigma_local - sigma_n_local - C_elas @ (deps_local - deps_p_local)
+
 
 def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -349,18 +355,20 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     def r_f_plastic(sigma_local, dlambda): return f_MC(sigma_local)
     return jax.lax.cond(yielding <= TPV, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
+
 def r(x_local, deps_local, sigma_n_local):
     # The following code may be very consuming. We call it at each iteration of
     # the SubNewton at each Gauss node. # Normally, the following lines allocate
     # new memory or JIT is clever enough...
 
-    sigma_local = x_local[:4] # or `.at[:4].get()` is better?
-    dlambda_local = x_local[-1] # or `.at[-1].get()` is better?
+    sigma_local = x_local[:4]  # or `.at[:4].get()` is better?
+    dlambda_local = x_local[-1]  # or `.at[-1].get()` is better?
     res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
     # As well as this one
     res = jnp.c_['0,1,-1', res_sigma, res_f]
     return res
+
 
 drdx = jax.jacfwd(r, argnums=(0))
 
@@ -370,6 +378,7 @@ drdx = jax.jacfwd(r, argnums=(0))
 
 # %%
 Nitermax, tol = 200, 1e-8
+
 
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
@@ -408,13 +417,14 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     output = jax.lax.while_loop(
         cond_fun, body_fun, (norm_res0, niter, history))
+    sigma_local = output[2][0][:4]  # or `.at[:4].get()` is better?
     niter_total = output[1]
-    sigma_local = output[2][0][:4] # or `.at[:4].get()` is better?
     norm_res = output[0]
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res)
+    # return sigma_local, (sigma_local,)
 
 
 # %% [markdown]
@@ -458,7 +468,6 @@ def C_tang_impl(deps):
     print(f"\t  {counts} - counts of unique number of iterations")
     print(f"\t  max SubResidual = {jnp.max(norm_res)}")
     # print(f"\t  nans = {jnp.argwhere(jnp.isnan(res))}")
-
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -566,6 +575,7 @@ external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_process = find_cell_by_point(mesh, x_point)
 
+# %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
 num_increments = 20
