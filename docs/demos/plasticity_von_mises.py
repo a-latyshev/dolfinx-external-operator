@@ -123,7 +123,7 @@
 # procedure, the most common approach to solve plasticity problems. With the
 # help of this procedure, we compute both values of the stress tensor
 # $\boldsymbol{\sigma}$ and its derivative, so-called the tangent stiffness
-# matrix $\boldsymbol{C}_\text{tang}$. 
+# matrix $\boldsymbol{C}_\text{tang}$.
 #
 # As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main`
 # we need to compute the Gateaux derivative of $F$ in the direction
@@ -158,7 +158,7 @@
 # Numba library to define the behaviour of the external operator and its
 # derivative.
 #
-# <!-- 
+# <!--
 # In the above nonlinear problem {eq}`eq_von_Mises_main` the elastoplastic constitutive
 # relation $\boldsymbol{\sigma}(\boldsymbol{u})$ is restored by applying the
 # return-mapping procedure. The main bottleneck of this procedure is a computation
@@ -198,7 +198,7 @@ from dolfinx_external_operator import (
 # %%
 R_e, R_i = 1.3, 1.0  # external/internal radius
 
-E, nu = 70e3, 0.3 # elastic parameters
+E, nu = 70e3, 0.3  # elastic parameters
 E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
 sigma_0 = 250.0  # yield strength
@@ -230,17 +230,14 @@ V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
 bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
 left_facets = facet_tags.find(facet_tags_labels["Ly"])
 
-bottom_dofs_y = fem.locate_dofs_topological(
-    V.sub(1), mesh.topology.dim - 1, bottom_facets)
-left_dofs_x = fem.locate_dofs_topological(
-    V.sub(0), mesh.topology.dim - 1, left_facets)
+bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim - 1, bottom_facets)
+left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim - 1, left_facets)
 
-sym_bottom = fem.dirichletbc(
-    np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
-sym_left = fem.dirichletbc(
-    np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
+sym_bottom = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
+sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
 
 bcs = [sym_bottom, sym_left]
+
 
 def epsilon(v):
     grad_v = ufl.grad(v)
@@ -262,8 +259,7 @@ dx = ufl.Measure(
 )
 
 Du = fem.Function(V, name="displacement_increment")
-S_element = basix.ufl.quadrature_element(
-    mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
+S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
 S = fem.functionspace(mesh, S_element)
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 
@@ -272,12 +268,10 @@ loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
 # TODO: think about the sign later
-F = ufl.inner(sigma, epsilon(v)) * dx - loading * \
-    ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
 # Internal state
-P_element = basix.ufl.quadrature_element(
-    mesh.topology.cell_name(), degree=k_stress, value_shape=())
+P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
 P = fem.functionspace(mesh, P_element)
 
 p = fem.Function(P, name="cumulative_plastic_strain")
@@ -321,14 +315,14 @@ sigma_n = fem.Function(S, name="stress_n")
 # %%
 num_quadrature_points = P_element.dim
 
+
 @numba.njit
 def return_mapping(deps_, sigma_n_, p_):
     """Performs the return-mapping procedure."""
     num_cells = deps_.shape[0]
     print(num_cells)
 
-    C_tang_ = np.empty((num_cells, num_quadrature_points,
-                       4, 4), dtype=PETSc.ScalarType)
+    C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
     sigma_ = np.empty_like(sigma_n_)
     dp_ = np.empty_like(p_)
 
@@ -349,16 +343,13 @@ def return_mapping(deps_, sigma_n_, p_):
         sigma = sigma_elastic - beta * s
 
         n_elas_matrix = np.outer(n_elas, n_elas)
-        C_tang = C_elas - 3 * mu * \
-            (3 * mu / (3 * mu + H) - beta) * \
-            n_elas_matrix - 2 * mu * beta * deviatoric
+        C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
 
         return C_tang, sigma, dp
 
     for i in range(0, num_cells):
         for j in range(0, num_quadrature_points):
-            C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(
-                deps_[i, j], sigma_n_[i, j], p_[i, j])
+            C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(deps_[i, j], sigma_n_[i, j], p_[i, j])
 
     return C_tang_, sigma_, dp_
 
@@ -368,6 +359,7 @@ def return_mapping(deps_, sigma_n_, p_):
 # derivative (the stiffness tangent tensor $\boldsymbol{C}_\text{tang}$) in the
 # function `C_tang_impl`. It returns global values of the derivative, stress
 # tensor and the cumulative plastic increment.
+
 
 # %%
 def C_tang_impl(deps):
@@ -390,6 +382,7 @@ def C_tang_impl(deps):
 # of the `C_tang_impl` to update values of the external operator further in the
 # Newton loop.
 
+
 # %%
 def sigma_external(derivatives):
     if derivatives == (0,):
@@ -398,6 +391,7 @@ def sigma_external(derivatives):
         return C_tang_impl
     else:
         return NotImplementedError
+
 
 sigma.external_function = sigma_external
 
@@ -447,22 +441,19 @@ Du.x.array[:] = eps
 timer1 = common.Timer("1st numba pass")
 timer1.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer1.stop()
 
 timer2 = common.Timer("2nd numba pass")
 timer2.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer2.stop()
 
 timer3 = common.Timer("3nd numba pass")
 timer3.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(
-    J_external_operators, evaluated_operands)
+((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 timer3.stop()
 
 
@@ -499,8 +490,7 @@ for i, loading_v in enumerate(loadings):
     Du.x.array[:] = 0.0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(
-            f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
+        print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
 
     for iteration in range(0, max_iterations):
         if residual / residual_0 < relative_tolerance:
@@ -517,8 +507,7 @@ for i, loading_v in enumerate(loadings):
         # Implementation of an external operator may return several outputs and
         # not only its evaluation. For example, `C_tang_impl` returns a tuple of
         # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
-        ((_, sigma_new, dp_new),) = evaluate_external_operators(
-            J_external_operators, evaluated_operands)
+        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
         # In order to update the values of the external operator we may directly
         # access them and avoid the call of
@@ -543,8 +532,7 @@ for i, loading_v in enumerate(loadings):
     # skip scatter forward, sigma is not ghosted.
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process,
-                             cells)[0], loading.value)
+        results[i + 1, :] = (u.eval(points_on_process, cells)[0], loading.value)
 
 # %% [markdown]
 # ### Post-processing
