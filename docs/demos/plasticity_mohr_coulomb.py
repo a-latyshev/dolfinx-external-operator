@@ -291,29 +291,7 @@ def surface(sigma_local, angle):
 # %%
 def f_MC(sigma_local): return surface(sigma_local, phi)
 def g_MC(sigma_local): return surface(sigma_local, psi)
-
-
-# %%
-# NOTE: For testing/remove
-@jax.jit
-def theta(sigma_local):
-    s = dev @ sigma_local
-    J2 = 0.5 * jnp.vdot(s, s)
-    arg = -3*jnp.sqrt(3) * J3(s) / (2 * jnp.sqrt(J2*J2*J2))
-    arg = jnp.clip(arg, -1, 1)
-    return 1/3. * jnp.arcsin(arg)
-
-
-dthetadsigma = jax.jit(jax.jacfwd(theta, argnums=(0)))
-dgdsigma = jax.jit(jax.jacfwd(g_MC, argnums=(0)))
-
-deps_local = jnp.array([TPV, 0.0, 0.0, 0.0])
-sigma_local = jnp.array([1, 1, 1.0, 1.0])
-print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
-
-deps_local = jnp.array([0.0006, 0.0003, 0.0, 0.0])
-sigma_local = C_elas @ deps_local
-print(f"f_MC = {f_MC(sigma_local)}, dfdsigma = {sigma_local},\ntheta = {theta(sigma_local)}, dtheta = {dthetadsigma(sigma_local)}")
+dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 
 
 # %% [markdown]
@@ -370,32 +348,20 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     def r_f_plastic(sigma_local, dlambda): return f_MC(sigma_local)
     return jax.lax.cond(yielding <= TPV, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
-dr_sigma = jax.jit(jax.jacfwd(r_sigma, argnums=(0, 1)))
-dr_f = jax.jit(jax.jacfwd(r_f, argnums=(0, 1)))
-
-def j(sigma_local, dlambda, deps_local, sigma_n_local):
-    dr_sigmadsigma, dr_sigmaddlambda = dr_sigma(
-        sigma_local, dlambda, deps_local, sigma_n_local)
-    # normally this creates two copies(?) but jit will "eat" them
-    dr_sigmaddlambda_T = jnp.atleast_2d(dr_sigmaddlambda).T
-    dr_fdsigma, dr_fddlambda = dr_f(
-        sigma_local, dlambda, deps_local, sigma_n_local)
-    return jnp.block([[dr_sigmadsigma, dr_sigmaddlambda_T],
-                     [dr_fdsigma, dr_fddlambda]])
-
 def r(x_local, deps_local, sigma_n_local):
-    # Normally, the following lines allocate new memory
-    sigma_local = x_local[:4]
-    dlambda_local = x_local[-1]
+    # The following code may be very consuming. We call it at each iteration of
+    # the SubNewton at each Gauss node. # Normally, the following lines allocate
+    # new memory or JIT is clever enough...
+
+    sigma_local = x_local[:4] # or `.at[:4].get()` is better?
+    dlambda_local = x_local[-1] # or `.at[-1].get()` is better?
     res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
     # As well as this one
     res = jnp.c_['0,1,-1', res_sigma, res_f]
     return res
 
-# NOTE: Instead of the definition of j above we may use this one
-# TODO: Less efficient?
-dr = jax.jacfwd(r, argnums=(0))
+drdx = jax.jacfwd(r, argnums=(0))
 
 # %% [markdown]
 # Then we define the function `return_mapping` that implements the return-mapping
@@ -415,16 +381,9 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     dlambda = jnp.array(0.)  # init guess
     sigma_local = sigma_n_local  # init guess
-    # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]  # init guess
-
-    res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
-    res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
-    res = jnp.c_['0,1,-1', res_sigma, res_f]
-    # res = r(x_local, deps_local, sigma_n_local)
-
+    x_local = jnp.c_['0,1,-1', sigma_local, dlambda]  # init guess
+    res = r(x_local, deps_local, sigma_n_local)
     norm_res0 = jnp.linalg.norm(res)
-    sigma_elas_local = C_elas @ deps_local
-    yielding = f_MC(sigma_n_local + sigma_elas_local)
 
     def cond_fun(state):
         norm_res, niter, _ = state
@@ -432,34 +391,29 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     def body_fun(state):
         norm_res, niter, history = state
-        sigma_local, dlambda, deps_local, sigma_n_local, res = history
-        # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
+        x_local, deps_local, sigma_n_local, res = history
 
-        J = j(sigma_local, dlambda, deps_local, sigma_n_local)
-        # J = dr(x_local, deps_local, sigma_n_local)
+        J = drdx(x_local, deps_local, sigma_n_local)
         j_inv_vp = jnp.linalg.solve(J, -res)
-        sigma_local = sigma_local + j_inv_vp[:4]
-        dlambda = dlambda + j_inv_vp[-1]
+        x_local = x_local + j_inv_vp
 
-        res_sigma = r_sigma(sigma_local, dlambda, deps_local, sigma_n_local)
-        res_f = r_f(sigma_local, dlambda, deps_local, sigma_n_local)
-        res = jnp.c_['0,1,-1', res_sigma, res_f]
-        # x_local = jnp.c_['0,1,-1', sigma_local, dlambda]
-        # res = r(x_local, deps_local, sigma_n_local)
+        res = r(x_local, deps_local, sigma_n_local)
         norm_res = jnp.linalg.norm(res)
         niter += 1
-        history = sigma_local, dlambda, deps_local, sigma_n_local, res
+        history = x_local, deps_local, sigma_n_local, res
         return (norm_res, niter, history)
 
-    history = (sigma_local, dlambda, deps_local, sigma_n_local, res)
+    history = (x_local, deps_local, sigma_n_local, res)
 
     output = jax.lax.while_loop(
         cond_fun, body_fun, (norm_res0, niter, history))
     niter_total = output[1]
-    sigma_local = output[2][0]
-    # norm_res = output[0]
+    sigma_local = output[2][0][:4] # or `.at[:4].get()` is better?
+    norm_res = output[0]
+    sigma_elas_local = C_elas @ deps_local
+    yielding = f_MC(sigma_n_local + sigma_elas_local)
 
-    return sigma_local, (sigma_local, niter_total, yielding, res)
+    return sigma_local, (sigma_local, niter_total, yielding, norm_res)
 
 
 # %% [markdown]
@@ -490,20 +444,20 @@ def C_tang_impl(deps):
     sigma_global = output[1][0]
     niter = output[1][1]
     yielding = output[1][2]
-    res = output[1][3]
+    norm_res = output[1][3]
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
-    norm_res = jnp.linalg.norm(res, axis=1)
 
     # NOTE: The following code prints some details about the second Newton
     # solver, solving the constitutive equations. Do we need this or it's better
     # to have the code as clean as possible?
     print("\tSubNewton:")
+    print(f"\t  max F = {jnp.max(yielding)}")
     print(f"\t  {unique_iters} - unique number of iterations")
     print(f"\t  {counts} - counts of unique number of iterations")
-    print(f"\t  max F = {jnp.max(yielding)}")
     print(f"\t  max SubResidual = {jnp.max(norm_res)}")
     # print(f"\t  nans = {jnp.argwhere(jnp.isnan(res))}")
+
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -559,7 +513,6 @@ J_form = fem.form(J_replaced)
 # in order to assemble the matrix, where we expect elastic stiffness matrix
 # Shell we discuss it? The same states for the von Mises.
 Du.x.array[:] = 1.0  # still the elastic flow
-# sigma_n.x.array[:] = TPV
 
 timer1 = common.Timer("1st JAX pass")
 timer1.start()
@@ -658,8 +611,6 @@ for (i, load) in enumerate(load_steps):
 
     if len(points_on_process) > 0:
         results[i+1, :] = (u.eval(points_on_process, cells)[0], load)
-
-# %%
 
 # %% [markdown]
 # ### Post-processing
