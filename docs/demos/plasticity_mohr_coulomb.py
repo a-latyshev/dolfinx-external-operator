@@ -15,6 +15,13 @@
 #     name: python3
 # ---
 
+# JSH: Comments on text.
+# 1. The main point of this tutorial is to show how JAX AD can be used to
+#    take away a lot of the by-hand differentiation. When I read this
+#    intro, it just seems like something I could have done in e.g. MFront.
+# 2. The equations should be put down where you define them in the code.
+# 3. 
+
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
 #
@@ -265,6 +272,10 @@ def J3(sigma_local):
 
 
 def sign(x):
+    # JSH: Please use typed floating or integer literals. This returns integer
+    # -1 and integer 1.
+    # JSH: I do not understand the purpose of TPV. Aren't x < 0 x <= 0 x < TPV
+    # x <= 0 equivalent in floating point arithmetic?
     return jax.lax.cond(x < -TPV, lambda x: -1, lambda x: 1, x)
 
 
@@ -276,6 +287,7 @@ def coeff2(theta, angle):
     return sign(theta) * jnp.sin(theta_T) + 1 / (jnp.sqrt(3) * jnp.sin(angle) * jnp.cos(theta_T))
 
 
+# JSH: use float literals where you want floats.
 coeff3 = 18 * jnp.cos(3 * theta_T) * jnp.cos(3 * theta_T) * jnp.cos(3 * theta_T)
 
 
@@ -348,7 +360,7 @@ def f_MC(sigma_local):
 def g_MC(sigma_local):
     return surface(sigma_local, psi)
 
-
+# JSH: Isn't argnums the default?
 dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 
 
@@ -361,13 +373,17 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 # \begin{align*}
 #     & \text{Plastic flow:} \\
 #     & \begin{cases}
-#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) = \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n - \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) = \boldsymbol{0}, \\
+#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
+#         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
+#         \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda
+#         \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) =
+#         \boldsymbol{0}, \\
 #         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
 #      \end{cases} \\
 #     & \text{Elastic flow:} \\
 #     &\begin{cases}
-#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n + \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\
-#         \Delta\lambda = 0.
+#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
+#         \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
 #     \end{cases}
 # \end{align*}
 #
@@ -397,12 +413,15 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     yielding = f_MC(sigma_elas_local)
 
+    # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def deps_p_elastic(sigma_local, dlambda):
         return jnp.zeros(4)
 
+    # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def deps_p_plastic(sigma_local, dlambda):
         return dlambda * dgdsigma(sigma_local)
 
+    # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing <=.
     return jax.lax.cond(yielding <= TPV, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
 
 
@@ -415,9 +434,11 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     yielding = f_MC(sigma_elas_local)
 
+    # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def r_f_elastic(sigma_local, dlambda):
         return dlambda
 
+    # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def r_f_plastic(sigma_local, dlambda):
         return f_MC(sigma_local)
 
@@ -426,6 +447,7 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
 
 
 def r(x_local, deps_local, sigma_n_local):
+    # JSH: 
     # The following code may be very consuming. We call it at each iteration of
     # the SubNewton at each Gauss node.
     # Normally, the following lines allocate new memory or JIT is clever
@@ -435,11 +457,12 @@ def r(x_local, deps_local, sigma_n_local):
     dlambda_local = x_local[-1]  # or `.at[-1].get()` is better?
     res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
-    # As well as this one
+    # JSH: Surely this is possible with concatenate?
     res = jnp.c_["0,1,-1", res_sigma, res_f]
     return res
 
 
+# JSH: argnums=(0,) isn't the default?
 drdx = jax.jacfwd(r, argnums=(0))
 
 # %% [markdown]
@@ -449,6 +472,8 @@ drdx = jax.jacfwd(r, argnums=(0))
 # %%
 Nitermax, tol = 200, 1e-8
 
+# JSH: You need to explain somewhere here how the while_loop interacts with
+# vmap.
 
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
@@ -461,7 +486,8 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     dlambda = jnp.array(0.0)  # init guess
     sigma_local = sigma_n_local  # init guess
-    # TODO: Ugly, rewrite.
+    # JSH: Overall, what is the purpose of x_local? Why not stick sigma_local
+    # and dlambda in directly? Or inside a tuple/pair?
     x_local = jnp.c_["0,1,-1", sigma_local, dlambda]  # init guess
     res = r(x_local, deps_local, sigma_n_local)
     norm_res0 = jnp.linalg.norm(res)
@@ -486,6 +512,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     history = (x_local, deps_local, sigma_n_local, res)
 
+    # JSH: Unpack into terms of tuple at return time.
     output = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
     niter_total = output[1]
     sigma_local = output[2][0][:4]  # or `.at[:4].get()` is better?
@@ -509,8 +536,14 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 # twice in the `return_mapping`: ....
 #
 # COMMENT: Well, looks too wordy...
+# JSH eg.
+# `jax.jacfwd` returns a callable that returns the Jacobian as its first return
+# argument. As we also need sigma_local, we also return sigma_local as
+# auxilliary data.
 
-# %%
+# %
+
+# JSH: argnums=(0,) isn't the default?
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, argnums=(0,), has_aux=True)
 
 # NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
@@ -531,6 +564,7 @@ def C_tang_impl(deps):
 
     output = dsigma_ddeps_vec(deps_, sigma_n_)
 
+    # JSH: Expand the tuples twice using the standard syntax.
     C_tang_global = output[0][0]
     sigma_global = output[1][0]
     niter = output[1][1]
@@ -579,7 +613,7 @@ n = ufl.FacetNormal(mesh)
 P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
 P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
-
+# JSH: P_o is never set to anything but zero?
 def F_ext(v):
     return -P_i * ufl.inner(n, v) * ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v) * ds(
         facet_tags_labels["outer"]
@@ -662,6 +696,7 @@ num_increments = 20
 load_steps = np.linspace(0.9, 5, num_increments, endpoint=True)[1:]
 results = np.zeros((num_increments, 2))
 
+# JSH: Rewrite Newton solver as in the von Mises example.
 for i, load in enumerate(load_steps):
     P_i.value = load
     external_operator_problem.assemble_vector()
