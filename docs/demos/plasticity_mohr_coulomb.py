@@ -170,7 +170,7 @@ P_i_value = 3.45  # [MPa]
 c = 3.45  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
-theta_T = 20 * np.pi / 180 # [rad] transition angle as defined by Abbo and Sloan
+theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
@@ -268,6 +268,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 # and just-in-time compilation. For more details, please, visit the JAX
 # [documentation](https://jax.readthedocs.io/en/latest/).
 
+
 # %%
 def J3(sigma_local):
     return sigma_local[2] * (sigma_local[0] * sigma_local[1] - sigma_local[3] * sigma_local[3] / 2.0)
@@ -354,6 +355,7 @@ def surface(sigma_local, angle):
 
 # %%
 
+
 # JSH: Does this trace phi and psi as static constants?
 def f_MC(sigma_local):
     return surface(sigma_local, phi)
@@ -361,6 +363,7 @@ def f_MC(sigma_local):
 
 def g_MC(sigma_local):
     return surface(sigma_local, psi)
+
 
 # JSH: Isn't argnums the default?
 dgdsigma = jax.jacfwd(g_MC, argnums=(0))
@@ -476,6 +479,7 @@ Nitermax, tol = 200, 1e-8
 
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
+
 
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
@@ -614,6 +618,7 @@ sigma.external_function = sigma_external
 n = ufl.FacetNormal(mesh)
 P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
 P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
+
 
 # JSH: P_o is never set to anything but zero?
 def F_ext(v):
