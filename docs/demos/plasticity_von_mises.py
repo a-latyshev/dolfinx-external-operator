@@ -139,7 +139,10 @@
 #     \in V.
 # $$
 #
-# The derivative $D_{\boldsymbol{u}} \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}})$ (TODO: it cannot be the Gateau derivative of sigma, Corrado is right. We need to find a way how to explain this.) is written as following
+# The derivative $D_{\boldsymbol{u}}
+# \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}})$
+# (TODO: it cannot be the Gateau derivative of sigma, Corrado is right. We need
+# to find a way how to explain this.) is written as following
 #
 # $$
 #     D_{\boldsymbol{u}}

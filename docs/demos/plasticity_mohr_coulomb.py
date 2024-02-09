@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -20,7 +19,7 @@
 #    take away a lot of the by-hand differentiation. When I read this
 #    intro, it just seems like something I could have done in e.g. MFront.
 # 2. The equations should be put down where you define them in the code.
-# 3. 
+# 3.
 
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
@@ -46,7 +45,10 @@
 # Both quantities may be expressed through the following function $H$
 #
 # \begin{align*}
-#     & H(\boldsymbol{\sigma}, \alpha) = \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha + \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} - c\cos\alpha, \\
+#     & H(\boldsymbol{\sigma}, \alpha) =
+#     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
+#     \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} -
+#     c\cos\alpha, \\
 #     & F(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \phi), \\
 #     & G(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \psi),
 # \end{align*}
@@ -129,25 +131,25 @@
 # ### Preamble
 
 # %%
+from mpi4py import MPI
+from petsc4py import PETSc
+
+import jax
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import numpy as np
+from solvers import LinearProblem
+from utilities import build_cylinder_quarter, find_cell_by_point
+
+import basix
+import ufl
+from dolfinx import common, fem
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
 )
-from dolfinx import common, fem
-import ufl
-import basix
-from utilities import build_cylinder_quarter, find_cell_by_point
-from solvers import LinearProblem
-import jax.numpy as jnp
-from mpi4py import MPI
-from petsc4py import PETSc
-
-import matplotlib.pyplot as plt
-import numba
-import numpy as np
-import jax
 
 jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
@@ -447,7 +449,7 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
 
 
 def r(x_local, deps_local, sigma_n_local):
-    # JSH: 
+    # JSH:
     # The following code may be very consuming. We call it at each iteration of
     # the SubNewton at each Gauss node.
     # Normally, the following lines allocate new memory or JIT is clever
