@@ -173,29 +173,7 @@ psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
-lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
-mu = E / 2.0 / (1.0 + nu)
-C_elas = np.array(
-    [
-        [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
-        [lmbda, lmbda + 2.0 * mu, lmbda, 0.0],
-        [lmbda, lmbda, lmbda + 2.0 * mu, 0.0],
-        [0.0, 0.0, 0.0, 2.0 * mu],
-    ],
-    dtype=PETSc.ScalarType,
-)
 
-dev = np.array(
-    [
-        [2 / 3.0, -1 / 3.0, -1 / 3.0, 0],
-        [-1 / 3.0, 2 / 3.0, -1 / 3.0, 0],
-        [-1 / 3.0, -1 / 3.0, 2 / 3.0, 0],
-        [0, 0, 0, 1.0],
-    ],
-    dtype=PETSc.ScalarType,
-)
-
-TPV = 1E-6
 
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
@@ -273,11 +251,11 @@ def J3(sigma_local):
 
 
 def coeff1(theta, angle):
-    return jnp.cos(theta_T) - 1. / (jnp.sqrt(3.) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T))
+    return jnp.cos(theta_T) - (1. / (jnp.sqrt(3.)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T))
 
 
 def coeff2(theta, angle):
-    return jnp.sign(theta) * jnp.sin(theta_T) + 1. / (jnp.sqrt(3.) * jnp.sin(angle) * jnp.cos(theta_T))
+    return jnp.sign(theta) * jnp.sin(theta_T) + (1. / (jnp.sqrt(3.)) * jnp.sin(angle) * jnp.cos(theta_T))
 
 
 # JSH: use float literals where you want floats.
@@ -323,12 +301,24 @@ def a_G(angle):
     return a * jnp.tan(phi) / jnp.tan(angle)
 
 
-tr = jnp.array([1.0, 1.0, 1.0, 0.0])
 
 def surface(sigma_local, angle):
+    dev = jnp.array(
+    [
+        [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
+        [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
+        [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ],
+    dtype=PETSc.ScalarType)
+    
     s = dev @ sigma_local
+
+    tr = jnp.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
     I1 = tr @ sigma_local
+    
     J2 = 0.5 * jnp.vdot(s, s)
+    
     arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2 * J2 * J2))
     arg = jnp.clip(arg, -1.0, 1.0)
     # arcsin returns nan if its argument is equal to -1 + smth around 1e-16!!!
@@ -405,6 +395,17 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 # condition in the main Newton loop. It may be more efficient, but idk. Anyway,
 # as it is, it looks fancier.
 
+lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
+mu = E / 2.0 / (1.0 + nu)
+C_elas = np.array(
+    [
+        [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
+        [lmbda, lmbda + 2.0 * mu, lmbda, 0.0],
+        [lmbda, lmbda, lmbda + 2.0 * mu, 0.0],
+        [0.0, 0.0, 0.0, 2.0 * mu],
+    ],
+    dtype=PETSc.ScalarType,
+)
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -412,14 +413,14 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
 
     # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def deps_p_elastic(sigma_local, dlambda):
-        return jnp.zeros(4)
+        return jnp.zeros(4, dtype=PETSc.ScalarType)
 
     # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def deps_p_plastic(sigma_local, dlambda):
         return dlambda * dgdsigma(sigma_local)
 
     # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing <=.
-    return jax.lax.cond(yielding <= TPV, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
+    return jax.lax.cond(yielding <= 0.0, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
 
 
 def r_sigma(sigma_local, dlambda, deps_local, sigma_n_local):
@@ -440,7 +441,7 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
         return f_MC(sigma_local)
 
     # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing <=.
-    return jax.lax.cond(yielding <= TPV, r_f_elastic, r_f_plastic, sigma_local, dlambda)
+    return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
 
 def r(x_local, deps_local, sigma_n_local):
@@ -449,18 +450,18 @@ def r(x_local, deps_local, sigma_n_local):
     # the SubNewton at each Gauss node.
     # Normally, the following lines allocate new memory or JIT is clever
     # enough...
-
-    sigma_local = x_local[:4]  # or `.at[:4].get()` is better?
-    dlambda_local = x_local[-1]  # or `.at[-1].get()` is better?
+    sigma_local = x_local[:len(sigma_n_local)]
+    dlambda_local = x_local[-1] 
+    
     res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
-    # JSH: Surely this is possible with concatenate?
+    
     res = jnp.c_["0,1,-1", res_sigma, res_f]
+    #res = jnp.concatenate([res_sigma, res_f], axis=0)
     return res
 
 
-# JSH: argnums=(0,) isn't the default?
-drdx = jax.jacfwd(r, argnums=(0))
+drdx = jax.jacfwd(r)
 
 # %% [markdown]
 # Then we define the function `return_mapping` that implements the
@@ -471,8 +472,6 @@ Nitermax, tol = 200, 1e-8
 
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
-
-
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
 
@@ -482,17 +481,16 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     """
     niter = 0
 
-    dlambda = jnp.array(0.0)  # init guess
-    sigma_local = sigma_n_local  # init guess
-    # JSH: Overall, what is the purpose of x_local? Why not stick sigma_local
-    # and dlambda in directly? Or inside a tuple/pair?
-    x_local = jnp.c_["0,1,-1", sigma_local, dlambda]  # init guess
+    dlambda = jnp.array([0.0])
+    sigma_local = sigma_n_local
+    x_local = jnp.concatenate([sigma_local, dlambda])
+    
     res = r(x_local, deps_local, sigma_n_local)
     norm_res0 = jnp.linalg.norm(res)
 
     def cond_fun(state):
         norm_res, niter, _ = state
-        return (norm_res / norm_res0 > tol) & (niter < Nitermax)
+        return jnp.logical_and(norm_res / norm_res0 > tol, niter < Nitermax)
 
     def body_fun(state):
         norm_res, niter, history = state
@@ -510,11 +508,9 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     history = (x_local, deps_local, sigma_n_local, res)
 
-    # JSH: Unpack into terms of tuple at return time.
-    output = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
-    niter_total = output[1]
-    sigma_local = output[2][0][:4]  # or `.at[:4].get()` is better?
-    norm_res = output[0]
+    norm_res, niter_total, x_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
+    
+    sigma_local = x_local[0][:len(sigma_n_local)]
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
 
