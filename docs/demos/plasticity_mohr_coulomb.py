@@ -134,8 +134,8 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import jax
-import jax.numpy as jnp
 import jax.lax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from solvers import LinearProblem
@@ -172,7 +172,6 @@ phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
-
 
 
 # %%
@@ -251,32 +250,34 @@ def J3(sigma_local):
 
 
 def coeff1(theta, angle):
-    return jnp.cos(theta_T) - (1. / (jnp.sqrt(3.)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T))
+    return jnp.cos(theta_T) - (1.0 / (jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T))
 
 
 def coeff2(theta, angle):
-    return jnp.sign(theta) * jnp.sin(theta_T) + (1. / (jnp.sqrt(3.)) * jnp.sin(angle) * jnp.cos(theta_T))
+    return jnp.sign(theta) * jnp.sin(theta_T) + (1.0 / (jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.cos(theta_T))
 
 
 # JSH: use float literals where you want floats.
-coeff3 = 18. * jnp.cos(3. * theta_T) * jnp.cos(3. * theta_T) * jnp.cos(3. * theta_T)
+coeff3 = 18.0 * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T)
 
 
 def C(theta, angle):
     return (
-        -jnp.cos(3. * theta_T) * coeff1(theta, angle) - 3. * jnp.sign(theta) * jnp.sin(3. * theta_T) * coeff2(theta, angle)
+        -jnp.cos(3.0 * theta_T) * coeff1(theta, angle)
+        - 3.0 * jnp.sign(theta) * jnp.sin(3.0 * theta_T) * coeff2(theta, angle)
     ) / coeff3
 
 
 def B(theta, angle):
     return (
-        jnp.sign(theta) * jnp.sin(6. * theta_T) * coeff1(theta, angle) - 6. * jnp.cos(6. * theta_T) * coeff2(theta, angle)
+        jnp.sign(theta) * jnp.sin(6.0 * theta_T) * coeff1(theta, angle)
+        - 6.0 * jnp.cos(6.0 * theta_T) * coeff2(theta, angle)
     ) / coeff3
 
 
 def A(theta, angle):
     return (
-        - (1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T)
+        -(1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T)
         - B(theta, angle) * jnp.sign(theta) * jnp.sin(theta_T)
         - C(theta, angle) * jnp.sin(3.0 * theta_T) * jnp.sin(3.0 * theta_T)
         + jnp.cos(theta_T)
@@ -301,24 +302,24 @@ def a_G(angle):
     return a * jnp.tan(phi) / jnp.tan(angle)
 
 
-
 def surface(sigma_local, angle):
     dev = jnp.array(
-    [
-        [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
-        [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
-        [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ],
-    dtype=PETSc.ScalarType)
-    
+        [
+            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
+            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
+            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=PETSc.ScalarType,
+    )
+
     s = dev @ sigma_local
 
     tr = jnp.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
     I1 = tr @ sigma_local
-    
+
     J2 = 0.5 * jnp.vdot(s, s)
-    
+
     arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2 * J2 * J2))
     arg = jnp.clip(arg, -1.0, 1.0)
     # arcsin returns nan if its argument is equal to -1 + smth around 1e-16!!!
@@ -407,6 +408,7 @@ C_elas = np.array(
     dtype=PETSc.ScalarType,
 )
 
+
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     yielding = f_MC(sigma_elas_local)
@@ -450,14 +452,14 @@ def r(x_local, deps_local, sigma_n_local):
     # the SubNewton at each Gauss node.
     # Normally, the following lines allocate new memory or JIT is clever
     # enough...
-    sigma_local = x_local[:len(sigma_n_local)]
-    dlambda_local = x_local[-1] 
-    
+    sigma_local = x_local[: len(sigma_n_local)]
+    dlambda_local = x_local[-1]
+
     res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
-    
+
     res = jnp.c_["0,1,-1", res_sigma, res_f]
-    #res = jnp.concatenate([res_sigma, res_f], axis=0)
+    # res = jnp.concatenate([res_sigma, res_f], axis=0)
     return res
 
 
@@ -469,6 +471,7 @@ drdx = jax.jacfwd(r)
 
 # %%
 Nitermax, tol = 200, 1e-8
+
 
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
@@ -484,7 +487,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     dlambda = jnp.array([0.0])
     sigma_local = sigma_n_local
     x_local = jnp.concatenate([sigma_local, dlambda])
-    
+
     res = r(x_local, deps_local, sigma_n_local)
     norm_res0 = jnp.linalg.norm(res)
 
@@ -509,8 +512,8 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     history = (x_local, deps_local, sigma_n_local, res)
 
     norm_res, niter_total, x_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
-    
-    sigma_local = x_local[0][:len(sigma_n_local)]
+
+    sigma_local = x_local[0][: len(sigma_n_local)]
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
 
