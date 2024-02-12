@@ -19,7 +19,6 @@
 #    take away a lot of the by-hand differentiation. When I read this
 #    intro, it just seems like something I could have done in e.g. MFront.
 # 2. The equations should be put down where you define them in the code.
-# 3.
 
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
@@ -136,6 +135,7 @@ from petsc4py import PETSc
 
 import jax
 import jax.numpy as jnp
+import jax.lax
 import matplotlib.pyplot as plt
 import numpy as np
 from solvers import LinearProblem
@@ -195,9 +195,7 @@ dev = np.array(
     dtype=PETSc.ScalarType,
 )
 
-TPV = np.finfo(PETSc.ScalarType).eps  # très petite value
-SQRT2 = np.sqrt(2.0)
-tr = np.array([1, 1, 1, 0])
+TPV = 1E-6
 
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
@@ -254,10 +252,10 @@ sigma_n = fem.Function(S, name="sigma_n")
 # %% [markdown]
 # ### Defining the external operator
 #
-# In order to define the behaviour of the external operator and its derivatives,
-# we need to implement the return-mapping procedure solving the constitutive
-# equations `eq`{eq_MC_1}--`eq`{eq_MC_2} and apply the automatic differentiation
-# tool to this algorithm.
+# In order to define the behaviour of the external operator and its
+# derivatives, we need to implement the return-mapping procedure solving the
+# constitutive equations `eq`{eq_MC_1}--`eq`{eq_MC_2} and apply the automatic
+# differentiation tool to this algorithm.
 #
 # #### Defining yield surface and plastic potential
 #
@@ -274,56 +272,48 @@ def J3(sigma_local):
     return sigma_local[2] * (sigma_local[0] * sigma_local[1] - sigma_local[3] * sigma_local[3] / 2.0)
 
 
-def sign(x):
-    # JSH: Please use typed floating or integer literals. This returns integer
-    # -1 and integer 1.
-    # JSH: I do not understand the purpose of TPV. Aren't x < 0 x <= 0 x < TPV
-    # x <= 0 equivalent in floating point arithmetic?
-    return jax.lax.cond(x < -TPV, lambda x: -1, lambda x: 1, x)
-
-
 def coeff1(theta, angle):
-    return jnp.cos(theta_T) - 1 / (jnp.sqrt(3) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T))
+    return jnp.cos(theta_T) - 1. / (jnp.sqrt(3.) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T))
 
 
 def coeff2(theta, angle):
-    return sign(theta) * jnp.sin(theta_T) + 1 / (jnp.sqrt(3) * jnp.sin(angle) * jnp.cos(theta_T))
+    return jnp.sign(theta) * jnp.sin(theta_T) + 1. / (jnp.sqrt(3.) * jnp.sin(angle) * jnp.cos(theta_T))
 
 
 # JSH: use float literals where you want floats.
-coeff3 = 18 * jnp.cos(3 * theta_T) * jnp.cos(3 * theta_T) * jnp.cos(3 * theta_T)
+coeff3 = 18. * jnp.cos(3. * theta_T) * jnp.cos(3. * theta_T) * jnp.cos(3. * theta_T)
 
 
 def C(theta, angle):
     return (
-        -jnp.cos(3 * theta_T) * coeff1(theta, angle) - 3 * sign(theta) * jnp.sin(3 * theta_T) * coeff2(theta, angle)
+        -jnp.cos(3. * theta_T) * coeff1(theta, angle) - 3. * jnp.sign(theta) * jnp.sin(3. * theta_T) * coeff2(theta, angle)
     ) / coeff3
 
 
 def B(theta, angle):
     return (
-        sign(theta) * jnp.sin(6 * theta_T) * coeff1(theta, angle) - 6 * jnp.cos(6 * theta_T) * coeff2(theta, angle)
+        jnp.sign(theta) * jnp.sin(6. * theta_T) * coeff1(theta, angle) - 6. * jnp.cos(6. * theta_T) * coeff2(theta, angle)
     ) / coeff3
 
 
 def A(theta, angle):
     return (
-        -1 / jnp.sqrt(3) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T)
-        - B(theta, angle) * sign(theta) * jnp.sin(theta_T)
-        - C(theta, angle) * jnp.sin(3 * theta_T) * jnp.sin(3 * theta_T)
+        - (1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T)
+        - B(theta, angle) * jnp.sign(theta) * jnp.sin(theta_T)
+        - C(theta, angle) * jnp.sin(3.0 * theta_T) * jnp.sin(3.0 * theta_T)
         + jnp.cos(theta_T)
     )
 
 
 def K(theta, angle):
     def K_true(theta, angle):
-        return jnp.cos(theta) - 1 / jnp.sqrt(3) * jnp.sin(angle) * jnp.sin(theta)
+        return jnp.cos(theta) - (1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sin(theta)
 
     def K_false(theta, angle):
         return (
             A(theta, angle)
-            + B(theta, angle) * jnp.sin(3 * theta)
-            + C(theta, angle) * jnp.sin(3 * theta) * jnp.sin(3 * theta)
+            + B(theta, angle) * jnp.sin(3.0 * theta)
+            + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
         )
 
     return jax.lax.cond(jnp.abs(theta) < theta_T, K_true, K_false, theta, angle)
@@ -333,16 +323,18 @@ def a_G(angle):
     return a * jnp.tan(phi) / jnp.tan(angle)
 
 
+tr = jnp.array([1.0, 1.0, 1.0, 0.0])
+
 def surface(sigma_local, angle):
     s = dev @ sigma_local
     I1 = tr @ sigma_local
     J2 = 0.5 * jnp.vdot(s, s)
-    arg = -3 * jnp.sqrt(3) * J3(s) / (2 * jnp.sqrt(J2 * J2 * J2))
-    arg = jnp.clip(arg, -1, 1)
+    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2 * J2 * J2))
+    arg = jnp.clip(arg, -1.0, 1.0)
     # arcsin returns nan if its argument is equal to -1 + smth around 1e-16!!!
-    theta = 1 / 3.0 * jnp.arcsin(arg)
+    theta = 1.0 / 3.0 * jnp.arcsin(arg)
     return (
-        I1 / 3 * jnp.sin(angle)
+        (I1 / 3.0 * jnp.sin(angle))
         + jnp.sqrt(J2 * K(theta, angle) * K(theta, angle) + a_G(angle) * a_G(angle) * jnp.sin(angle) * jnp.sin(angle))
         - c * jnp.cos(angle)
     )

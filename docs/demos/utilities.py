@@ -11,7 +11,7 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.0):
 
     # mesh parameters
     gdim = 2
-    lc = 0.1
+    lc = 0.5
     verbosity = 0
     model_rank = 0
 
@@ -21,11 +21,11 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.0):
     facet_tags_labels = {"Lx": 1, "Ly": 2, "inner": 3, "outer": 4}
 
     cell_tags_map = {"all": 20}
-    model = gmsh.model()
-    model.add("quarter_cylinder")
-    model.setCurrent("quarter_cylinder")
 
     if MPI.COMM_WORLD.rank == model_rank:
+        model = gmsh.model()
+        model.add("quarter_cylinder")
+        model.setCurrent("quarter_cylinder")
         # Create the points
         pix = model.occ.addPoint(R_i, 0.0, 0, lc)
         pex = model.occ.addPoint(R_e, 0, 0, lc)
