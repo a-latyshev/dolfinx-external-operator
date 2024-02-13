@@ -396,8 +396,8 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 # condition in the main Newton loop. It may be more efficient, but idk. Anyway,
 # as it is, it looks fancier.
 
-lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
-mu = E / 2.0 / (1.0 + nu)
+lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
+mu = E / (2.0 * (1.0 + nu))
 C_elas = np.array(
     [
         [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
@@ -452,7 +452,7 @@ def r(x_local, deps_local, sigma_n_local):
     # the SubNewton at each Gauss node.
     # Normally, the following lines allocate new memory or JIT is clever
     # enough...
-    sigma_local = x_local[: len(sigma_n_local)]
+    sigma_local = x_local[:4]
     dlambda_local = x_local[-1]
 
     res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
@@ -540,8 +540,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
 # %
 
-# JSH: argnums=(0,) isn't the default?
-dsigma_ddeps = jax.jacfwd(sigma_return_mapping, argnums=(0,), has_aux=True)
+dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
 
 # NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
 # `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
@@ -559,26 +558,19 @@ def C_tang_impl(deps):
     deps_ = deps.reshape((-1, 4))
     sigma_n_ = sigma_n.x.array.reshape((-1, 4))
 
-    output = dsigma_ddeps_vec(deps_, sigma_n_)
-
-    # JSH: Expand the tuples twice using the standard syntax.
-    C_tang_global = output[0][0]
-    sigma_global = output[1][0]
-    niter = output[1][1]
-    yielding = output[1][2]
-    norm_res = output[1][3]
+    (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    sigma_global, niter, yielding, norm_res = state 
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
     # NOTE: The following code prints some details about the second Newton
     # solver, solving the constitutive equations. Do we need this or it's better
     # to have the code as clean as possible?
-    print("\tSubNewton:")
+    print("\tInner Newton iteration")
     print(f"\t  max F = {jnp.max(yielding)}")
     print(f"\t  {unique_iters} - unique number of iterations")
     print(f"\t  {counts} - counts of unique number of iterations")
     print(f"\t  max SubResidual = {jnp.max(norm_res)}")
-    # print(f"\t  nans = {jnp.argwhere(jnp.isnan(res))}")
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
