@@ -413,15 +413,12 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     yielding = f_MC(sigma_elas_local)
 
-    # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def deps_p_elastic(sigma_local, dlambda):
         return jnp.zeros(4, dtype=PETSc.ScalarType)
 
-    # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def deps_p_plastic(sigma_local, dlambda):
         return dlambda * dgdsigma(sigma_local)
 
-    # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing <=.
     return jax.lax.cond(yielding <= 0.0, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
 
 
@@ -434,11 +431,9 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     yielding = f_MC(sigma_elas_local)
 
-    # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def r_f_elastic(sigma_local, dlambda):
         return dlambda
 
-    # JSH: This one could be a lambda function directly in `jax.lax.cond` call?
     def r_f_plastic(sigma_local, dlambda):
         return f_MC(sigma_local)
 
@@ -447,11 +442,6 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
 
 
 def r(x_local, deps_local, sigma_n_local):
-    # JSH:
-    # The following code may be very consuming. We call it at each iteration of
-    # the SubNewton at each Gauss node.
-    # Normally, the following lines allocate new memory or JIT is clever
-    # enough...
     sigma_local = x_local[:4]
     dlambda_local = x_local[-1]
 
@@ -459,7 +449,6 @@ def r(x_local, deps_local, sigma_n_local):
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
 
     res = jnp.c_["0,1,-1", res_sigma, res_f]
-    # res = jnp.concatenate([res_sigma, res_f], axis=0)
     return res
 
 
@@ -497,6 +486,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     def body_fun(state):
         norm_res, niter, history = state
+
         x_local, deps_local, sigma_n_local, res = history
 
         J = drdx(x_local, deps_local, sigma_n_local)
@@ -505,15 +495,15 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
         res = r(x_local, deps_local, sigma_n_local)
         norm_res = jnp.linalg.norm(res)
-        niter += 1
         history = x_local, deps_local, sigma_n_local, res
+
         return (norm_res, niter, history)
 
     history = (x_local, deps_local, sigma_n_local, res)
 
     norm_res, niter_total, x_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
 
-    sigma_local = x_local[0][: len(sigma_n_local)]
+    sigma_local = x_local[0][:4]
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
 
@@ -559,7 +549,7 @@ def C_tang_impl(deps):
     sigma_n_ = sigma_n.x.array.reshape((-1, 4))
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    sigma_global, niter, yielding, norm_res = state 
+    sigma_global, niter, yielding, norm_res = state
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -584,9 +574,7 @@ def C_tang_impl(deps):
 
 # %%
 def sigma_external(derivatives):
-    if derivatives == (0,):
-        return NotImplementedError
-    elif derivatives == (1,):
+    if derivatives == (1,):
         return C_tang_impl
     else:
         return NotImplementedError
