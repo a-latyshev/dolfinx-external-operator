@@ -322,7 +322,7 @@ def surface(sigma_local, angle):
 
     arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2 * J2 * J2))
     arg = jnp.clip(arg, -1.0, 1.0)
-    # arcsin returns nan if its argument is equal to -1 + smth around 1e-16!!!
+
     theta = 1.0 / 3.0 * jnp.arcsin(arg)
     return (
         (I1 / 3.0 * jnp.sin(angle))
