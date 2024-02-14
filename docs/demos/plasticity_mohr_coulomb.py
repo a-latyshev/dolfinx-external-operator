@@ -497,6 +497,8 @@ def sigma_return_mapping(deps_local, sigma_n_local):
         norm_res = jnp.linalg.norm(res)
         history = x_local, deps_local, sigma_n_local, res
 
+        niter += 1
+
         return (norm_res, niter, history)
 
     history = (x_local, deps_local, sigma_n_local, res)
@@ -556,7 +558,7 @@ def C_tang_impl(deps):
     # NOTE: The following code prints some details about the second Newton
     # solver, solving the constitutive equations. Do we need this or it's better
     # to have the code as clean as possible?
-    
+
     print("\tInner Newton iteration summary")
     print(f"\t\tUnique number of iterations: {unique_iters}")
     print(f"\t\tCounts of unique number of iterations: {counts}")
@@ -689,7 +691,7 @@ for i, load in enumerate(load_steps):
     for iteration in range(0, max_iterations):
         if residual / residual_0 < relative_tolerance:
             break
-        
+
         if MPI.COMM_WORLD.rank == 0:
             print(f"\tOuter Newton iteration {iteration}")
         external_operator_problem.assemble_matrix()
@@ -707,7 +709,7 @@ for i, load in enumerate(load_steps):
 
         if MPI.COMM_WORLD.rank == 0:
             print(f"\tResidual: {residual}\n")
-        
+
     u.vector.axpy(1, Du.vector)
     u.x.scatter_forward()
 
