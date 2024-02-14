@@ -710,7 +710,7 @@ for i, load in enumerate(load_steps):
         if MPI.COMM_WORLD.rank == 0:
             print(f"\tResidual: {residual}\n")
 
-    u.vector.axpy(1, Du.vector)
+    u.vector.axpy(1.0, Du.vector)
     u.x.scatter_forward()
 
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
