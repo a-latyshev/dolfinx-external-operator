@@ -556,11 +556,12 @@ def C_tang_impl(deps):
     # NOTE: The following code prints some details about the second Newton
     # solver, solving the constitutive equations. Do we need this or it's better
     # to have the code as clean as possible?
-    print("\tInner Newton iteration")
-    print(f"\t  max F = {jnp.max(yielding)}")
-    print(f"\t  {unique_iters} - unique number of iterations")
-    print(f"\t  {counts} - counts of unique number of iterations")
-    print(f"\t  max SubResidual = {jnp.max(norm_res)}")
+    
+    print("\tInner Newton iteration summary")
+    print(f"\t\tUnique number of iterations: {unique_iters}")
+    print(f"\t\tCounts of unique number of iterations: {counts}")
+    print(f"\t\tMaximum F: {jnp.max(yielding)}")
+    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -674,7 +675,6 @@ num_increments = 20
 load_steps = np.linspace(0.9, 5, num_increments, endpoint=True)[1:]
 results = np.zeros((num_increments, 2))
 
-# JSH: Rewrite Newton solver as in the von Mises example.
 for i, load in enumerate(load_steps):
     P_i.value = load
     external_operator_problem.assemble_vector()
@@ -684,16 +684,18 @@ for i, load in enumerate(load_steps):
     Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"Increment: {i+1!s}, load = {load}, residual0 = {residual_0} ")
-    niter = 0
+        print(f"Load increment: {i}, load: {load}, initial residual: {residual_0}")
 
-    while residual / residual_0 > relative_tolerance and niter < max_iterations:
+    for iteration in range(0, max_iterations):
+        if residual / residual_0 < relative_tolerance:
+            break
+        
         if MPI.COMM_WORLD.rank == 0:
-            print(f"\tit# {niter}:")
+            print(f"\tOuter Newton iteration {iteration}")
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
 
-        Du.vector.axpy(1, du.vector)  # Du = Du + 1*du
+        Du.vector.axpy(1.0, du.vector)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
@@ -704,9 +706,9 @@ for i, load in enumerate(load_steps):
         residual = external_operator_problem.b.norm()
 
         if MPI.COMM_WORLD.rank == 0:
-            print(f"\tresidual: {residual}\n")
-        niter += 1
-    u.vector.axpy(1, Du.vector)  # u = u + 1*Du
+            print(f"\tResidual: {residual}\n")
+        
+    u.vector.axpy(1, Du.vector)
     u.x.scatter_forward()
 
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
