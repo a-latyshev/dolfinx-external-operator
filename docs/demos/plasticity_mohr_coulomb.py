@@ -62,6 +62,7 @@
 #
 # During the plastic loading the stress-strain state of the solid must satisfy
 # the following system of nonlinear equations
+#
 # $$
 #     \begin{cases}
 #         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
@@ -77,6 +78,7 @@
 # r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy},
 # \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following
 # equation:
+#
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
 # $$
@@ -113,7 +115,7 @@
 #     \end{cases}
 # $$ (eq_MC_2)
 #
-# The algorithm solving the systems `eq`{eq_MC_1}--`eq`{eq_MC_2} is called the
+# The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
 # return-mapping procedure and the solution defines the return-mapping
 # correction of the stress tensor. By implementation of the external operator
 # $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping
@@ -236,7 +238,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 #
 # In order to define the behaviour of the external operator and its
 # derivatives, we need to implement the return-mapping procedure solving the
-# constitutive equations `eq`{eq_MC_1}--`eq`{eq_MC_2} and apply the automatic
+# constitutive equations {eq}`eq_MC_1`--{eq}`eq_MC_2` and apply the automatic
 # differentiation tool to this algorithm.
 #
 # #### Defining yield surface and plastic potential
@@ -383,9 +385,11 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 #
 # As the second one is trivial we focus on the first system only and rewrite it
 # in the following form.
+#
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0},
 # $$
+#
 # where $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz},
 # \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$.
 #
@@ -446,8 +450,7 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing
     # <=. AL: In the case of yielding = 1e-15 - 1e-16 (or we can choose the
     # tolerance), the plastic branch will be chosen, which is more expensive.
-    return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local,
-    dlambda)
+    return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
 
 def r(x_local, deps_local, sigma_n_local):
