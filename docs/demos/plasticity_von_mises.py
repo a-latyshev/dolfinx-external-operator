@@ -140,9 +140,9 @@
 # $$
 #
 # The derivative $D_{\boldsymbol{u}}
-# \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}})$ (TODO: it cannot be
-# the Gateau derivative of sigma, Corrado is right. We need to find a way how to
-# explain this.) is written as following
+# \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}})$
+# (TODO: it cannot be the Gateau derivative of sigma, Corrado is right. We need
+# to find a way how to explain this.) is written as following
 #
 # $$
 #     D_{\boldsymbol{u}}
@@ -323,7 +323,6 @@ num_quadrature_points = P_element.dim
 def return_mapping(deps_, sigma_n_, p_):
     """Performs the return-mapping procedure."""
     num_cells = deps_.shape[0]
-    print(num_cells)
 
     C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
     sigma_ = np.empty_like(sigma_n_)
@@ -388,8 +387,6 @@ def C_tang_impl(deps):
 
 # %%
 def sigma_external(derivatives):
-    if derivatives == (0,):
-        return NotImplementedError
     if derivatives == (1,):
         return C_tang_impl
     else:
