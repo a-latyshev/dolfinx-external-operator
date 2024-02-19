@@ -446,8 +446,7 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing
     # <=. AL: In the case of yielding = 1e-15 - 1e-16 (or we can choose the
     # tolerance), the plastic branch will be chosen, which is more expensive.
-    return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local,
-    dlambda)
+    return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
 
 def r(x_local, deps_local, sigma_n_local):
