@@ -14,6 +14,7 @@
 #     name: python3
 # ---
 
+# %%
 # JSH: Comments on text.
 # 1. The main point of this tutorial is to show how JAX AD can be used to
 #    take away a lot of the by-hand differentiation. When I read this
@@ -307,6 +308,7 @@ def a_G(angle):
 
 
 def surface(sigma_local, angle):
+    # AL: Maybe it's more efficient to use untracable np.array?
     dev = jnp.array(
         [
             [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
@@ -441,8 +443,11 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     def r_f_plastic(sigma_local, dlambda):
         return f_MC(sigma_local)
 
-    # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing <=.
-    return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local, dlambda)
+    # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing
+    # <=. AL: In the case of yielding = 1e-15 - 1e-16 (or we can choose the
+    # tolerance), the plastic branch will be chosen, which is more expensive.
+    return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local,
+    dlambda)
 
 
 def r(x_local, deps_local, sigma_n_local):
@@ -534,11 +539,8 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 # `jax.jacfwd` returns a callable that returns the Jacobian as its first return
 # argument. As we also need sigma_local, we also return sigma_local as
 # auxilliary data.
-
-# %
-
-dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
-
+#
+#
 # NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
 # `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
 
@@ -548,6 +550,7 @@ dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
 # define the final implementation of the external operator derivative.
 
 # %%
+dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
 
