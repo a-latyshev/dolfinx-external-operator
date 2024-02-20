@@ -1,19 +1,3 @@
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: -all
-#     custom_cell_magics: kql
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.11.2
-#   kernelspec:
-#     display_name: Python 3
-#     language: python
-#     name: python3
-# ---
-
 # %%
 # JSH: Comments on text.
 # 1. The main point of this tutorial is to show how JAX AD can be used to
@@ -23,27 +7,27 @@
 
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
-#
+# 
 # The current tutorial implements the non-associative plasticity model of
 # Mohr-Coulomb with apex-smoothing, where the constitutive relations are defined
 # using the external package JAX. Here we consider the same cylinder expansion
 # problem in the two-dimensional case in a symmetric formulation, which was
 # considered in the previous tutorial on von Mises plasticity.
-#
+# 
 # The tutorial is based on the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of the
 # Mohr-Coulomb elastoplastic model with apex smoothing.
-#
+# 
 # ## Problem formulation
-#
+# 
 # We solve the same cylinder expansion problem from the previous tutorial of
 # von Mises plasticity and follow the same Mandel-Voigt notation. Thus, we
 # focus here on the constitutive model definition and its implementation.
-#
+# 
 # We consider a non-associative plasticity law without hardening that is
 # defined by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$.
 # Both quantities may be expressed through the following function $H$
-#
+# 
 # \begin{align*}
 #     & H(\boldsymbol{\sigma}, \alpha) =
 #     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
@@ -59,10 +43,10 @@
 # deviatoric part of the stress tensor. The expression of the coefficient
 # $K(\alpha)$ may be found in the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html).
-#
+# 
 # During the plastic loading the stress-strain state of the solid must satisfy
 # the following system of nonlinear equations
-#
+# 
 # $$
 #     \begin{cases}
 #         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
@@ -73,48 +57,48 @@
 #         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
 # $$ (eq_MC_1)
-#
+# 
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{G}^T,
 # r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy},
 # \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following
 # equation:
-#
+# 
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
 # $$
-#
+# 
 # To solve this system we apply the Newton method and then introduce the
 # Jacobian of the residual vector $\boldsymbol{j} = \frac{\partial
 # \boldsymbol{r}}{\partial \boldsymbol{x}}$
-#
+# 
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n})
 #     + \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} -
 #     \boldsymbol{x}_{n})
 # $$
-#
+# 
 # $$
 #     \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
 #     \boldsymbol{r}(\boldsymbol{x}_{n})
 # $$
-#
+# 
 # $$ \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) +
 # \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n}) $$
-#
+# 
 # $$ \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
 # \boldsymbol{r}(\boldsymbol{x}_{n}) $$
-#
+# 
 # $$ \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y} $$
-#
+# 
 # During the elastic loading, we consider a trivial system of equations
-#
+# 
 # $$
 #     \begin{cases}
 #         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
 #         \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
 #     \end{cases}
 # $$ (eq_MC_2)
-#
+# 
 # The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
 # return-mapping procedure and the solution defines the return-mapping
 # correction of the stress tensor. By implementation of the external operator
@@ -122,18 +106,18 @@
 # procedure. By applying the automatic differentiation (AD) technique to this
 # algorithm we may restore the stress derivative
 # $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
-#
+# 
 # The JAX library was used to implement the external operator and its
 # derivative.
-#
+# 
 # ```{note}
 # Although the tutorial shows the implementation of the Mohr-Coulomb model, it
 # is quite general to be adapted to a wide rage of plasticity models that may
 # be defined through a yield surface and a plastic potential.
 # ```
-#
+# 
 # ## Implementation
-#
+# 
 # ### Preamble
 
 # %%
@@ -162,7 +146,7 @@ jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 # %% [markdown]
 # ### Model parameters
-#
+# 
 # Here we define geometrical and material parameters of the problem as well as
 # some useful constants.
 
@@ -179,7 +163,6 @@ phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
-
 
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
@@ -232,24 +215,22 @@ u_ = ufl.TestFunction(V)
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
 
-
 # %% [markdown]
 # ### Defining the external operator
-#
+# 
 # In order to define the behaviour of the external operator and its
 # derivatives, we need to implement the return-mapping procedure solving the
 # constitutive equations {eq}`eq_MC_1`--{eq}`eq_MC_2` and apply the automatic
 # differentiation tool to this algorithm.
-#
+# 
 # #### Defining yield surface and plastic potential
-#
+# 
 # First of all, we define supplementary functions that help us to express the
 # yield surface $F$ and the plastic potential $G$. In the following definitions,
 # we use built-in functions of the JAX package, in particular, the conditional
 # primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool
 # and just-in-time compilation. For more details, please, visit the JAX
 # [documentation](https://jax.readthedocs.io/en/latest/).
-
 
 # %%
 def J3(sigma_local):
@@ -308,7 +289,15 @@ def K(theta, angle):
 def a_G(angle):
     return a * jnp.tan(phi) / jnp.tan(angle)
 
-
+dev = jnp.array(
+        [
+            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
+            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
+            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=PETSc.ScalarType,
+    )
 def surface(sigma_local, angle):
     # AL: Maybe it's more efficient to use untracable np.array?
     dev = jnp.array(
@@ -338,18 +327,17 @@ def surface(sigma_local, angle):
         - c * jnp.cos(angle)
     )
 
-
 # %% [markdown]
 # By picking up an appropriate angle we define the yield surface $F$ and the
 # plastic potential $G$.
 
-
 # %%
-
-
 # JSH: Does this trace phi and psi as static constants?
 def f_MC(sigma_local):
-    return surface(sigma_local, phi)
+    # return surface(sigma_local, phi)
+    s = dev @ sigma_local
+    J2 = 0.5 * jnp.vdot(s, s)
+    return jnp.sqrt(3*J2) #von Mises
 
 
 def g_MC(sigma_local):
@@ -359,13 +347,207 @@ def g_MC(sigma_local):
 # JSH: Isn't argnums the default?
 dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 
+# %% [markdown]
+# #### Some tests
+
+# %%
+def f_MC_to_plot(sigma_I, sigma_II, sigma_III):
+    sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
+    return f_MC(sigma_local)
+
+f_MC_to_plot_vec = jax.vmap(f_MC_to_plot)
+
+# %%
+sigma_I = sigma_II = np.array([1., 2.0])
+sigma_III = np.array([0.0, 0.0])
+f_MC_to_plot_vec(sigma_I, sigma_II, sigma_III)
+
+# %%
+sigma_I = sigma_II = np.arange(1.0, 3.0, 0.05)
+X, Y = np.meshgrid(sigma_I, sigma_II)
+sigma_III = np.zeros_like(X)
+
+# %%
+Z = f_MC_to_plot_vec(X.reshape(-1), Y.reshape(-1), sigma_III.reshape(-1)).reshape(X.shape)
+
+# %%
+# %matplotlib widget
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+fig = plt.figure()
+ax = Axes3D(fig)
+ax.set_zlim(-1, 1)
+ax.plot_surface(X, Y, Z)
+
+# %%
+sigma_local = jnp.array([0.00001, 0.00001, 0.0, 0.0])
+f_MC(sigma_local)
+
+# %%
+def von_mises(sigma_I, sigma_II, sigma_III):
+    sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
+    dev = jnp.array(
+        [
+            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
+            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
+            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=PETSc.ScalarType,
+    )
+    s = dev @ sigma_local
+
+    return jnp.sqrt(3*0.5 * jnp.vdot(s, s))
+
+von_mises_vec = jax.vmap(von_mises)
+
+# %%
+one = np.ones(100)
+R = 5.
+u = np.linspace(0, np.pi/2, 100)
+x = R * np.outer(np.cos(u), one)
+y = R * np.outer(np.sin(u), one)
+z = np.outer(np.linspace(0.5, 10, 100), one)
+
+# %%
+R = 5.
+height = 10
+resolution = 100
+theta = np.linspace(0, 2*np.pi, resolution)
+z = np.linspace(0.1, height, resolution)
+theta, z = np.meshgrid(theta, z)
+x = R * np.cos(theta)
+y = R * np.sin(theta)
+# x = R * z/height * np.cos(theta)
+# y = R * z/height * np.sin(theta)
+
+# %%
+F = f_MC_to_plot_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
+F = von_mises_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
+
+# %%
+import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.plot_surface(x, y, F)
+
+# %%
+
+
+# %%
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+# Generate data points for the von Mises yield surface
+theta = np.linspace(0, 2 * np.pi, 100)
+phi = np.linspace(0, np.pi, 100)
+theta, phi = np.meshgrid(theta, phi)
+sigma_1 = np.sin(theta) * np.cos(phi)
+sigma_2 = np.sin(theta) * np.sin(phi)
+sigma_3 = np.cos(theta)
+von_mises = np.sqrt(sigma_1**2 + sigma_2**2 + sigma_3**2 - sigma_1*sigma_2 - sigma_2*sigma_3 - sigma_3*sigma_1)
+
+# Create a 3D plot
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+# Plot the von Mises yield surface
+ax.plot_surface(sigma_1, sigma_2, sigma_3, cmap='viridis', edgecolor='none')
+
+# Set labels and title
+ax.set_xlabel('Sigma 1')
+ax.set_ylabel('Sigma 2')
+ax.set_zlabel('Sigma 3')
+ax.set_title('Von Mises Yield Surface')
+
+# Show the plot
+plt.show()
+
+
+# %%
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+# Parameters for the cone
+radius = 1
+height = 2
+resolution = 100
+
+# Generate data points for the surface of the cone
+theta = np.linspace(0, 2*np.pi, resolution)
+z = np.linspace(0, height, resolution)
+theta, z = np.meshgrid(theta, z)
+x = radius * (1 - z/height) * np.cos(theta)
+y = radius * (1 - z/height) * np.sin(theta)
+
+# Create a 3D plot
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+# Plot the surface of the cone
+ax.plot_surface(x, y, z, color='b', alpha=0.5)
+
+# Set labels and title
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+ax.set_zlabel('Z')
+ax.set_title('Yield Surface: Cone')
+
+# Show the plot
+plt.show()
+
+
+# %%
+z.shape
+
+# %%
+u = np.linspace(0, 2 * np.pi, 100)
+v = np.linspace(0, np.pi, 100)
+v = np.full((100), np.pi/2)
+x = np.outer(np.cos(u), np.sin(v))
+x
+
+# %%
+
+
+# %%
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+# Generate data points for a sphere
+u = np.linspace(0, 2 * np.pi, 100)
+v = np.linspace(0, np.pi, 100)
+x = np.outer(np.cos(u), np.sin(v))
+y = np.outer(np.sin(u), np.sin(v))
+z = np.outer(np.ones(np.size(u)), np.cos(v))
+
+# Create a 3D plot
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+# Plot the sphere
+ax.plot_surface(x, y, z, color='b', alpha=0.5)
+
+# Set labels and title
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+ax.set_zlabel('Z')
+ax.set_title('Yield Surface')
+
+# Show the plot
+plt.show()
+
 
 # %% [markdown]
 # #### Solving constitutive equations
-#
+# 
 # In this section, we define the constitutive model by solving the following
 # systems
-#
+# 
 # \begin{align*}
 #     & \text{Plastic flow:} \\
 #     & \begin{cases}
@@ -382,23 +564,26 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 #         \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
 #     \end{cases}
 # \end{align*}
-#
+# 
 # As the second one is trivial we focus on the first system only and rewrite it
 # in the following form.
-#
+# 
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0},
 # $$
-#
+# 
 # where $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz},
 # \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$.
-#
+# 
 # This nonlinear equation must be solved at each Gauss point, so we apply the
 # Newton method, implement the whole algorithm locally and then vectorize the
 # final result using `jax.vmap`.
-#
+# 
 # In the following cell, we define locally the residual $\boldsymbol{r}$ and
 # its jacobian $\boldsymbol{j}$.
+
+# %%
+phi = 30 * np.pi / 180  # [rad] friction angle
 
 # %%
 # NOTE: Actually, I put conditionals inside local functions, but we may
@@ -421,12 +606,15 @@ C_elas = np.array(
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
+    # print(sigma_elas_local.shape)
     yielding = f_MC(sigma_elas_local)
+    print(yielding)
 
     def deps_p_elastic(sigma_local, dlambda):
         return jnp.zeros(4, dtype=PETSc.ScalarType)
 
     def deps_p_plastic(sigma_local, dlambda):
+        # print('flag')
         return dlambda * dgdsigma(sigma_local)
 
     return jax.lax.cond(yielding <= 0.0, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
@@ -524,6 +712,77 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     return sigma_local, (sigma_local, niter_total, yielding, norm_res)
     # return sigma_local, (sigma_local,)
 
+# %%
+S_elas = np.linalg.inv(C_elas)
+
+# %%
+def J2(s):
+    return 0.5 * jnp.vdot(s, s)
+
+def rho(sigma_local):
+    s = dev @ sigma_local
+    return jnp.sqrt(2.0 * J2(s))
+
+def angle(sigma_local):
+    s = dev @ sigma_local
+    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2(s) * J2(s) * J2(s)))
+    arg = jnp.clip(arg, -1.0, 1.0)
+    angle = 1.0 / 3.0 * jnp.arcsin(arg)
+    return angle
+
+def sigma_tracing(sigma_local, sigma_n_local):
+    deps_elas = S_elas @ sigma_local
+    sigma_corrected, _ = sigma_return_mapping(deps_elas, sigma_n_local)
+    return sigma_corrected
+
+angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
+rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
+sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
+
+# %%
+N_angles = 10
+N_loads = 5
+angle_values = np.linspace(0, 2*np.pi, N_angles)
+R_values = np.linspace(1., 2., N_loads)
+p = 0.
+
+sigma_paths = np.zeros((N_loads, N_angles, 4))
+
+for i, R in enumerate(R_values):
+    sigma_paths[i, :, 0] = p + np.sqrt(2./3.) * R * np.cos(angle_values)
+    sigma_paths[i, :, 1] = p + np.sqrt(2./3.) * R * np.sin(angle_values - np.pi/6.)
+    sigma_paths[i, :, 2] = p + np.sqrt(2./3.) * R * np.sin(-angle_values - np.pi/6.)
+
+# %%
+angle_results = np.empty((N_loads, N_angles))
+rho_results = np.empty((N_loads, N_angles))
+sigma_n_local = np.zeros((N_angles, 4))
+
+for i, R in enumerate(R_values):
+    sigma_corrected = sigma_tracing_vec(sigma_paths[i], sigma_n_local)
+    angle_results[i,:] = angle_v(sigma_corrected)
+    rho_results[i,:] = rho_v(sigma_corrected)
+    sigma_n_local[:] = sigma_corrected
+
+# %%
+sigma_paths
+
+# %%
+angle_tmp = angle_v(sigma_paths[0])
+rho_tmp = rho_v(sigma_paths[0])
+plt.plot(rho_tmp*np.cos(angle_tmp), rho_tmp*np.sin(angle_tmp))
+
+# %%
+fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+index = 0
+ax.plot(angle_results[index], rho_results[index], '.')
+index = 1
+ax.plot(angle_results[index], rho_results[index], '.')
+index = 2
+ax.plot(angle_results[index], rho_results[index], '.')
+
+# %%
+plt.plot(rho_results[index] * np.cos(angle_results[index]), rho_results[index] * np.sin(angle_results[index]), '.')
 
 # %% [markdown]
 # The `return_mapping` function returns a tuple with two elements. The first
@@ -536,14 +795,14 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 # $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$
 # and leaves untouched the second one. That is why we return `sigma_local`
 # twice in the `return_mapping`: ....
-#
+# 
 # COMMENT: Well, looks too wordy...
 # JSH eg.
 # `jax.jacfwd` returns a callable that returns the Jacobian as its first return
 # argument. As we also need sigma_local, we also return sigma_local as
 # auxilliary data.
-#
-#
+# 
+# 
 # NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
 # `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
 
@@ -578,13 +837,11 @@ def C_tang_impl(deps):
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
-
 # %% [markdown]
 # Similarly to the von Mises example, we do not implement explicitly the
 # evaluation of the external operator. Instead, we obtain its values during the
 # evaluation of its derivative and then update the values of the operator in the
 # main Newton loop.
-
 
 # %%
 def sigma_external(derivatives):
@@ -626,6 +883,7 @@ J_form = fem.form(J_replaced)
 # %% [markdown]
 # ### Variables initialization and compilation
 # Before solving the problem it is required.
+
 # %%
 # Initialize variables to start the algorithm
 # NOTE: Actually we need to evaluate operators before the Newton solver
@@ -662,10 +920,9 @@ timer3.stop()
 # TODO: Maybe we analyze the compilation time in-place?
 common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
 
-
 # %% [markdown]
 # ### Solving the problem
-#
+# 
 # Summing up, we apply the Newton method to solve the main weak problem. On each
 # iteration of the main Newton loop, we solve elastoplastic constitutive equations
 # by using the second Newton method at each Gauss point. Thanks to the framework
@@ -755,3 +1012,5 @@ external_operator_problem.__del__()
 Du.vector.destroy()
 du.vector.destroy()
 u.vector.destroy()
+
+
