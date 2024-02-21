@@ -1,3 +1,19 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
 # %%
 # JSH: Comments on text.
 # 1. The main point of this tutorial is to show how JAX AD can be used to
@@ -7,27 +23,27 @@
 
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb
-# 
+#
 # The current tutorial implements the non-associative plasticity model of
 # Mohr-Coulomb with apex-smoothing, where the constitutive relations are defined
 # using the external package JAX. Here we consider the same cylinder expansion
 # problem in the two-dimensional case in a symmetric formulation, which was
 # considered in the previous tutorial on von Mises plasticity.
-# 
+#
 # The tutorial is based on the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of the
 # Mohr-Coulomb elastoplastic model with apex smoothing.
-# 
+#
 # ## Problem formulation
-# 
+#
 # We solve the same cylinder expansion problem from the previous tutorial of
 # von Mises plasticity and follow the same Mandel-Voigt notation. Thus, we
 # focus here on the constitutive model definition and its implementation.
-# 
+#
 # We consider a non-associative plasticity law without hardening that is
 # defined by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$.
 # Both quantities may be expressed through the following function $H$
-# 
+#
 # \begin{align*}
 #     & H(\boldsymbol{\sigma}, \alpha) =
 #     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
@@ -43,10 +59,10 @@
 # deviatoric part of the stress tensor. The expression of the coefficient
 # $K(\alpha)$ may be found in the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html).
-# 
+#
 # During the plastic loading the stress-strain state of the solid must satisfy
 # the following system of nonlinear equations
-# 
+#
 # $$
 #     \begin{cases}
 #         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
@@ -57,48 +73,48 @@
 #         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
 # $$ (eq_MC_1)
-# 
+#
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{G}^T,
 # r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy},
 # \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following
 # equation:
-# 
+#
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
 # $$
-# 
+#
 # To solve this system we apply the Newton method and then introduce the
 # Jacobian of the residual vector $\boldsymbol{j} = \frac{\partial
 # \boldsymbol{r}}{\partial \boldsymbol{x}}$
-# 
+#
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n})
 #     + \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} -
 #     \boldsymbol{x}_{n})
 # $$
-# 
+#
 # $$
 #     \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
 #     \boldsymbol{r}(\boldsymbol{x}_{n})
 # $$
-# 
+#
 # $$ \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) +
 # \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n}) $$
-# 
+#
 # $$ \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
 # \boldsymbol{r}(\boldsymbol{x}_{n}) $$
-# 
+#
 # $$ \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y} $$
-# 
+#
 # During the elastic loading, we consider a trivial system of equations
-# 
+#
 # $$
 #     \begin{cases}
 #         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
 #         \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
 #     \end{cases}
 # $$ (eq_MC_2)
-# 
+#
 # The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
 # return-mapping procedure and the solution defines the return-mapping
 # correction of the stress tensor. By implementation of the external operator
@@ -106,18 +122,18 @@
 # procedure. By applying the automatic differentiation (AD) technique to this
 # algorithm we may restore the stress derivative
 # $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
-# 
+#
 # The JAX library was used to implement the external operator and its
 # derivative.
-# 
+#
 # ```{note}
 # Although the tutorial shows the implementation of the Mohr-Coulomb model, it
 # is quite general to be adapted to a wide rage of plasticity models that may
 # be defined through a yield surface and a plastic potential.
 # ```
-# 
+#
 # ## Implementation
-# 
+#
 # ### Preamble
 
 # %%
@@ -146,7 +162,7 @@ jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 # %% [markdown]
 # ### Model parameters
-# 
+#
 # Here we define geometrical and material parameters of the problem as well as
 # some useful constants.
 
@@ -159,10 +175,10 @@ nu = 0.25  # [-] Poisson ratio
 P_i_value = 3.45  # [MPa]
 
 c = 3.45  # [MPa] cohesion
-phi = 30 * np.pi / 180  # [rad] friction angle
-psi = 30 * np.pi / 180  # [rad] dilatancy angle
+phi = 25 * np.pi / 180  # [rad] friction angle
+psi = 25 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
-a = 0.2 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
+a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
@@ -217,14 +233,14 @@ sigma_n = fem.Function(S, name="sigma_n")
 
 # %% [markdown]
 # ### Defining the external operator
-# 
+#
 # In order to define the behaviour of the external operator and its
 # derivatives, we need to implement the return-mapping procedure solving the
 # constitutive equations {eq}`eq_MC_1`--{eq}`eq_MC_2` and apply the automatic
 # differentiation tool to this algorithm.
-# 
+#
 # #### Defining yield surface and plastic potential
-# 
+#
 # First of all, we define supplementary functions that help us to express the
 # yield surface $F$ and the plastic potential $G$. In the following definitions,
 # we use built-in functions of the JAX package, in particular, the conditional
@@ -236,54 +252,65 @@ sigma_n = fem.Function(S, name="sigma_n")
 def J3(s):
     return s[2] * (s[0] * s[1] - s[3] * s[3] / 2.0)
 
+def sign(x):
+    return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
 
 def coeff1(theta, angle):
-    return jnp.cos(theta_T) - (1.0 / (jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T))
+    return jnp.cos(theta_T) - (1.0 / (jnp.sqrt(3.0) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T)))
 
 
 def coeff2(theta, angle):
-    return jnp.sign(theta) * jnp.sin(theta_T) + (1.0 / (jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.cos(theta_T))
+    return sign(theta) * jnp.sin(theta_T) + (1.0 / (jnp.sqrt(3.0) * jnp.sin(angle) * jnp.cos(theta_T)))
 
 
 # JSH: use float literals where you want floats.
 coeff3 = 18.0 * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T)
 
 
-def C(theta, angle):
-    return (
-        -jnp.cos(3.0 * theta_T) * coeff1(theta, angle)
-        - 3.0 * jnp.sign(theta) * jnp.sin(3.0 * theta_T) * coeff2(theta, angle)
-    ) / coeff3
+# def C(theta, angle):
+#     return (
+#         -jnp.cos(3.0 * theta_T) * coeff1(theta, angle)
+#         - 3.0 * sign(theta) * jnp.sin(3.0 * theta_T) * coeff2(theta, angle)
+#     ) / coeff3
 
 
-def B(theta, angle):
-    return (
-        jnp.sign(theta) * jnp.sin(6.0 * theta_T) * coeff1(theta, angle)
-        - 6.0 * jnp.cos(6.0 * theta_T) * coeff2(theta, angle)
-    ) / coeff3
+# def B(theta, angle):
+#     return (
+#         sign(theta) * jnp.sin(6.0 * theta_T) * coeff1(theta, angle)
+#         - 6.0 * jnp.cos(6.0 * theta_T) * coeff2(theta, angle)
+#     ) / coeff3
 
+
+# def A(theta, angle):
+#     return (
+#         -(1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T)
+#         - B(theta, angle) * sign(theta) * jnp.sin(theta_T)
+#         - C(theta, angle) * jnp.sin(3.0 * theta_T) * jnp.sin(3.0 * theta_T)
+#         + jnp.cos(theta_T)
+#     )
 
 def A(theta, angle):
-    return (
-        -(1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T)
-        - B(theta, angle) * jnp.sign(theta) * jnp.sin(theta_T)
-        - C(theta, angle) * jnp.sin(3.0 * theta_T) * jnp.sin(3.0 * theta_T)
-        + jnp.cos(theta_T)
-    )
+    return 1./3. * jnp.cos(theta_T) * (3 + jnp.tan(theta_T) * jnp.tan(3*theta_T) + 1./jnp.sqrt(3) * sign(theta) * (jnp.tan(3*theta_T) - 3*jnp.tan(theta_T)) * jnp.sin(angle))
 
+def B(theta, angle):
+    return 1./(3.*jnp.cos(3.*theta_T)) * (sign(theta) * jnp.sin(theta_T) + 1/jnp.sqrt(3) * jnp.sin(angle) * jnp.cos(theta_T))
 
 def K(theta, angle):
-    def K_true(theta, angle):
+    def K_false(theta, angle):
         return jnp.cos(theta) - (1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sin(theta)
 
-    def K_false(theta, angle):
+    # def K_true(theta, angle):
+    #     return (
+    #         A(theta, angle)
+    #         + B(theta, angle) * jnp.sin(3.0 * theta)
+    #         + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
+    #     )
+    def K_true(theta, angle):
         return (
-            A(theta, angle)
-            + B(theta, angle) * jnp.sin(3.0 * theta)
-            + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
+            A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
         )
 
-    return jax.lax.cond(jnp.abs(theta) < theta_T, K_true, K_false, theta, angle)
+    return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta, angle)
 
 
 def a_G(angle):
@@ -323,10 +350,13 @@ def surface(sigma_local, angle):
     arg = jnp.clip(arg, -1.0, 1.0)
 
     theta = 1.0 / 3.0 * jnp.arcsin(arg)
+    # return (
+    #     (I1 / 3.0 * jnp.sin(angle))
+    #     + jnp.sqrt(J2 * K(theta, angle) * K(theta, angle) + a_G(angle) * a_G(angle) * jnp.sin(angle) * jnp.sin(angle))
+    #     - c * jnp.cos(angle)
+    # )
     return (
-        (I1 / 3.0 * jnp.sin(angle))
-        + jnp.sqrt(J2 * K(theta, angle) * K(theta, angle) + a_G(angle) * a_G(angle) * jnp.sin(angle) * jnp.sin(angle))
-        - c * jnp.cos(angle)
+        (I1 / 3.0 * jnp.sin(angle)) + jnp.sqrt(J2) * K(theta, angle) - c * jnp.cos(angle)
     )
 
 # %% [markdown]
@@ -359,206 +389,11 @@ def g_MC(sigma_local):
 dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 
 # %% [markdown]
-# #### Some tests
-
-# %%
-def f_MC_to_plot(sigma_I, sigma_II, sigma_III):
-    sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
-    return f_MC(sigma_local)
-
-f_MC_to_plot_vec = jax.vmap(f_MC_to_plot)
-
-# %%
-sigma_I = sigma_II = np.array([1., 2.0])
-sigma_III = np.array([0.0, 0.0])
-f_MC_to_plot_vec(sigma_I, sigma_II, sigma_III)
-
-# %%
-sigma_I = sigma_II = np.arange(1.0, 3.0, 0.05)
-X, Y = np.meshgrid(sigma_I, sigma_II)
-sigma_III = np.zeros_like(X)
-
-# %%
-Z = f_MC_to_plot_vec(X.reshape(-1), Y.reshape(-1), sigma_III.reshape(-1)).reshape(X.shape)
-
-# %%
-# %matplotlib widget
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-fig = plt.figure()
-ax = Axes3D(fig)
-ax.set_zlim(-1, 1)
-ax.plot_surface(X, Y, Z)
-
-# %%
-sigma_local = jnp.array([0.00001, 0.00001, 0.0, 0.0])
-f_MC(sigma_local)
-
-# %%
-def von_mises(sigma_I, sigma_II, sigma_III):
-    sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
-    dev = jnp.array(
-        [
-            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ],
-        dtype=PETSc.ScalarType,
-    )
-    s = dev @ sigma_local
-
-    return jnp.sqrt(3*0.5 * jnp.vdot(s, s))
-
-von_mises_vec = jax.vmap(von_mises)
-
-# %%
-one = np.ones(100)
-R = 5.
-u = np.linspace(0, np.pi/2, 100)
-x = R * np.outer(np.cos(u), one)
-y = R * np.outer(np.sin(u), one)
-z = np.outer(np.linspace(0.5, 10, 100), one)
-
-# %%
-R = 5.
-height = 10
-resolution = 100
-theta = np.linspace(0, 2*np.pi, resolution)
-z = np.linspace(0.1, height, resolution)
-theta, z = np.meshgrid(theta, z)
-x = R * np.cos(theta)
-y = R * np.sin(theta)
-# x = R * z/height * np.cos(theta)
-# y = R * z/height * np.sin(theta)
-
-# %%
-F = f_MC_to_plot_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
-F = von_mises_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
-
-# %%
-import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.plot_surface(x, y, F)
-
-# %%
-
-
-# %%
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-
-# Generate data points for the von Mises yield surface
-theta = np.linspace(0, 2 * np.pi, 100)
-phi = np.linspace(0, np.pi, 100)
-theta, phi = np.meshgrid(theta, phi)
-sigma_1 = np.sin(theta) * np.cos(phi)
-sigma_2 = np.sin(theta) * np.sin(phi)
-sigma_3 = np.cos(theta)
-von_mises = np.sqrt(sigma_1**2 + sigma_2**2 + sigma_3**2 - sigma_1*sigma_2 - sigma_2*sigma_3 - sigma_3*sigma_1)
-
-# Create a 3D plot
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-
-# Plot the von Mises yield surface
-ax.plot_surface(sigma_1, sigma_2, sigma_3, cmap='viridis', edgecolor='none')
-
-# Set labels and title
-ax.set_xlabel('Sigma 1')
-ax.set_ylabel('Sigma 2')
-ax.set_zlabel('Sigma 3')
-ax.set_title('Von Mises Yield Surface')
-
-# Show the plot
-plt.show()
-
-
-# %%
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-
-# Parameters for the cone
-radius = 1
-height = 2
-resolution = 100
-
-# Generate data points for the surface of the cone
-theta = np.linspace(0, 2*np.pi, resolution)
-z = np.linspace(0, height, resolution)
-theta, z = np.meshgrid(theta, z)
-x = radius * (1 - z/height) * np.cos(theta)
-y = radius * (1 - z/height) * np.sin(theta)
-
-# Create a 3D plot
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-
-# Plot the surface of the cone
-ax.plot_surface(x, y, z, color='b', alpha=0.5)
-
-# Set labels and title
-ax.set_xlabel('X')
-ax.set_ylabel('Y')
-ax.set_zlabel('Z')
-ax.set_title('Yield Surface: Cone')
-
-# Show the plot
-plt.show()
-
-
-# %%
-z.shape
-
-# %%
-u = np.linspace(0, 2 * np.pi, 100)
-v = np.linspace(0, np.pi, 100)
-v = np.full((100), np.pi/2)
-x = np.outer(np.cos(u), np.sin(v))
-x
-
-# %%
-
-
-# %%
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-
-# Generate data points for a sphere
-u = np.linspace(0, 2 * np.pi, 100)
-v = np.linspace(0, np.pi, 100)
-x = np.outer(np.cos(u), np.sin(v))
-y = np.outer(np.sin(u), np.sin(v))
-z = np.outer(np.ones(np.size(u)), np.cos(v))
-
-# Create a 3D plot
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-
-# Plot the sphere
-ax.plot_surface(x, y, z, color='b', alpha=0.5)
-
-# Set labels and title
-ax.set_xlabel('X')
-ax.set_ylabel('Y')
-ax.set_zlabel('Z')
-ax.set_title('Yield Surface')
-
-# Show the plot
-plt.show()
-
-
-# %% [markdown]
 # #### Solving constitutive equations
-# 
+#
 # In this section, we define the constitutive model by solving the following
 # systems
-# 
+#
 # \begin{align*}
 #     & \text{Plastic flow:} \\
 #     & \begin{cases}
@@ -575,21 +410,21 @@ plt.show()
 #         \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
 #     \end{cases}
 # \end{align*}
-# 
+#
 # As the second one is trivial we focus on the first system only and rewrite it
 # in the following form.
-# 
+#
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0},
 # $$
-# 
+#
 # where $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz},
 # \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$.
-# 
+#
 # This nonlinear equation must be solved at each Gauss point, so we apply the
 # Newton method, implement the whole algorithm locally and then vectorize the
 # final result using `jax.vmap`.
-# 
+#
 # In the following cell, we define locally the residual $\boldsymbol{r}$ and
 # its jacobian $\boldsymbol{j}$.
 
@@ -757,11 +592,12 @@ rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
 sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 
 # %%
-N_angles = 100
+N_angles = 200
 N_loads = 10
-angle_values = np.linspace(0., 2*np.pi, N_angles)
-R_values = np.linspace(1, 2, N_loads)
-p = 1.
+angle_values = np.linspace(0, 2*np.pi, N_angles)
+# angle_values = np.concatenate([np.linspace(-np.pi/6, np.pi/6, 100), np.linspace(5*np.pi/6, 7*np.pi/6, 100)])
+R_values = np.linspace(0.9, 5, N_loads)
+p = 2.
 
 dsigma_paths = np.zeros((N_loads, N_angles, 4))
 
@@ -790,24 +626,79 @@ for i, R in enumerate(R_values):
     rho_results[i,:] = rho_v(dsigma)
     sigma_n_local[:] = dsigma
 
+
+# Show the plot
+plt.show()
+
 # %%
-# angle_tmp = angle_v(sigma_paths[0])
-# rho_tmp = rho_v(sigma_paths[0])
-# plt.plot(rho_tmp*np.cos(angle_tmp), rho_tmp*np.sin(angle_tmp))
+fig, ax = plt.subplots(nrows=1, ncols=2, subplot_kw={'projection': 'polar'}, figsize=(10, 15))
+# fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
+for i in range(N_loads):
+    ax[0].plot(angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+    ax[0].plot(np.repeat(np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
+    ax[0].plot(np.repeat(-np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
+    ax[1].plot(angle_values, rho_v(dsigma_paths[i]), '.', label='Load#'+str(i))
+    ax[0].set_title(r'Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$')
+    ax[1].set_title(r'Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$')
+plt.legend()
+fig.tight_layout()
+
+# %%
+
+# %%
+fig = plt.figure(figsize=(15,10))
+# fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
+ax1 = fig.add_subplot(221, polar=True)
+ax2 = fig.add_subplot(222, polar=True)
+ax3 = fig.add_subplot(223, projection='3d')
+ax4 = fig.add_subplot(224, projection='3d')
+for j in range(12):
+    for i in range(N_loads):
+        ax1.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+for i in range(N_loads):
+    ax2.plot(angle_values, rho_v(dsigma_paths[i]), '.', label='Load#'+str(i))
+    ax3.plot(sigma_results[i,:,0], sigma_results[i,:,1], sigma_results[i,:,2], '.')
+    ax4.plot(sigma_results[i,:,0], sigma_results[i,:,1], sigma_results[i,:,2], '.')
+
+ax1.plot(np.repeat(np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
+ax1.plot(np.repeat(-np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
+z_min = np.min(sigma_results[:,:,2])
+z_max = np.max(sigma_results[:,:,2])
+ax4.plot(np.array([p,p]), np.array([p,p]), np.array([z_min, z_max]), linestyle='-', color='black')
+
+ax1.set_title(r'Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$')
+ax2.set_title(r'Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$')
+ax3.view_init(azim=45)
+
+for ax in [ax3, ax4]:
+    ax.set_xlabel(r'$\sigma_{I}$')
+    ax.set_ylabel(r'$\sigma_{II}$')
+    ax.set_zlabel(r'$\sigma_{III}$')
+    ax.set_title(r'In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space')
+plt.legend()
+fig.tight_layout()
+
+# %%
 
 # %%
 fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for i in range(N_loads):
-    ax.plot(angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-    ax.plot(np.repeat(np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
-    ax.plot(np.repeat(-np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
-plt.legend()
+for j in range(12):
+    for i in range(N_loads):
+        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
 
 # %%
-angle_results[i].shape
 
 # %%
-angle_results[9]*180/np.pi, rho_results[9], np.flip(rho_results[9])
+fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+for j in range(12):
+    for i in range(N_loads):
+        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+
+# %%
+fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+for j in range(12):
+    for i in range(N_loads):
+        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
 
 # %%
 fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
@@ -839,14 +730,14 @@ for j in range(12):
 # $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$
 # and leaves untouched the second one. That is why we return `sigma_local`
 # twice in the `return_mapping`: ....
-# 
+#
 # COMMENT: Well, looks too wordy...
 # JSH eg.
 # `jax.jacfwd` returns a callable that returns the Jacobian as its first return
 # argument. As we also need sigma_local, we also return sigma_local as
 # auxilliary data.
-# 
-# 
+#
+#
 # NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
 # `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
 
@@ -966,7 +857,7 @@ common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
 
 # %% [markdown]
 # ### Solving the problem
-# 
+#
 # Summing up, we apply the Newton method to solve the main weak problem. On each
 # iteration of the main Newton loop, we solve elastoplastic constitutive equations
 # by using the second Newton method at each Gauss point. Thanks to the framework
@@ -1058,3 +949,159 @@ du.vector.destroy()
 u.vector.destroy()
 
 
+
+# %%
+# #### Some tests
+# def f_MC_to_plot(sigma_I, sigma_II, sigma_III):
+#     sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
+#     return f_MC(sigma_local)
+
+# f_MC_to_plot_vec = jax.vmap(f_MC_to_plot)
+# sigma_I = sigma_II = np.array([1., 2.0])
+# sigma_III = np.array([0.0, 0.0])
+# f_MC_to_plot_vec(sigma_I, sigma_II, sigma_III)
+# sigma_I = sigma_II = np.arange(1.0, 3.0, 0.05)
+# X, Y = np.meshgrid(sigma_I, sigma_II)
+# sigma_III = np.zeros_like(X)
+# Z = f_MC_to_plot_vec(X.reshape(-1), Y.reshape(-1), sigma_III.reshape(-1)).reshape(X.shape)
+# # %matplotlib widget
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+# fig = plt.figure()
+# ax = Axes3D(fig)
+# ax.set_zlim(-1, 1)
+# ax.plot_surface(X, Y, Z)
+# sigma_local = jnp.array([0.00001, 0.00001, 0.0, 0.0])
+# f_MC(sigma_local)
+# def von_mises(sigma_I, sigma_II, sigma_III):
+#     sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
+#     dev = jnp.array(
+#         [
+#             [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
+#             [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
+#             [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
+#             [0.0, 0.0, 0.0, 1.0],
+#         ],
+#         dtype=PETSc.ScalarType,
+#     )
+#     s = dev @ sigma_local
+
+#     return jnp.sqrt(3*0.5 * jnp.vdot(s, s))
+
+# von_mises_vec = jax.vmap(von_mises)
+# one = np.ones(100)
+# R = 5.
+# u = np.linspace(0, np.pi/2, 100)
+# x = R * np.outer(np.cos(u), one)
+# y = R * np.outer(np.sin(u), one)
+# z = np.outer(np.linspace(0.5, 10, 100), one)
+# R = 5.
+# height = 10
+# resolution = 100
+# theta = np.linspace(0, 2*np.pi, resolution)
+# z = np.linspace(0.1, height, resolution)
+# theta, z = np.meshgrid(theta, z)
+# x = R * np.cos(theta)
+# y = R * np.sin(theta)
+# # x = R * z/height * np.cos(theta)
+# # y = R * z/height * np.sin(theta)
+# F = f_MC_to_plot_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
+# F = von_mises_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
+# import matplotlib.pyplot as plt
+# # from mpl_toolkits.mplot3d import Axes3D
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+# ax.plot_surface(x, y, F)
+
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+
+# # Generate data points for the von Mises yield surface
+# theta = np.linspace(0, 2 * np.pi, 100)
+# phi = np.linspace(0, np.pi, 100)
+# theta, phi = np.meshgrid(theta, phi)
+# sigma_1 = np.sin(theta) * np.cos(phi)
+# sigma_2 = np.sin(theta) * np.sin(phi)
+# sigma_3 = np.cos(theta)
+# von_mises = np.sqrt(sigma_1**2 + sigma_2**2 + sigma_3**2 - sigma_1*sigma_2 - sigma_2*sigma_3 - sigma_3*sigma_1)
+
+# # Create a 3D plot
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+
+# # Plot the von Mises yield surface
+# ax.plot_surface(sigma_1, sigma_2, sigma_3, cmap='viridis', edgecolor='none')
+
+# # Set labels and title
+# ax.set_xlabel('Sigma 1')
+# ax.set_ylabel('Sigma 2')
+# ax.set_zlabel('Sigma 3')
+# ax.set_title('Von Mises Yield Surface')
+
+# # Show the plot
+# plt.show()
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+
+# # Parameters for the cone
+# radius = 1
+# height = 2
+# resolution = 100
+
+# # Generate data points for the surface of the cone
+# theta = np.linspace(0, 2*np.pi, resolution)
+# z = np.linspace(0, height, resolution)
+# theta, z = np.meshgrid(theta, z)
+# x = radius * (1 - z/height) * np.cos(theta)
+# y = radius * (1 - z/height) * np.sin(theta)
+
+# # Create a 3D plot
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+
+# # Plot the surface of the cone
+# ax.plot_surface(x, y, z, color='b', alpha=0.5)
+
+# # Set labels and title
+# ax.set_xlabel('X')
+# ax.set_ylabel('Y')
+# ax.set_zlabel('Z')
+# ax.set_title('Yield Surface: Cone')
+
+# # Show the plot
+# plt.show()
+# z.shape
+# u = np.linspace(0, 2 * np.pi, 100)
+# v = np.linspace(0, np.pi, 100)
+# v = np.full((100), np.pi/2)
+# x = np.outer(np.cos(u), np.sin(v))
+# x
+
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+
+# # Generate data points for a sphere
+# u = np.linspace(0, 2 * np.pi, 100)
+# v = np.linspace(0, np.pi, 100)
+# x = np.outer(np.cos(u), np.sin(v))
+# y = np.outer(np.sin(u), np.sin(v))
+# z = np.outer(np.ones(np.size(u)), np.cos(v))
+
+# # Create a 3D plot
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+
+# # Plot the sphere
+# ax.plot_surface(x, y, z, color='b', alpha=0.5)
+
+# # Set labels and title
+# ax.set_xlabel('X')
+# ax.set_ylabel('Y')
+# ax.set_zlabel('Z')
+# ax.set_title('Yield Surface')
+
+# # Show the plot
+# plt.show()
