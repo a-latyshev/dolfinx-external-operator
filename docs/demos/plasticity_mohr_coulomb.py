@@ -162,7 +162,7 @@ c = 3.45  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
-a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
+a = 0.2 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
@@ -233,8 +233,8 @@ sigma_n = fem.Function(S, name="sigma_n")
 # [documentation](https://jax.readthedocs.io/en/latest/).
 
 # %%
-def J3(sigma_local):
-    return sigma_local[2] * (sigma_local[0] * sigma_local[1] - sigma_local[3] * sigma_local[3] / 2.0)
+def J3(s):
+    return s[2] * (s[0] * s[1] - s[3] * s[3] / 2.0)
 
 
 def coeff1(theta, angle):
@@ -298,6 +298,8 @@ dev = jnp.array(
         ],
         dtype=PETSc.ScalarType,
     )
+tr = jnp.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
+
 def surface(sigma_local, angle):
     # AL: Maybe it's more efficient to use untracable np.array?
     dev = jnp.array(
@@ -334,14 +336,23 @@ def surface(sigma_local, angle):
 # %%
 # JSH: Does this trace phi and psi as static constants?
 def f_MC(sigma_local):
-    # return surface(sigma_local, phi)
+    return surface(sigma_local, phi)
     s = dev @ sigma_local
     J2 = 0.5 * jnp.vdot(s, s)
-    return jnp.sqrt(3*J2) #von Mises
+    f_vM = jnp.sqrt(3*J2) - c# von Mises
+    sigma_I = sigma_local[0]
+    sigma_II = sigma_local[1]
+    sigma_III = sigma_local[2]
+    term1 = 0.5 * jnp.abs(sigma_I - sigma_II) - 0.5 * (sigma_I + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
+    term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
+    term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
+    f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
+    return f_MC_classic  
 
 
 def g_MC(sigma_local):
-    return surface(sigma_local, psi)
+    # return surface(sigma_local, psi)
+    return f_MC(sigma_local)
 
 
 # JSH: Isn't argnums the default?
@@ -608,13 +619,14 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     # print(sigma_elas_local.shape)
     yielding = f_MC(sigma_elas_local)
-    print(yielding)
+    # print(yielding)
 
     def deps_p_elastic(sigma_local, dlambda):
+        # print('elastic flag')
         return jnp.zeros(4, dtype=PETSc.ScalarType)
 
     def deps_p_plastic(sigma_local, dlambda):
-        # print('flag')
+        # print('plastic flag')
         return dlambda * dgdsigma(sigma_local)
 
     return jax.lax.cond(yielding <= 0.0, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
@@ -732,57 +744,89 @@ def angle(sigma_local):
 
 def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
-    sigma_corrected, _ = sigma_return_mapping(deps_elas, sigma_n_local)
-    return sigma_corrected
+    sigma_corrected, state = sigma_return_mapping(deps_elas, sigma_n_local)
+    yielding = state[2]
+    # jax.debug.print("{x}", x=state[2])
+    # print(yielding)
+    # print(state[1])
+    # print(state[-1])
+    return sigma_corrected, yielding
 
 angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
 rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
 sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 
 # %%
-N_angles = 10
-N_loads = 5
-angle_values = np.linspace(0, 2*np.pi, N_angles)
-R_values = np.linspace(1., 2., N_loads)
-p = 0.
+N_angles = 100
+N_loads = 10
+angle_values = np.linspace(0., 2*np.pi, N_angles)
+R_values = np.linspace(1, 2, N_loads)
+p = 1.
 
-sigma_paths = np.zeros((N_loads, N_angles, 4))
+dsigma_paths = np.zeros((N_loads, N_angles, 4))
 
 for i, R in enumerate(R_values):
-    sigma_paths[i, :, 0] = p + np.sqrt(2./3.) * R * np.cos(angle_values)
-    sigma_paths[i, :, 1] = p + np.sqrt(2./3.) * R * np.sin(angle_values - np.pi/6.)
-    sigma_paths[i, :, 2] = p + np.sqrt(2./3.) * R * np.sin(-angle_values - np.pi/6.)
+    dsigma_paths[i,:,0] = np.sqrt(2./3.) * R * np.cos(angle_values)
+    dsigma_paths[i,:,1] = np.sqrt(2./3.) * R * np.sin(angle_values - np.pi/6.)
+    dsigma_paths[i,:,2] = np.sqrt(2./3.) * R * np.sin(-angle_values - np.pi/6.)
 
 # %%
 angle_results = np.empty((N_loads, N_angles))
 rho_results = np.empty((N_loads, N_angles))
-sigma_n_local = np.zeros((N_angles, 4))
+sigma_results = np.empty((N_loads, N_angles, 4))
+sigma_n_local = np.full((N_angles, 4), p)
+derviatoric_axis = np.array([1,1,1,0])
 
 for i, R in enumerate(R_values):
-    sigma_corrected = sigma_tracing_vec(sigma_paths[i], sigma_n_local)
-    angle_results[i,:] = angle_v(sigma_corrected)
-    rho_results[i,:] = rho_v(sigma_corrected)
-    sigma_n_local[:] = sigma_corrected
+    print(f"Loading#{i} {R}")
+    dsigma, yielding = sigma_tracing_vec(dsigma_paths[0], sigma_n_local)
+    p_tmp = dsigma @ tr / 3.
+    dp = p_tmp - p
+    dsigma -= np.outer(dp, derviatoric_axis)
+    p_tmp = dsigma @ tr / 3.
+    sigma_results[i,:] = dsigma
+    print(f"{jnp.max(yielding)} {np.max(p_tmp)}\n")
+    angle_results[i,:] = angle_v(dsigma)
+    rho_results[i,:] = rho_v(dsigma)
+    sigma_n_local[:] = dsigma
 
 # %%
-sigma_paths
-
-# %%
-angle_tmp = angle_v(sigma_paths[0])
-rho_tmp = rho_v(sigma_paths[0])
-plt.plot(rho_tmp*np.cos(angle_tmp), rho_tmp*np.sin(angle_tmp))
+# angle_tmp = angle_v(sigma_paths[0])
+# rho_tmp = rho_v(sigma_paths[0])
+# plt.plot(rho_tmp*np.cos(angle_tmp), rho_tmp*np.sin(angle_tmp))
 
 # %%
 fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-index = 0
-ax.plot(angle_results[index], rho_results[index], '.')
-index = 1
-ax.plot(angle_results[index], rho_results[index], '.')
-index = 2
-ax.plot(angle_results[index], rho_results[index], '.')
+for i in range(N_loads):
+    ax.plot(angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+    ax.plot(np.repeat(np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
+    ax.plot(np.repeat(-np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
+plt.legend()
 
 # %%
-plt.plot(rho_results[index] * np.cos(angle_results[index]), rho_results[index] * np.sin(angle_results[index]), '.')
+angle_results[i].shape
+
+# %%
+angle_results[9]*180/np.pi, rho_results[9], np.flip(rho_results[9])
+
+# %%
+fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+for j in range(12):
+    for i in range(N_loads):
+        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+
+# %%
+fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+for j in range(12):
+    for i in range(N_loads):
+        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+
+# %%
+fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+for j in range(12):
+    for i in range(N_loads):
+        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+# plt.legend()
 
 # %% [markdown]
 # The `return_mapping` function returns a tuple with two elements. The first
