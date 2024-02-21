@@ -1,15 +1,29 @@
 # %% [markdown]
+# # Limit analysis
 # Based on https://fenics-optim.readthedocs.io/en/latest/demos/limit_analysis_3D_SDP.html 
 
 # %%
+from mpi4py import MPI
 from petsc4py import PETSc
 
 import jax
 jax.config.update("jax_enable_x64", True) # replace by JAX_ENABLE_X64=True
 import jax.numpy as jnp
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from solvers import LinearProblem
+from utilities import build_cylinder_quarter, find_cell_by_point
+
+import basix
+import ufl
+from dolfinx import common, fem, mesh, default_scalar_type
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
+    replace_external_operators,
+)
 
 # %%
 E = 70e3
@@ -46,6 +60,58 @@ zero_vec = jnp.array([TPV, TPV, TPV, TPV])
 Nitermax, tol = 200, 1e-8
 
 # %%
+L = W = H = 1.
+gamma = 1.
+N = 10
+domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0,0,0]), np.array([L, W, H])], [N, N, N])
+
+# %%
+k_u = 2
+# V = fem.functionspace(domain, ("Lagrange", k_u, (3,)))
+V = fem.functionspace(domain, ("Lagrange", 1, (3,)))
+u = ufl.TrialFunction(V)
+v = ufl.TestFunction(V)
+Du = ufl.Function(V)
+
+def on_right(x):
+    return np.isclose(x[0], L)
+
+def on_bottom(x):
+    return np.isclose(x[2], 0.)
+
+bottom_dofs = fem.locate_dofs_geometrical(V, on_bottom)
+right_dofs = fem.locate_dofs_geometrical(V, on_right)
+# bcs = [fem.dirichletbc(0.0, bottom_dofs, V), fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), right_dofs, V)] # bug???
+bcs = [
+    fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
+    fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), right_dofs, V)]
+
+
+# %%
+def epsilon(u):
+    return ufl.sym(ufl.grad(u))
+
+k_stress = 2 * (k_u - 1)
+S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
+S = fem.functionspace(mesh, S_element)
+dx = ufl.Measure(
+    "dx",
+    domain=mesh,
+    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
+)
+
+
+pi = FEMExternalOperator(epsilon(Du), function_space=S)
+f = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
+F = pi * dx + ufl.dot(f, u) * ufl.dx
+
+# %%
+
+
+# %% [markdown]
+# ### Constitutive model
+
+# %%
 @jax.jit
 def det(Mandel_vec):
     """Returns the derminante of a tensor written through Mandel notation."""
@@ -64,7 +130,7 @@ def eigensum(Mandel_vec):
 # %%
 @jax.jit
 def pi(deps_local):
-    condition = tr @ deps_local - np.sin(phi) * eigensum(deps_local)
+    condition = c/np.tan(phi) * tr @ deps_local - np.sin(phi) * eigensum(deps_local)
     # == tol and tr @ deps_local > np.sin(phi) * eigensum(deps_local)
     pi_positive = lambda eps_local: c * tr @ eps_local / np.tan(phi)
     pi_negative = lambda eps_local: jnp.inf
@@ -81,16 +147,10 @@ deps_local = jnp.array([0.001, 30., 20., 0.])
 pi(deps_local)
 
 # %%
-tr @ deps_local 
-
-# %%
-tr @ deps_local - np.sin(phi) * eigensum(deps_local)
-
-
-# %%
 dpiddeps(deps_local)
 
 # %%
+
 
 
 
