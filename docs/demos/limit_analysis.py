@@ -1,3 +1,20 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
 # %% [markdown]
 # # Limit analysis
 # Based on https://fenics-optim.readthedocs.io/en/latest/demos/limit_analysis_3D_SDP.html 
@@ -71,7 +88,7 @@ k_u = 2
 V = fem.functionspace(domain, ("Lagrange", 1, (3,)))
 u = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
-Du = ufl.Function(V)
+Du = fem.Function(V)
 
 def on_right(x):
     return np.isclose(x[0], L)
@@ -92,11 +109,11 @@ def epsilon(u):
     return ufl.sym(ufl.grad(u))
 
 k_stress = 2 * (k_u - 1)
-S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
-S = fem.functionspace(mesh, S_element)
+S_element = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=k_stress, value_shape=())
+S = fem.functionspace(domain, S_element)
 dx = ufl.Measure(
     "dx",
-    domain=mesh,
+    domain=domain,
     metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
 )
 
@@ -104,8 +121,6 @@ dx = ufl.Measure(
 pi = FEMExternalOperator(epsilon(Du), function_space=S)
 f = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
 F = pi * dx + ufl.dot(f, u) * ufl.dx
-
-# %%
 
 
 # %% [markdown]
