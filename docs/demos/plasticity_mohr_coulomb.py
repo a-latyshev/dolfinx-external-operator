@@ -143,6 +143,8 @@ from petsc4py import PETSc
 import jax
 import jax.lax
 import jax.numpy as jnp
+jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
+
 import matplotlib.pyplot as plt
 import numpy as np
 from solvers import LinearProblem
@@ -158,7 +160,6 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
-jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 # %% [markdown]
 # ### Model parameters
@@ -252,52 +253,65 @@ sigma_n = fem.Function(S, name="sigma_n")
 def J3(s):
     return s[2] * (s[0] * s[1] - s[3] * s[3] / 2.0)
 
+def J2(s):
+    return 0.5 * jnp.vdot(s, s)
+
+def theta(s):
+    J2_ = J2(s)
+    arg = -(3.0 * np.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2_ * J2_ * J2_))
+    arg = jnp.clip(arg, -1.0, 1.0)
+    theta = 1.0 / 3.0 * jnp.arcsin(arg)
+    return theta
+
+def rho(s):
+    return jnp.sqrt(2.0 * J2(s))
+
 def sign(x):
     return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
 
 def coeff1(theta, angle):
-    return jnp.cos(theta_T) - (1.0 / (jnp.sqrt(3.0) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T)))
+    return np.cos(theta_T) - (1.0 / (np.sqrt(3.0) * np.sin(angle) * sign(theta) * np.sin(theta_T)))
 
 
 def coeff2(theta, angle):
-    return sign(theta) * jnp.sin(theta_T) + (1.0 / (jnp.sqrt(3.0) * jnp.sin(angle) * jnp.cos(theta_T)))
+    return sign(theta) * np.sin(theta_T) + (1.0 / (np.sqrt(3.0) * np.sin(angle) * np.cos(theta_T)))
 
 
 # JSH: use float literals where you want floats.
-coeff3 = 18.0 * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T)
+coeff3 = 18.0 * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T)
 
 
 # def C(theta, angle):
 #     return (
-#         -jnp.cos(3.0 * theta_T) * coeff1(theta, angle)
-#         - 3.0 * sign(theta) * jnp.sin(3.0 * theta_T) * coeff2(theta, angle)
+#         -np.cos(3.0 * theta_T) * coeff1(theta, angle)
+#         - 3.0 * sign(theta) * np.sin(3.0 * theta_T) * coeff2(theta, angle)
 #     ) / coeff3
 
 
 # def B(theta, angle):
 #     return (
-#         sign(theta) * jnp.sin(6.0 * theta_T) * coeff1(theta, angle)
-#         - 6.0 * jnp.cos(6.0 * theta_T) * coeff2(theta, angle)
+#         sign(theta) * np.sin(6.0 * theta_T) * coeff1(theta, angle)
+#         - 6.0 * np.cos(6.0 * theta_T) * coeff2(theta, angle)
 #     ) / coeff3
 
 
 # def A(theta, angle):
 #     return (
-#         -(1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T)
-#         - B(theta, angle) * sign(theta) * jnp.sin(theta_T)
-#         - C(theta, angle) * jnp.sin(3.0 * theta_T) * jnp.sin(3.0 * theta_T)
-#         + jnp.cos(theta_T)
+#         -(1.0 / np.sqrt(3.0)) * np.sin(angle) * sign(theta) * np.sin(theta_T)
+#         - B(theta, angle) * sign(theta) * np.sin(theta_T)
+#         - C(theta, angle) * np.sin(3.0 * theta_T) * np.sin(3.0 * theta_T)
+#         + np.cos(theta_T)
 #     )
 
 def A(theta, angle):
-    return 1./3. * jnp.cos(theta_T) * (3 + jnp.tan(theta_T) * jnp.tan(3*theta_T) + 1./jnp.sqrt(3) * sign(theta) * (jnp.tan(3*theta_T) - 3*jnp.tan(theta_T)) * jnp.sin(angle))
+    return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) + 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) * np.sin(angle))
 
 def B(theta, angle):
-    return 1./(3.*jnp.cos(3.*theta_T)) * (sign(theta) * jnp.sin(theta_T) + 1/jnp.sqrt(3) * jnp.sin(angle) * jnp.cos(theta_T))
+    return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) + 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
 
 def K(theta, angle):
-    def K_false(theta, angle):
-        return jnp.cos(theta) - (1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sin(theta)
+    def K_false(theta):
+        return jnp.cos(theta) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * jnp.sin(theta)
 
     # def K_true(theta, angle):
     #     return (
@@ -305,18 +319,18 @@ def K(theta, angle):
     #         + B(theta, angle) * jnp.sin(3.0 * theta)
     #         + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
     #     )
-    def K_true(theta, angle):
+    def K_true(theta):
         return (
             A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
         )
 
-    return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta, angle)
+    return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta)
 
 
 def a_G(angle):
-    return a * jnp.tan(phi) / jnp.tan(angle)
+    return a * np.tan(phi) / np.tan(angle)
 
-dev = jnp.array(
+dev = np.array(
         [
             [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
             [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
@@ -325,39 +339,19 @@ dev = jnp.array(
         ],
         dtype=PETSc.ScalarType,
     )
-tr = jnp.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
+tr = np.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
 
 def surface(sigma_local, angle):
     # AL: Maybe it's more efficient to use untracable np.array?
-    dev = jnp.array(
-        [
-            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ],
-        dtype=PETSc.ScalarType,
-    )
-
     s = dev @ sigma_local
-
-    tr = jnp.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
     I1 = tr @ sigma_local
-
-    J2 = 0.5 * jnp.vdot(s, s)
-
-    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2 * J2 * J2))
-    arg = jnp.clip(arg, -1.0, 1.0)
-
-    theta = 1.0 / 3.0 * jnp.arcsin(arg)
+    theta_ = theta(s)
     # return (
-    #     (I1 / 3.0 * jnp.sin(angle))
-    #     + jnp.sqrt(J2 * K(theta, angle) * K(theta, angle) + a_G(angle) * a_G(angle) * jnp.sin(angle) * jnp.sin(angle))
-    #     - c * jnp.cos(angle)
+    #     (I1 / 3.0 * np.sin(angle))
+    #     + jnp.sqrt(J2 * K(theta, angle) * K(theta, angle) + a_G(angle) * a_G(angle) * np.sin(angle) * np.sin(angle))
+    #     - c * np.cos(angle)
     # )
-    return (
-        (I1 / 3.0 * jnp.sin(angle)) + jnp.sqrt(J2) * K(theta, angle) - c * jnp.cos(angle)
-    )
+    return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
 
 # %% [markdown]
 # By picking up an appropriate angle we define the yield surface $F$ and the
@@ -367,17 +361,17 @@ def surface(sigma_local, angle):
 # JSH: Does this trace phi and psi as static constants?
 def f_MC(sigma_local):
     return surface(sigma_local, phi)
-    s = dev @ sigma_local
-    J2 = 0.5 * jnp.vdot(s, s)
-    f_vM = jnp.sqrt(3*J2) - c# von Mises
-    sigma_I = sigma_local[0]
-    sigma_II = sigma_local[1]
-    sigma_III = sigma_local[2]
-    term1 = 0.5 * jnp.abs(sigma_I - sigma_II) - 0.5 * (sigma_I + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
-    term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
-    term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
-    f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
-    return f_MC_classic  
+    # s = dev @ sigma_local
+    # J2 = 0.5 * jnp.vdot(s, s)
+    # f_vM = jnp.sqrt(3*J2) - c# von Mises
+    # sigma_I = sigma_local[0]
+    # sigma_II = sigma_local[1]
+    # sigma_III = sigma_local[2]
+    # term1 = 0.5 * jnp.abs(sigma_I - sigma_II) - 0.5 * (sigma_I + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
+    # term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
+    # term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
+    # f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
+    # return f_MC_classic  
 
 
 def g_MC(sigma_local):
@@ -429,9 +423,6 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 # its jacobian $\boldsymbol{j}$.
 
 # %%
-phi = 30 * np.pi / 180  # [rad] friction angle
-
-# %%
 # NOTE: Actually, I put conditionals inside local functions, but we may
 # implement two "branches" of the algo separetly and check the yielding
 # condition in the main Newton loop. It may be more efficient, but idk. Anyway,
@@ -448,20 +439,17 @@ C_elas = np.array(
     ],
     dtype=PETSc.ScalarType,
 )
+S_elas = np.linalg.inv(C_elas)
 
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
-    # print(sigma_elas_local.shape)
     yielding = f_MC(sigma_elas_local)
-    # print(yielding)
 
     def deps_p_elastic(sigma_local, dlambda):
-        # print('elastic flag')
         return jnp.zeros(4, dtype=PETSc.ScalarType)
 
     def deps_p_plastic(sigma_local, dlambda):
-        # print('plastic flag')
         return dlambda * dgdsigma(sigma_local)
 
     return jax.lax.cond(yielding <= 0.0, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
@@ -560,12 +548,6 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     # return sigma_local, (sigma_local,)
 
 # %%
-S_elas = np.linalg.inv(C_elas)
-
-# %%
-def J2(s):
-    return 0.5 * jnp.vdot(s, s)
-
 def rho(sigma_local):
     s = dev @ sigma_local
     return jnp.sqrt(2.0 * J2(s))
@@ -581,10 +563,6 @@ def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
     sigma_corrected, state = sigma_return_mapping(deps_elas, sigma_n_local)
     yielding = state[2]
-    # jax.debug.print("{x}", x=state[2])
-    # print(yielding)
-    # print(state[1])
-    # print(state[-1])
     return sigma_corrected, yielding
 
 angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
@@ -677,47 +655,6 @@ for ax in [ax3, ax4]:
     ax.set_title(r'In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space')
 plt.legend()
 fig.tight_layout()
-
-# %%
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-# plt.legend()
 
 # %% [markdown]
 # The `return_mapping` function returns a tuple with two elements. The first
