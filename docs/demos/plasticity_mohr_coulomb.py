@@ -270,59 +270,59 @@ def sign(x):
     return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
 
 def coeff1(theta, angle):
-    return np.cos(theta_T) - (1.0 / (np.sqrt(3.0) * np.sin(angle) * sign(theta) * np.sin(theta_T)))
+    return np.cos(theta_T) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.sin(theta_T)
 
 
 def coeff2(theta, angle):
-    return sign(theta) * np.sin(theta_T) + (1.0 / (np.sqrt(3.0) * np.sin(angle) * np.cos(theta_T)))
+    return sign(theta) * np.sin(theta_T) + (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.cos(theta_T)
 
 
 # JSH: use float literals where you want floats.
 coeff3 = 18.0 * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T)
 
 
-# def C(theta, angle):
-#     return (
-#         -np.cos(3.0 * theta_T) * coeff1(theta, angle)
-#         - 3.0 * sign(theta) * np.sin(3.0 * theta_T) * coeff2(theta, angle)
-#     ) / coeff3
+def C(theta, angle):
+    return (
+        -np.cos(3.0 * theta_T) * coeff1(theta, angle)
+        - 3.0 * sign(theta) * np.sin(3.0 * theta_T) * coeff2(theta, angle)
+    ) / coeff3
 
-
-# def B(theta, angle):
-#     return (
-#         sign(theta) * np.sin(6.0 * theta_T) * coeff1(theta, angle)
-#         - 6.0 * np.cos(6.0 * theta_T) * coeff2(theta, angle)
-#     ) / coeff3
-
-
-# def A(theta, angle):
-#     return (
-#         -(1.0 / np.sqrt(3.0)) * np.sin(angle) * sign(theta) * np.sin(theta_T)
-#         - B(theta, angle) * sign(theta) * np.sin(theta_T)
-#         - C(theta, angle) * np.sin(3.0 * theta_T) * np.sin(3.0 * theta_T)
-#         + np.cos(theta_T)
-#     )
-
-def A(theta, angle):
-    return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) + 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) * np.sin(angle))
 
 def B(theta, angle):
-    return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) + 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
+    return (
+        sign(theta) * np.sin(6.0 * theta_T) * coeff1(theta, angle)
+        - 6.0 * np.cos(6.0 * theta_T) * coeff2(theta, angle)
+    ) / coeff3
+
+
+def A(theta, angle):
+    return (
+        -(1.0 / np.sqrt(3.0)) * np.sin(angle) * sign(theta) * np.sin(theta_T)
+        - B(theta, angle) * sign(theta) * np.sin(3*theta_T)
+        - C(theta, angle) * np.sin(3.0 * theta_T) * np.sin(3.0 * theta_T)
+        + np.cos(theta_T)
+    )
+
+# def A(theta, angle):
+#     return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) + 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) * np.sin(angle))
+
+# def B(theta, angle):
+#     return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) + 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
 
 def K(theta, angle):
     def K_false(theta):
         return jnp.cos(theta) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * jnp.sin(theta)
 
-    # def K_true(theta, angle):
-    #     return (
-    #         A(theta, angle)
-    #         + B(theta, angle) * jnp.sin(3.0 * theta)
-    #         + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
-    #     )
     def K_true(theta):
         return (
-            A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
+            A(theta, angle)
+            + B(theta, angle) * jnp.sin(3.0 * theta)
+            + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
         )
+    # def K_true(theta):
+    #     return (
+    #         A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
+    #     )
 
     return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta)
 
@@ -346,12 +346,12 @@ def surface(sigma_local, angle):
     s = dev @ sigma_local
     I1 = tr @ sigma_local
     theta_ = theta(s)
-    # return (
-    #     (I1 / 3.0 * np.sin(angle))
-    #     + jnp.sqrt(J2 * K(theta, angle) * K(theta, angle) + a_G(angle) * a_G(angle) * np.sin(angle) * np.sin(angle))
-    #     - c * np.cos(angle)
-    # )
-    return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
+    return (
+        (I1 / 3.0 * np.sin(angle))
+        + jnp.sqrt(J2(s) * K(theta_, angle) * K(theta_, angle) + a_G(angle) * a_G(angle) * np.sin(angle) * np.sin(angle))
+        - c * np.cos(angle)
+    )
+    # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
 
 # %% [markdown]
 # By picking up an appropriate angle we define the yield surface $F$ and the
@@ -574,7 +574,7 @@ N_angles = 200
 N_loads = 10
 angle_values = np.linspace(0, 2*np.pi, N_angles)
 # angle_values = np.concatenate([np.linspace(-np.pi/6, np.pi/6, 100), np.linspace(5*np.pi/6, 7*np.pi/6, 100)])
-R_values = np.linspace(0.9, 5, N_loads)
+R_values = np.linspace(0.4, 5, N_loads)
 p = 2.
 
 dsigma_paths = np.zeros((N_loads, N_angles, 4))
