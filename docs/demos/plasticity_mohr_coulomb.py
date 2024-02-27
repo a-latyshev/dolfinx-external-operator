@@ -440,14 +440,14 @@ C_elas = np.array(
     dtype=PETSc.ScalarType,
 )
 S_elas = np.linalg.inv(C_elas)
-
+ZERO_VECTOR = np.zeros(4, dtype=PETSc.ScalarType)
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
     yielding = f_MC(sigma_elas_local)
 
     def deps_p_elastic(sigma_local, dlambda):
-        return jnp.zeros(4, dtype=PETSc.ScalarType)
+        return ZERO_VECTOR
 
     def deps_p_plastic(sigma_local, dlambda):
         return dlambda * dgdsigma(sigma_local)
@@ -509,7 +509,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     """
     niter = 0
 
-    dlambda = jnp.array([0.0])
+    dlambda = ZERO_SCALAR
     sigma_local = sigma_n_local
     x_local = jnp.concatenate([sigma_local, dlambda])
 
@@ -567,6 +567,272 @@ def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     # return H - jnp.outer((H @ m), (H @ n)) / (n.T @ H @ m)
 
 C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
+
+# %% [markdown]
+# The `return_mapping` function returns a tuple with two elements. The first
+# element is an array containing values of the external operator
+# $\boldsymbol{\sigma}$ and the second one is another tuple containing
+# additional data such as e.g. information on a convergence of the Newton
+# method. Once we apply the JAX AD tool, the latter "converts" the first
+# element of the `return_mapping` output into an array with values of the
+# derivative
+# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$
+# and leaves untouched the second one. That is why we return `sigma_local`
+# twice in the `return_mapping`: ....
+#
+# COMMENT: Well, looks too wordy...
+# JSH eg.
+# `jax.jacfwd` returns a callable that returns the Jacobian as its first return
+# argument. As we also need sigma_local, we also return sigma_local as
+# auxilliary data.
+#
+#
+# NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
+# `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
+
+# %% [markdown]
+# Once we defined the function `dsigma_ddeps`, which evaluates both the
+# external operator and its derivative locally, we can just vectorize it and
+# define the final implementation of the external operator derivative.
+
+# %%
+dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
+
+def sigma_impl(deps):
+    deps_ = deps.reshape((-1, 4))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+
+    (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    C_tang_global, niter, yielding, norm_res = state
+
+    unique_iters, counts = jnp.unique(niter, return_counts=True)
+
+    # NOTE: The following code prints some details about the second Newton
+    # solver, solving the constitutive equations. Do we need this or it's better
+    # to have the code as clean as possible?
+
+    print("\tInner Newton summary:")
+    print(f"\t\tUnique number of iterations: {unique_iters}")
+    print(f"\t\tCounts of unique number of iterations: {counts}")
+    print(f"\t\tMaximum F: {jnp.max(yielding)}")
+    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+
+    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
+
+
+# %%
+dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
+dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
+
+
+def C_tang_impl(deps):
+    deps_ = deps.reshape((-1, 4))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+
+    (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    sigma_global, niter, yielding, norm_res, dlambda = state
+
+    # C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
+
+    # maxxx = -1.
+    # i_max = 0
+    # for i in range(len(C_tang_global.reshape(-1, 4, 4))):
+    #     eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
+    #     if eps > maxxx:
+    #         maxxx = eps
+    #         i_max = i
+    # print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
+
+
+
+    unique_iters, counts = jnp.unique(niter, return_counts=True)
+
+    # NOTE: The following code prints some details about the second Newton
+    # solver, solving the constitutive equations. Do we need this or it's better
+    # to have the code as clean as possible?
+
+    print("\tInner Newton summary:")
+    print(f"\t\tUnique number of iterations: {unique_iters}")
+    print(f"\t\tCounts of unique number of iterations: {counts}")
+    print(f"\t\tMaximum F: {jnp.max(yielding)}")
+    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+
+    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
+
+# %% [markdown]
+# Similarly to the von Mises example, we do not implement explicitly the
+# evaluation of the external operator. Instead, we obtain its values during the
+# evaluation of its derivative and then update the values of the operator in the
+# main Newton loop.
+
+# %%
+def sigma_external(derivatives):
+    # if derivatives == (0,):
+    #     return sigma_impl
+    if derivatives == (1,):
+        return C_tang_impl
+    else:
+        return NotImplementedError
+
+
+sigma.external_function = sigma_external
+
+# %% [markdown]
+# ### Defining the forms
+
+# %%
+n = ufl.FacetNormal(mesh)
+P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
+P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
+
+
+# JSH: P_o is never set to anything but zero?
+def F_ext(v):
+    return -P_i * ufl.inner(n, v) * ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v) * ds(
+        facet_tags_labels["outer"]
+    )
+
+
+u_hat = ufl.TrialFunction(V)
+F = ufl.inner(epsilon(u_), sigma) * dx - F_ext(u_)
+J = ufl.derivative(F, Du, u_hat)
+J_expanded = ufl.algorithms.expand_derivatives(J)
+
+F_replaced, F_external_operators = replace_external_operators(F)
+J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+F_form = fem.form(F_replaced)
+J_form = fem.form(J_replaced)
+
+# %% [markdown]
+# ### Variables initialization and compilation
+# Before solving the problem it is required.
+
+# %%
+# Initialize variables to start the algorithm
+# NOTE: Actually we need to evaluate operators before the Newton solver
+# in order to assemble the matrix, where we expect elastic stiffness matrix
+# Shell we discuss it? The same states for the von Mises.
+Du.x.array[:] = 1.0  # still the elastic flow
+
+timer1 = common.Timer("1st JAX pass")
+timer1.start()
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+timer1.stop()
+
+timer2 = common.Timer("2nd JAX pass")
+timer2.start()
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+timer2.stop()
+
+timer3 = common.Timer("3rd JAX pass")
+timer3.start()
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+timer3.stop()
+
+# %%
+# TODO: Is there a more elegant way to extract the data?
+# TODO: Maybe we analyze the compilation time in-place?
+common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+
+# %% [markdown]
+# ### Solving the problem
+#
+# Summing up, we apply the Newton method to solve the main weak problem. On each
+# iteration of the main Newton loop, we solve elastoplastic constitutive equations
+# by using the second Newton method at each Gauss point. Thanks to the framework
+# and the JAX library, the final interface is general enough to be reused for
+# other plasticity models.
+
+# %%
+external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+
+# %%
+# Defining a cell containing (Ri, 0) point, where we calculate a value of u It
+# is required to run this program via MPI in order to capture the process, to
+# which this point is attached
+x_point = np.array([[R_i, 0, 0]])
+cells, points_on_process = find_cell_by_point(mesh, x_point)
+
+# %%
+# parameters of the manual Newton method
+max_iterations, relative_tolerance = 200, 1e-8
+load_steps_1 = np.linspace(3, 36.7, 10)
+load_steps_2 = np.linspace(36.7, 36.83, 2)[1:]
+load_steps_3 = np.linspace(36.83, 36.84, 5)[1:]
+load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
+num_increments = len(load_steps)
+results = np.zeros((num_increments + 1, 2))
+
+for i, load in enumerate(load_steps):
+    P_i.value = load
+    external_operator_problem.assemble_vector()
+
+    residual_0 = external_operator_problem.b.norm()
+    residual = residual_0
+    Du.x.array[:] = 0
+
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"Load increment: {i}, load: {load}, initial residual: {residual_0}")
+
+    for iteration in range(0, max_iterations):
+        if residual / residual_0 < relative_tolerance:
+            break
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tOuter Newton iteration #{iteration}")
+        external_operator_problem.assemble_matrix()
+        external_operator_problem.solve(du)
+
+        Du.vector.axpy(1.0, du.vector)
+        Du.x.scatter_forward()
+
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        # ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
+        sigma.ref_coefficient.x.array[:] = sigma_new
+        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
+
+        external_operator_problem.assemble_vector()
+        residual = external_operator_problem.b.norm()
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tResidual: {residual}\n")
+
+    u.vector.axpy(1.0, Du.vector)
+    u.x.scatter_forward()
+
+    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+
+    if len(points_on_process) > 0:
+        results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+
+# %% [markdown]
+# ## Post-processing
+
+# %%
+if len(points_on_process) > 0:
+    plt.plot(results[:, 0], results[:, 1], "o-", label="via ExternalOperator")
+    plt.xlabel("Displacement of inner boundary")
+    plt.ylabel(r"Applied pressure $q/q_{lim}$")
+    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
+    # plt.legend()
+    plt.show()
+
+
+# %%
+
+# %% [markdown]
+# ## Verification
 
 # %%
 def rho(sigma_local):
@@ -676,266 +942,6 @@ for ax in [ax3, ax4]:
     ax.set_title(r'In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space')
 plt.legend()
 fig.tight_layout()
-
-# %% [markdown]
-# The `return_mapping` function returns a tuple with two elements. The first
-# element is an array containing values of the external operator
-# $\boldsymbol{\sigma}$ and the second one is another tuple containing
-# additional data such as e.g. information on a convergence of the Newton
-# method. Once we apply the JAX AD tool, the latter "converts" the first
-# element of the `return_mapping` output into an array with values of the
-# derivative
-# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$
-# and leaves untouched the second one. That is why we return `sigma_local`
-# twice in the `return_mapping`: ....
-#
-# COMMENT: Well, looks too wordy...
-# JSH eg.
-# `jax.jacfwd` returns a callable that returns the Jacobian as its first return
-# argument. As we also need sigma_local, we also return sigma_local as
-# auxilliary data.
-#
-#
-# NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
-# `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
-
-# %% [markdown]
-# Once we defined the function `dsigma_ddeps`, which evaluates both the
-# external operator and its derivative locally, we can just vectorize it and
-# define the final implementation of the external operator derivative.
-
-# %%
-dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
-
-def sigma_impl(deps):
-    deps_ = deps.reshape((-1, 4))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
-
-    (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    C_tang_global, niter, yielding, norm_res = state
-
-    unique_iters, counts = jnp.unique(niter, return_counts=True)
-
-    # NOTE: The following code prints some details about the second Newton
-    # solver, solving the constitutive equations. Do we need this or it's better
-    # to have the code as clean as possible?
-
-    print("\tInner Newton iteration summary")
-    print(f"\t\tUnique number of iterations: {unique_iters}")
-    print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum F: {jnp.max(yielding)}")
-    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
-
-    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
-
-
-# %%
-dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
-dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
-
-
-def C_tang_impl(deps):
-    deps_ = deps.reshape((-1, 4))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
-
-    (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    sigma_global, niter, yielding, norm_res, dlambda = state
-
-    # C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
-
-    # maxxx = -1.
-    # i_max = 0
-    # for i in range(len(C_tang_global.reshape(-1, 4, 4))):
-    #     eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
-    #     if eps > maxxx:
-    #         maxxx = eps
-    #         i_max = i
-    # print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
-
-
-
-    unique_iters, counts = jnp.unique(niter, return_counts=True)
-
-    # NOTE: The following code prints some details about the second Newton
-    # solver, solving the constitutive equations. Do we need this or it's better
-    # to have the code as clean as possible?
-
-    print("\tInner Newton iteration summary")
-    print(f"\t\tUnique number of iterations: {unique_iters}")
-    print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum F: {jnp.max(yielding)}")
-    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
-
-    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
-
-# %% [markdown]
-# Similarly to the von Mises example, we do not implement explicitly the
-# evaluation of the external operator. Instead, we obtain its values during the
-# evaluation of its derivative and then update the values of the operator in the
-# main Newton loop.
-
-# %%
-def sigma_external(derivatives):
-    # if derivatives == (0,):
-    #     return sigma_impl
-    if derivatives == (1,):
-        return C_tang_impl
-    else:
-        return NotImplementedError
-
-
-sigma.external_function = sigma_external
-
-# %% [markdown]
-# ### Defining the forms
-
-# %%
-n = ufl.FacetNormal(mesh)
-P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
-P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
-
-
-# JSH: P_o is never set to anything but zero?
-def F_ext(v):
-    return -P_i * ufl.inner(n, v) * ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v) * ds(
-        facet_tags_labels["outer"]
-    )
-
-
-u_hat = ufl.TrialFunction(V)
-F = ufl.inner(epsilon(u_), sigma) * dx - F_ext(u_)
-J = ufl.derivative(F, Du, u_hat)
-J_expanded = ufl.algorithms.expand_derivatives(J)
-
-F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
-
-F_form = fem.form(F_replaced)
-J_form = fem.form(J_replaced)
-
-# %% [markdown]
-# ### Variables initialization and compilation
-# Before solving the problem it is required.
-
-# %%
-# Initialize variables to start the algorithm
-# NOTE: Actually we need to evaluate operators before the Newton solver
-# in order to assemble the matrix, where we expect elastic stiffness matrix
-# Shell we discuss it? The same states for the von Mises.
-Du.x.array[:] = 1.0  # still the elastic flow
-
-timer1 = common.Timer("1st JAX pass")
-timer1.start()
-
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-timer1.stop()
-
-timer2 = common.Timer("2nd JAX pass")
-timer2.start()
-
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-timer2.stop()
-
-timer3 = common.Timer("3rd JAX pass")
-timer3.start()
-
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-timer3.stop()
-
-# %%
-C_elas
-
-# %%
-# TODO: Is there a more elegant way to extract the data?
-# TODO: Maybe we analyze the compilation time in-place?
-common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
-
-# %% [markdown]
-# ### Solving the problem
-#
-# Summing up, we apply the Newton method to solve the main weak problem. On each
-# iteration of the main Newton loop, we solve elastoplastic constitutive equations
-# by using the second Newton method at each Gauss point. Thanks to the framework
-# and the JAX library, the final interface is general enough to be reused for
-# other plasticity models.
-
-# %%
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
-
-# %%
-# Defining a cell containing (Ri, 0) point, where we calculate a value of u It
-# is required to run this program via MPI in order to capture the process, to
-# which this point is attached
-x_point = np.array([[R_i, 0, 0]])
-cells, points_on_process = find_cell_by_point(mesh, x_point)
-
-# %%
-# parameters of the manual Newton method
-max_iterations, relative_tolerance = 200, 1e-8
-num_increments = 20
-load_steps = np.linspace(0.9, 5, num_increments, endpoint=True)[1:]
-results = np.zeros((num_increments, 2))
-
-for i, load in enumerate(load_steps):
-    P_i.value = load
-    external_operator_problem.assemble_vector()
-
-    residual_0 = external_operator_problem.b.norm()
-    residual = residual_0
-    Du.x.array[:] = 0
-
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment: {i}, load: {load}, initial residual: {residual_0}")
-
-    for iteration in range(0, max_iterations):
-        if residual / residual_0 < relative_tolerance:
-            break
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tOuter Newton iteration {iteration}")
-        external_operator_problem.assemble_matrix()
-        external_operator_problem.solve(du)
-
-        Du.vector.axpy(1.0, du.vector)
-        Du.x.scatter_forward()
-
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        # ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
-        sigma.ref_coefficient.x.array[:] = sigma_new
-        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
-
-        external_operator_problem.assemble_vector()
-        residual = external_operator_problem.b.norm()
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tResidual: {residual}\n")
-
-    u.vector.axpy(1.0, Du.vector)
-    u.x.scatter_forward()
-
-    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
-
-    if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
-
-# %% [markdown]
-# ### Post-processing
-
-# %%
-if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "-o", label="via ExternalOperator")
-    plt.xlabel("Displacement of inner boundary")
-    plt.ylabel(r"Applied pressure $q/q_{lim}$")
-    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
-    plt.legend()
-    plt.show()
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
