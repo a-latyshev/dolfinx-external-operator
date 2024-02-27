@@ -544,8 +544,25 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
 
-    return sigma_local, (sigma_local, niter_total, yielding, norm_res)
+    # j = drdx(x_local, deps_local, sigma_n_local)
+    # C_tang = jnp.linalg.inv(j)[0,0] @ C_elas
+    dlambda = x_local[0][-1]
+
+    return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
     # return sigma_local, (sigma_local,)
+
+dfdsigma = jax.jacfwd(f_MC, argnums=0)
+dgdlambda = jax.jacfwd(g_MC, argnums=1)
+def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
+    x_local = jnp.c_[sigma_local, dlambda_local]
+    j = drdx(x_local, deps_local, sigma_n_local)
+    H = jnp.linalg.inv(j)[:4,:4] @ C_elas
+
+    n = dfdsigma
+    m = dgdsigma + dlambda_local * dgdlambda(sigma_local)
+    return H - H @ m @ n.T @ H / n.T @ H @ m
+
+C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 
 # %%
 def rho(sigma_local):
@@ -684,6 +701,31 @@ fig.tight_layout()
 # define the final implementation of the external operator derivative.
 
 # %%
+dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
+
+def sigma_impl(deps):
+    deps_ = deps.reshape((-1, 4))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+
+    (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    C_tang_global, niter, yielding, norm_res = state
+
+    unique_iters, counts = jnp.unique(niter, return_counts=True)
+
+    # NOTE: The following code prints some details about the second Newton
+    # solver, solving the constitutive equations. Do we need this or it's better
+    # to have the code as clean as possible?
+
+    print("\tInner Newton iteration summary")
+    print(f"\t\tUnique number of iterations: {unique_iters}")
+    print(f"\t\tCounts of unique number of iterations: {counts}")
+    print(f"\t\tMaximum F: {jnp.max(yielding)}")
+    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+
+    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
+
+
+# %%
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
@@ -693,7 +735,9 @@ def C_tang_impl(deps):
     sigma_n_ = sigma_n.x.array.reshape((-1, 4))
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    sigma_global, niter, yielding, norm_res = state
+    sigma_global, niter, yielding, norm_res, dlambda = state
+
+    C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -717,6 +761,8 @@ def C_tang_impl(deps):
 
 # %%
 def sigma_external(derivatives):
+    # if derivatives == (0,):
+    #     return sigma_impl
     if derivatives == (1,):
         return C_tang_impl
     else:
@@ -842,8 +888,10 @@ for i, load in enumerate(load_steps):
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        # ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
         sigma.ref_coefficient.x.array[:] = sigma_new
+        J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
 
         external_operator_problem.assemble_vector()
         residual = external_operator_problem.b.norm()
