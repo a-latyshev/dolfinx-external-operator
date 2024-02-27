@@ -371,7 +371,7 @@ def f_MC(sigma_local):
     # term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
     # term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
     # f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
-    # return f_MC_classic  
+    # return f_MC_classic
 
 
 def g_MC(sigma_local):
@@ -499,6 +499,7 @@ Nitermax, tol = 200, 1e-8
 
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
+ZERO_SCALAR = np.array([0.0])
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
 
@@ -552,15 +553,18 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     # return sigma_local, (sigma_local,)
 
 dfdsigma = jax.jacfwd(f_MC, argnums=0)
-dgdlambda = jax.jacfwd(g_MC, argnums=1)
 def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
-    x_local = jnp.c_[sigma_local, dlambda_local]
+    x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdx(x_local, deps_local, sigma_n_local)
     H = jnp.linalg.inv(j)[:4,:4] @ C_elas
-
-    n = dfdsigma
-    m = dgdsigma + dlambda_local * dgdlambda(sigma_local)
-    return H - H @ m @ n.T @ H / n.T @ H @ m
+    return H
+    # A = j[:4,:4]
+    # H = jnp.linalg.inv(A) @ C_elas
+    # n = dfdsigma(sigma_local)
+    # vec = j[:4, 4]
+    # m = dgdsigma(sigma_local)
+    # m = S_elas @ vec
+    # return H - jnp.outer((H @ m), (H @ n)) / (n.T @ H @ m)
 
 C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 
@@ -737,7 +741,18 @@ def C_tang_impl(deps):
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     sigma_global, niter, yielding, norm_res, dlambda = state
 
-    C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
+    # C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
+
+    # maxxx = -1.
+    # i_max = 0
+    # for i in range(len(C_tang_global.reshape(-1, 4, 4))):
+    #     eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
+    #     if eps > maxxx:
+    #         maxxx = eps
+    #         i_max = i
+    # print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
+
+
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -834,6 +849,9 @@ evaluated_operands = evaluate_operands(F_external_operators)
 timer3.stop()
 
 # %%
+C_elas
+
+# %%
 # TODO: Is there a more elegant way to extract the data?
 # TODO: Maybe we analyze the compilation time in-place?
 common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
@@ -888,10 +906,10 @@ for i, load in enumerate(load_steps):
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
-        # ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
+        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        # ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
         sigma.ref_coefficient.x.array[:] = sigma_new
-        J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
+        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
 
         external_operator_problem.assemble_vector()
         residual = external_operator_problem.b.norm()
