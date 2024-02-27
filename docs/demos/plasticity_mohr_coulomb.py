@@ -378,9 +378,7 @@ def g_MC(sigma_local):
     # return surface(sigma_local, psi)
     return f_MC(sigma_local)
 
-
-# JSH: Isn't argnums the default?
-dgdsigma = jax.jacfwd(g_MC, argnums=(0))
+dgdsigma = jax.jacfwd(g_MC)
 
 # %% [markdown]
 # #### Solving constitutive equations
@@ -552,19 +550,21 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
     # return sigma_local, (sigma_local,)
 
-dfdsigma = jax.jacfwd(f_MC, argnums=0)
+# dfdsigma = jax.jacfwd(f_MC)
 def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdx(x_local, deps_local, sigma_n_local)
-    H = jnp.linalg.inv(j)[:4,:4] @ C_elas
-    return H
-    # A = j[:4,:4]
-    # H = jnp.linalg.inv(A) @ C_elas
-    # n = dfdsigma(sigma_local)
-    # vec = j[:4, 4]
-    # m = dgdsigma(sigma_local)
-    # m = S_elas @ vec
-    # return H - jnp.outer((H @ m), (H @ n)) / (n.T @ H @ m)
+    # H = jnp.linalg.inv(j)[:4,:4] @ C_elas
+    # return H
+
+    A = j[:4,:4]
+    n = j[4,:4] # dfdsigma
+    m = j[:4,4] # dgdsigma
+    H = jnp.linalg.inv(A) @ C_elas
+    term_tmp = n.T @ H @ m
+    term = jax.lax.cond(term_tmp == 0.0, lambda x : 1., lambda x: x, term_tmp)
+
+    return H - jnp.outer((H @ m), (H @ n)) / term, term
 
 C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 
@@ -632,17 +632,18 @@ def C_tang_impl(deps):
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     sigma_global, niter, yielding, norm_res, dlambda = state
 
-    # C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
+    C_tang_tmp, term = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
 
-    # maxxx = -1.
-    # i_max = 0
-    # for i in range(len(C_tang_global.reshape(-1, 4, 4))):
-    #     eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
-    #     if eps > maxxx:
-    #         maxxx = eps
-    #         i_max = i
-    # print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
-
+    maxxx = -1.
+    i_max = 0
+    for i in range(len(C_tang_global.reshape(-1, 4, 4))):
+        eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
+        if eps > maxxx:
+            maxxx = eps
+            i_max = i
+    print(maxxx, 'term = ', term[i_max], '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
+    # print(np.max(np.abs(m_diff)))
+    # print(f"term {term}")
 
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
@@ -740,6 +741,9 @@ evaluated_operands = evaluate_operands(F_external_operators)
 timer3.stop()
 
 # %%
+8133.6 - 5.42240000e+03
+
+# %%
 # TODO: Is there a more elegant way to extract the data?
 # TODO: Maybe we analyze the compilation time in-place?
 common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
@@ -782,7 +786,7 @@ for i, load in enumerate(load_steps):
     Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment: {i}, load: {load}, initial residual: {residual_0}")
+        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
 
     for iteration in range(0, max_iterations):
         if residual / residual_0 < relative_tolerance:
