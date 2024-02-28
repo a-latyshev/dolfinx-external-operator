@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -223,7 +224,7 @@ S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_str
 S = fem.functionspace(mesh, S_element)
 
 
-Du = fem.Function(V, name="displacement_increment")
+Du = fem.Function(V, name="Du")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="du")
 v = ufl.TrialFunction(V)
@@ -542,29 +543,25 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     sigma_local = x_local[0][:4]
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
-
-    # j = drdx(x_local, deps_local, sigma_n_local)
-    # C_tang = jnp.linalg.inv(j)[0,0] @ C_elas
+    
     dlambda = x_local[0][-1]
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
     # return sigma_local, (sigma_local,)
 
-# dfdsigma = jax.jacfwd(f_MC)
 def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdx(x_local, deps_local, sigma_n_local)
-    # H = jnp.linalg.inv(j)[:4,:4] @ C_elas
-    # return H
+    H = jnp.linalg.inv(j)[:4,:4] @ C_elas
+    return H
 
-    A = j[:4,:4]
-    n = j[4,:4] # dfdsigma
-    m = j[:4,4] # dgdsigma
-    H = jnp.linalg.inv(A) @ C_elas
-    term_tmp = n.T @ H @ m
-    term = jax.lax.cond(term_tmp == 0.0, lambda x : 1., lambda x: x, term_tmp)
-
-    return H - jnp.outer((H @ m), (H @ n)) / term, term
+    # A = j[:4,:4]
+    # n = j[4,:4] # dfdsigma
+    # m = j[:4,4] # dgdsigma
+    # H = jnp.linalg.inv(A) @ C_elas
+    # term_tmp = n.T @ H @ m
+    # term = jax.lax.cond(term_tmp == 0.0, lambda x : 1., lambda x: x, term_tmp)
+    # return H - jnp.outer((H @ m), (H @ n)) / term, term
 
 C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 
@@ -632,7 +629,7 @@ def C_tang_impl(deps):
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     sigma_global, niter, yielding, norm_res, dlambda = state
 
-    C_tang_tmp, term = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
+    C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
 
     maxxx = -1.
     i_max = 0
@@ -641,10 +638,7 @@ def C_tang_impl(deps):
         if eps > maxxx:
             maxxx = eps
             i_max = i
-    print(maxxx, 'term = ', term[i_max], '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
-    # print(np.max(np.abs(m_diff)))
-    # print(f"term {term}")
-
+    print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -705,6 +699,41 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
+# %%
+# Simple Taylor test
+# J(Du0 + h*δu) - J(Du0) - h*dJ(Du0)*δu
+Du0 = 100.0
+Du.x.array[:] = Du0
+δu = fem.Function(V, name="δu")
+δu.x.array[:] = 300.0
+
+F = ufl.inner(u_, Du)*ufl.dx
+J = ufl.algorithms.compute_form_action(ufl.derivative(F, Du, u_hat), Du)
+F = ufl.algorithms.compute_form_action(F, Du)
+J = ufl.algorithms.compute_form_action(J, Du)
+J_form = fem.form(J)
+J_0 = fem.assemble_scalar(J_form) # J(Du0)
+dJ = ufl.derivative(J, Du, u_)
+dJ_0 = fem.petsc.assemble_vector(fem.form(dJ)) # dJ(Du0)
+dJ_0_dot_δu = dJ_0.dot(δu.vector) # dJ(Du0)*δu
+
+h_list = 1e-2*np.power(2., -np.arange(32))
+conv = np.empty_like(h_list)
+
+for i, h in enumerate(h_list):
+    Du.x.array[:] = Du0 + h * δu.x.array
+    J = fem.assemble_scalar(J_form)
+    diff = J - J_0 - h * dJ_0_dot_δu
+    conv[i] = diff
+
+# print(fem.assemble_scalar(J_form), '\n', fem.assemble_scalar(fem.form(F)))
+# print(F, '\n', J)
+
+# %%
+plt.loglog(h_list, conv)
+plt.xlabel('h')
+plt.ylabel('second-order Taylor remainder')
+
 # %% [markdown]
 # ### Variables initialization and compilation
 # Before solving the problem it is required.
@@ -741,7 +770,50 @@ evaluated_operands = evaluate_operands(F_external_operators)
 timer3.stop()
 
 # %%
-8133.6 - 5.42240000e+03
+Du.x.array[:] = 10000.0
+δu = fem.Function(V, name="δu")
+F = ufl.inner(ufl.grad(Du), ufl.grad(Du))*ufl.dx
+F = ufl.inner(u_, Du)*ufl.dx
+J = ufl.algorithms.compute_form_action(ufl.derivative(F, Du, u_hat), Du)
+print(fem.assemble_scalar(fem.form(J)), '\n', fem.assemble_scalar(fem.form(F)))
+print(F, '\n', J)
+# J = fem.form(Jform)
+
+
+# gradform = ufl.derivative(Jform, )
+# grad = dl.fem.form(gradform)
+
+# %%
+vec1 =  fem.petsc.assemble_vector(fem.form(F))
+vec2 =  fem.petsc.assemble_vector(fem.form(J))
+
+# %%
+vec1 - vec2
+
+# %%
+u_new = fem.Function(V, name="u_new")
+print(ufl.algorithms.compute_form_action(F, u_new))
+
+# %%
+u_new = fem.Function(V)
+
+print(ufl.algorithms.compute_form_action(J, u_new))
+
+
+# %%
+
+# %%
+u_new = fem.Function(V)
+J = ufl.derivative(F, Du, u_hat)
+dJ = ufl.derivative(J, Du, u_hat)
+J_expanded = ufl.algorithms.expand_derivatives(J)
+dJ_expanded = ufl.algorithms.expand_derivatives(dJ)
+
+# F_replaced, F_external_operators = replace_external_operators(F)
+# J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+# F_form = fem.form(F_replaced)
+# J_form = fem.form(J_replaced)
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
