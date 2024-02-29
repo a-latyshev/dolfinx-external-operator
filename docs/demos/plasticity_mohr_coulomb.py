@@ -629,16 +629,16 @@ def C_tang_impl(deps):
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     sigma_global, niter, yielding, norm_res, dlambda = state
 
-    C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
+    # C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
 
-    maxxx = -1.
-    i_max = 0
-    for i in range(len(C_tang_global.reshape(-1, 4, 4))):
-        eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
-        if eps > maxxx:
-            maxxx = eps
-            i_max = i
-    print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
+    # maxxx = -1.
+    # i_max = 0
+    # for i in range(len(C_tang_global.reshape(-1, 4, 4))):
+    #     eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
+    #     if eps > maxxx:
+    #         maxxx = eps
+    #         i_max = i
+    # print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -700,39 +700,41 @@ F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
 # %%
-# Simple Taylor test
-# J(Du0 + h*δu) - J(Du0) - h*dJ(Du0)*δu
-Du0 = 100.0
-Du.x.array[:] = Du0
-δu = fem.Function(V, name="δu")
-δu.x.array[:] = 300.0
+# # Simple Taylor test
+# # J(Du0 + h*δu) - J(Du0) - h*dJ(Du0)*δu
+# Du0 = 100.0
+# Du.x.array[:] = Du0
+# δu = fem.Function(V, name="δu")
+# δu.x.array[:] = 300000.0
 
-F = ufl.inner(u_, Du)*ufl.dx
-J = ufl.algorithms.compute_form_action(ufl.derivative(F, Du, u_hat), Du)
-F = ufl.algorithms.compute_form_action(F, Du)
-J = ufl.algorithms.compute_form_action(J, Du)
-J_form = fem.form(J)
-J_0 = fem.assemble_scalar(J_form) # J(Du0)
-dJ = ufl.derivative(J, Du, u_)
-dJ_0 = fem.petsc.assemble_vector(fem.form(dJ)) # dJ(Du0)
-dJ_0_dot_δu = dJ_0.dot(δu.vector) # dJ(Du0)*δu
+# F = ufl.inner(u_, Du)*ufl.dx
+# J = ufl.algorithms.compute_form_action(ufl.derivative(F, Du, u_hat), Du)
+# F = ufl.algorithms.compute_form_action(F, Du)
+# J = ufl.algorithms.compute_form_action(J, Du)
+# J_form = fem.form(J)
+# J_0 = fem.assemble_scalar(J_form) # J(Du0)
+# dJ = ufl.derivative(J, Du, u_)
+# dJ_0 = fem.petsc.assemble_vector(fem.form(dJ)) # dJ(Du0)
+# dJ_0_dot_δu = dJ_0.dot(δu.vector) # dJ(Du0)*δu
 
-h_list = 1e-2*np.power(2., -np.arange(32))
-conv = np.empty_like(h_list)
+# h_list = 1e-2*np.power(2., -np.arange(32))
+# conv = np.empty_like(h_list)
 
-for i, h in enumerate(h_list):
-    Du.x.array[:] = Du0 + h * δu.x.array
-    J = fem.assemble_scalar(J_form)
-    diff = J - J_0 - h * dJ_0_dot_δu
-    conv[i] = diff
+# for i, h in enumerate(h_list):
+#     Du.x.array[:] = Du0 + h * δu.x.array
+#     J = fem.assemble_scalar(J_form)
+#     diff = J - J_0 - h * dJ_0_dot_δu
+#     conv[i] = diff
 
 # print(fem.assemble_scalar(J_form), '\n', fem.assemble_scalar(fem.form(F)))
 # print(F, '\n', J)
+# plt.loglog(h_list, conv)
+# plt.loglog(h_list, h_list**2, label=r'$h^2$')
+# plt.loglog(h_list, h_list, label=r'$h$')
 
-# %%
-plt.loglog(h_list, conv)
-plt.xlabel('h')
-plt.ylabel('second-order Taylor remainder')
+# plt.xlabel('h')
+# plt.ylabel('second-order Taylor remainder')
+# plt.legend()
 
 # %% [markdown]
 # ### Variables initialization and compilation
@@ -743,7 +745,7 @@ plt.ylabel('second-order Taylor remainder')
 # NOTE: Actually we need to evaluate operators before the Newton solver
 # in order to assemble the matrix, where we expect elastic stiffness matrix
 # Shell we discuss it? The same states for the von Mises.
-Du.x.array[:] = 1.0  # still the elastic flow
+Du.x.array[:] = 1.0  # any value allowing 
 
 timer1 = common.Timer("1st JAX pass")
 timer1.start()
@@ -770,37 +772,78 @@ evaluated_operands = evaluate_operands(F_external_operators)
 timer3.stop()
 
 # %%
-Du.x.array[:] = 10000.0
+np.max(sigma.ref_coefficient.x.array), J_external_operators[0].ref_coefficient.x.array.reshape((-1, 4, 4))[0]
+
+# %%
+Du0 = 1.0
+# sigma_n.x.array.reshape((-1, 4))[:] = np.array([0.5, 0.0, 0., 0.])
+Du.x.array[:] = Du0
 δu = fem.Function(V, name="δu")
-F = ufl.inner(ufl.grad(Du), ufl.grad(Du))*ufl.dx
-F = ufl.inner(u_, Du)*ufl.dx
-J = ufl.algorithms.compute_form_action(ufl.derivative(F, Du, u_hat), Du)
-print(fem.assemble_scalar(fem.form(J)), '\n', fem.assemble_scalar(fem.form(F)))
-print(F, '\n', J)
-# J = fem.form(Jform)
+δu.x.array[:] = 100
 
-
-# gradform = ufl.derivative(Jform, )
-# grad = dl.fem.form(gradform)
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+sigma.ref_coefficient.x.array[:] = sigma_new
+sigma_n.x.array[:] = sigma_new
 
 # %%
-vec1 =  fem.petsc.assemble_vector(fem.form(F))
-vec2 =  fem.petsc.assemble_vector(fem.form(J))
+# Du.x.array.reshape((-1, 2))[:][0] = 0.00000001
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+sigma.ref_coefficient.x.array[:] = sigma_new
 
 # %%
-vec1 - vec2
+Du0 = np.copy(Du.x.array)
+δu = fem.Function(V, name="δu")
+δu.x.array[:] = 1.
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+sigma.ref_coefficient.x.array[:] = sigma_new
 
 # %%
-u_new = fem.Function(V, name="u_new")
-print(ufl.algorithms.compute_form_action(F, u_new))
+# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+F_scalar = ufl.algorithms.compute_form_action(F_replaced, Du)
+F_scalar_form = fem.form(F_scalar)
+F0 = fem.assemble_scalar(F_scalar_form) # F(Du0)
+
+J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
+J_vector_form = fem.form(J_vector)
+
+h_list = 1e-2*np.power(2., -np.arange(32))
+conv = np.empty_like(h_list)
+
+for i, h in enumerate(h_list):
+    Du.x.array[:] = Du0 + h * δu.x.array
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    sigma.ref_coefficient.x.array[:] = sigma_new
+
+    F_scalar = fem.assemble_scalar(F_scalar_form)
+    J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+    J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
+    diff = np.abs(F_scalar - F0 - h * J0_dot_δu)
+    conv[i] = diff
 
 # %%
-u_new = fem.Function(V)
+fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
-print(ufl.algorithms.compute_form_action(J, u_new))
+axs[0].plot(h_list, conv)
+axs[0].set_title(r"$|F(\Delta u_0 + hδu) - F(\Delta u_0) - hJ(\Delta u_0)δu|$")
+axs[0].set_ylabel('first-order Taylor remainder')
+axs[0].set_xlabel('h')
 
+axs[1].loglog(h_list, conv)
+axs[1].loglog(h_list, h_list, label=r"$O(h)$")
+axs[1].loglog(h_list, h_list**2, label=r"$O(h^2)$")
+axs[1].set_title("Log scale")
+axs[1].set_yscale('log')
+axs[1].legend()
+axs[1].set_ylabel('first-order Taylor remainder')
+axs[1].set_xlabel('h')
 
-# %%
+plt.tight_layout()
+plt.show()
 
 # %%
 u_new = fem.Function(V)
@@ -849,7 +892,7 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-for i, load in enumerate(load_steps):
+for i, load in enumerate(load_steps[:2]):
     P_i.value = load
     external_operator_problem.assemble_vector()
 
