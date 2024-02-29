@@ -772,9 +772,6 @@ evaluated_operands = evaluate_operands(F_external_operators)
 timer3.stop()
 
 # %%
-np.max(sigma.ref_coefficient.x.array), J_external_operators[0].ref_coefficient.x.array.reshape((-1, 4, 4))[0]
-
-# %%
 Du0 = 1.0
 # sigma_n.x.array.reshape((-1, 4))[:] = np.array([0.5, 0.0, 0., 0.])
 Du.x.array[:] = Du0
@@ -846,19 +843,6 @@ plt.tight_layout()
 plt.show()
 
 # %%
-u_new = fem.Function(V)
-J = ufl.derivative(F, Du, u_hat)
-dJ = ufl.derivative(J, Du, u_hat)
-J_expanded = ufl.algorithms.expand_derivatives(J)
-dJ_expanded = ufl.algorithms.expand_derivatives(dJ)
-
-# F_replaced, F_external_operators = replace_external_operators(F)
-# J_replaced, J_external_operators = replace_external_operators(J_expanded)
-
-# F_form = fem.form(F_replaced)
-# J_form = fem.form(J_replaced)
-
-# %%
 # TODO: Is there a more elegant way to extract the data?
 # TODO: Maybe we analyze the compilation time in-place?
 common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
@@ -892,7 +876,7 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-for i, load in enumerate(load_steps[:2]):
+for i, load in enumerate(load_steps):
     P_i.value = load
     external_operator_problem.assemble_vector()
 
