@@ -772,31 +772,76 @@ evaluated_operands = evaluate_operands(F_external_operators)
 timer3.stop()
 
 # %%
-Du0 = 1.0
-# sigma_n.x.array.reshape((-1, 4))[:] = np.array([0.5, 0.0, 0., 0.])
-Du.x.array[:] = Du0
-δu = fem.Function(V, name="δu")
-δu.x.array[:] = 100
+# Du0 = 1.0
+# # sigma_n.x.array.reshape((-1, 4))[:] = np.array([0.5, 0.0, 0., 0.])
+# Du.x.array[:] = Du0
+# δu = fem.Function(V, name="δu")
+# δu.x.array[:] = 100
 
+# evaluated_operands = evaluate_operands(F_external_operators)
+# ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+# sigma.ref_coefficient.x.array[:] = sigma_new
+# sigma_n.x.array[:] = sigma_new
+
+# %%
+# # Du.x.array.reshape((-1, 2))[:][0] = 0.00000001
+
+# evaluated_operands = evaluate_operands(F_external_operators)
+# ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+# sigma.ref_coefficient.x.array[:] = sigma_new
+
+# %%
+Du0e = np.copy(Du.x.array)
+sigma_n0 = np.copy(sigma_n.x.array)
+
+# %%
+Du0 = Du0e
+Du.x.array[:] = Du0
+sigma_n.x.array[:] = sigma_n0
+δu = fem.Function(V, name="δu")
+δu.x.array[:] = Du0
 evaluated_operands = evaluate_operands(F_external_operators)
 ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 sigma.ref_coefficient.x.array[:] = sigma_new
 sigma_n.x.array[:] = sigma_new
 
 # %%
-# Du.x.array.reshape((-1, 2))[:][0] = 0.00000001
+# # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+# F_form = fem.form(F_replaced)
+# F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
+# F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-sigma.ref_coefficient.x.array[:] = sigma_new
+# J_form = fem.form(J_replaced)
+# J_matrix = fem.petsc.assemble_matrix(J_form)
+# J_matrix.assemble()
+# y = J_matrix.createVecLeft() # y = J * x
 
-# %%
-Du0 = np.copy(Du.x.array)
-δu = fem.Function(V, name="δu")
-δu.x.array[:] = 1.
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-sigma.ref_coefficient.x.array[:] = sigma_new
+# h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+
+# first_order_remainder = np.zeros_like(h_list)
+# second_order_remainder = np.zeros_like(h_list)
+
+# for i, h in enumerate(h_list):
+#     Du.x.array[:] = Du0 + h * δu.x.array
+#     evaluated_operands = evaluate_operands(F_external_operators)
+#     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+#     sigma.ref_coefficient.x.array[:] = sigma_new
+#     sigma_n.x.array[:] = sigma_new
+
+#     # Du.x.array[:] = Du0 + h * δu.x.array
+
+#     F_delta = fem.petsc.assemble_vector(F_form)
+#     F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+#     # Du.x.array[:] = Du0
+#     # J_matrix.zeroEntries()
+#     # fem.petsc.assemble_matrix(J_matrix, J_form)
+#     # J_matrix.assemble()
+#     J_matrix.mult(δu.vector, y)
+#     y.scale(h)
+
+#     first_order_remainder[i] = (F_delta - F0).norm()
+#     second_order_remainder[i] = (F_delta - F0 - y).norm()
 
 # %%
 # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
@@ -806,31 +851,47 @@ F0 = fem.assemble_scalar(F_scalar_form) # F(Du0)
 
 J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
 J_vector_form = fem.form(J_vector)
+J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
 
-h_list = 1e-2*np.power(2., -np.arange(32))
-conv = np.empty_like(h_list)
+
+h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+
+first_order_remainder = np.zeros_like(h_list)
+second_order_remainder = np.zeros_like(h_list)
 
 for i, h in enumerate(h_list):
     Du.x.array[:] = Du0 + h * δu.x.array
     evaluated_operands = evaluate_operands(F_external_operators)
     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     sigma.ref_coefficient.x.array[:] = sigma_new
+    # sigma_n.x.array[:] = sigma_new
+
+    # J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
+    # J_vector_form = fem.form(J_vector)
+    # J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+    # J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
 
     F_scalar = fem.assemble_scalar(F_scalar_form)
-    J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
-    J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
-    diff = np.abs(F_scalar - F0 - h * J0_dot_δu)
-    conv[i] = diff
+
+    first_order_remainder[i] = np.abs(F_scalar - F0)
+    # second_order_remainder[i] = np.abs(F_scalar - F0 - h * J0_dot_δu)
+
+
+# %%
 
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
-axs[0].plot(h_list, conv)
+axs[0].plot(h_list, first_order_remainder, 'o-', label="1st order")
+axs[0].plot(h_list, second_order_remainder, 'o-', label="2nd order")
 axs[0].set_title(r"$|F(\Delta u_0 + hδu) - F(\Delta u_0) - hJ(\Delta u_0)δu|$")
-axs[0].set_ylabel('first-order Taylor remainder')
+axs[0].set_ylabel('Taylor remainder')
 axs[0].set_xlabel('h')
+axs[0].legend()
 
-axs[1].loglog(h_list, conv)
+axs[1].loglog(h_list, first_order_remainder, 'o-', label="1st order")
+axs[1].loglog(h_list, second_order_remainder, 'o-', label="2nd order")
 axs[1].loglog(h_list, h_list, label=r"$O(h)$")
 axs[1].loglog(h_list, h_list**2, label=r"$O(h^2)$")
 axs[1].set_title("Log scale")
@@ -841,6 +902,19 @@ axs[1].set_xlabel('h')
 
 plt.tight_layout()
 plt.show()
+first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder), 1)[0]
+
+print(first_order_rate)
+print(second_order_rate)
+
+# %%
+0.2412775313310373
+0.2390018855008281
+
+# %%
+np.polyfit(np.log(h_list[1:]), np.log(second_order_remainder[1:]), 1)[0]
+
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
@@ -876,7 +950,7 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-for i, load in enumerate(load_steps):
+for i, load in enumerate(load_steps[:2]):
     P_i.value = load
     external_operator_problem.assemble_vector()
 
