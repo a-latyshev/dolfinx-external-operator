@@ -806,42 +806,42 @@ evaluated_operands = evaluate_operands(F_external_operators)
 sigma.ref_coefficient.x.array[:] = sigma_new
 
 # %%
-# # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
-# F_form = fem.form(F_replaced)
-# F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
-# F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+F_form = fem.form(F_replaced)
+F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
+F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
-# J_form = fem.form(J_replaced)
-# J_matrix = fem.petsc.assemble_matrix(J_form)
-# J_matrix.assemble()
-# y = J_matrix.createVecLeft() # y = J * x
+J_form = fem.form(J_replaced)
+J_matrix = fem.petsc.assemble_matrix(J_form)
+J_matrix.assemble()
+y = J_matrix.createVecLeft() # y = J * x
 
-# h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+h_list = np.logspace(-1.0, -4.0, 6)[::-1]
 
-# first_order_remainder = np.zeros_like(h_list)
-# second_order_remainder = np.zeros_like(h_list)
+first_order_remainder = np.zeros_like(h_list)
+second_order_remainder = np.zeros_like(h_list)
 
-# for i, h in enumerate(h_list):
-#     Du.x.array[:] = Du0 + h * δu.x.array
-#     evaluated_operands = evaluate_operands(F_external_operators)
-#     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-#     sigma.ref_coefficient.x.array[:] = sigma_new
-#     sigma_n.x.array[:] = sigma_new
+for i, h in enumerate(h_list):
+    Du.x.array[:] = Du0 + h * δu.x.array
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    sigma.ref_coefficient.x.array[:] = sigma_new
+    # sigma_n.x.array[:] = sigma_new
 
-#     # Du.x.array[:] = Du0 + h * δu.x.array
+    # Du.x.array[:] = Du0 + h * δu.x.array
 
-#     F_delta = fem.petsc.assemble_vector(F_form)
-#     F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+    F_delta = fem.petsc.assemble_vector(F_form)
+    F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
-#     # Du.x.array[:] = Du0
-#     # J_matrix.zeroEntries()
-#     # fem.petsc.assemble_matrix(J_matrix, J_form)
-#     # J_matrix.assemble()
-#     J_matrix.mult(δu.vector, y)
-#     y.scale(h)
+    # Du.x.array[:] = Du0
+    # J_matrix.zeroEntries()
+    # fem.petsc.assemble_matrix(J_matrix, J_form)
+    # J_matrix.assemble()
+    J_matrix.mult(δu.vector, y)
+    y.scale(h)
 
-#     first_order_remainder[i] = (F_delta - F0).norm()
-#     second_order_remainder[i] = (F_delta - F0 - y).norm()
+    first_order_remainder[i] = (F_delta - F0).norm()
+    second_order_remainder[i] = (F_delta - F0 - y).norm()
 
 # %%
 # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
@@ -953,7 +953,7 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-for i, load in enumerate(load_steps[:1]):
+for i, load in enumerate(load_steps[:2]):
     P_i.value = load
     external_operator_problem.assemble_vector()
 
