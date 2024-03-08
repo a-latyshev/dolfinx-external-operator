@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -143,6 +144,8 @@ from petsc4py import PETSc
 import jax
 import jax.lax
 import jax.numpy as jnp
+jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
+
 import matplotlib.pyplot as plt
 import numpy as np
 from solvers import LinearProblem
@@ -158,7 +161,6 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
-jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 # %% [markdown]
 # ### Model parameters
@@ -222,7 +224,7 @@ S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_str
 S = fem.functionspace(mesh, S_element)
 
 
-Du = fem.Function(V, name="displacement_increment")
+Du = fem.Function(V, name="Du")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="du")
 v = ufl.TrialFunction(V)
@@ -252,71 +254,84 @@ sigma_n = fem.Function(S, name="sigma_n")
 def J3(s):
     return s[2] * (s[0] * s[1] - s[3] * s[3] / 2.0)
 
+def J2(s):
+    return 0.5 * jnp.vdot(s, s)
+
+def theta(s):
+    J2_ = J2(s)
+    arg = -(3.0 * np.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2_ * J2_ * J2_))
+    arg = jnp.clip(arg, -1.0, 1.0)
+    theta = 1.0 / 3.0 * jnp.arcsin(arg)
+    return theta
+
+def rho(s):
+    return jnp.sqrt(2.0 * J2(s))
+
 def sign(x):
     return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
 
 def coeff1(theta, angle):
-    return jnp.cos(theta_T) - (1.0 / (jnp.sqrt(3.0) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T)))
+    return np.cos(theta_T) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.sin(theta_T)
 
 
 def coeff2(theta, angle):
-    return sign(theta) * jnp.sin(theta_T) + (1.0 / (jnp.sqrt(3.0) * jnp.sin(angle) * jnp.cos(theta_T)))
+    return sign(theta) * np.sin(theta_T) + (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.cos(theta_T)
 
 
 # JSH: use float literals where you want floats.
-coeff3 = 18.0 * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T)
+coeff3 = 18.0 * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T)
 
 
-# def C(theta, angle):
-#     return (
-#         -jnp.cos(3.0 * theta_T) * coeff1(theta, angle)
-#         - 3.0 * sign(theta) * jnp.sin(3.0 * theta_T) * coeff2(theta, angle)
-#     ) / coeff3
+def C(theta, angle):
+    return (
+        -np.cos(3.0 * theta_T) * coeff1(theta, angle)
+        - 3.0 * sign(theta) * np.sin(3.0 * theta_T) * coeff2(theta, angle)
+    ) / coeff3
 
-
-# def B(theta, angle):
-#     return (
-#         sign(theta) * jnp.sin(6.0 * theta_T) * coeff1(theta, angle)
-#         - 6.0 * jnp.cos(6.0 * theta_T) * coeff2(theta, angle)
-#     ) / coeff3
-
-
-# def A(theta, angle):
-#     return (
-#         -(1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * sign(theta) * jnp.sin(theta_T)
-#         - B(theta, angle) * sign(theta) * jnp.sin(theta_T)
-#         - C(theta, angle) * jnp.sin(3.0 * theta_T) * jnp.sin(3.0 * theta_T)
-#         + jnp.cos(theta_T)
-#     )
-
-def A(theta, angle):
-    return 1./3. * jnp.cos(theta_T) * (3 + jnp.tan(theta_T) * jnp.tan(3*theta_T) + 1./jnp.sqrt(3) * sign(theta) * (jnp.tan(3*theta_T) - 3*jnp.tan(theta_T)) * jnp.sin(angle))
 
 def B(theta, angle):
-    return 1./(3.*jnp.cos(3.*theta_T)) * (sign(theta) * jnp.sin(theta_T) + 1/jnp.sqrt(3) * jnp.sin(angle) * jnp.cos(theta_T))
+    return (
+        sign(theta) * np.sin(6.0 * theta_T) * coeff1(theta, angle)
+        - 6.0 * np.cos(6.0 * theta_T) * coeff2(theta, angle)
+    ) / coeff3
+
+
+def A(theta, angle):
+    return (
+        -(1.0 / np.sqrt(3.0)) * np.sin(angle) * sign(theta) * np.sin(theta_T)
+        - B(theta, angle) * sign(theta) * np.sin(3*theta_T)
+        - C(theta, angle) * np.sin(3.0 * theta_T) * np.sin(3.0 * theta_T)
+        + np.cos(theta_T)
+    )
+
+# def A(theta, angle):
+#     return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) + 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) * np.sin(angle))
+
+# def B(theta, angle):
+#     return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) + 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
 
 def K(theta, angle):
-    def K_false(theta, angle):
-        return jnp.cos(theta) - (1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sin(theta)
+    def K_false(theta):
+        return jnp.cos(theta) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * jnp.sin(theta)
 
-    # def K_true(theta, angle):
-    #     return (
-    #         A(theta, angle)
-    #         + B(theta, angle) * jnp.sin(3.0 * theta)
-    #         + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
-    #     )
-    def K_true(theta, angle):
+    def K_true(theta):
         return (
-            A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
+            A(theta, angle)
+            + B(theta, angle) * jnp.sin(3.0 * theta)
+            + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
         )
+    # def K_true(theta):
+    #     return (
+    #         A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
+    #     )
 
-    return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta, angle)
+    return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta)
 
 
 def a_G(angle):
-    return a * jnp.tan(phi) / jnp.tan(angle)
+    return a * np.tan(phi) / np.tan(angle)
 
-dev = jnp.array(
+dev = np.array(
         [
             [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
             [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
@@ -325,39 +340,19 @@ dev = jnp.array(
         ],
         dtype=PETSc.ScalarType,
     )
-tr = jnp.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
+tr = np.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
 
 def surface(sigma_local, angle):
     # AL: Maybe it's more efficient to use untracable np.array?
-    dev = jnp.array(
-        [
-            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ],
-        dtype=PETSc.ScalarType,
-    )
-
     s = dev @ sigma_local
-
-    tr = jnp.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
     I1 = tr @ sigma_local
-
-    J2 = 0.5 * jnp.vdot(s, s)
-
-    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2 * J2 * J2))
-    arg = jnp.clip(arg, -1.0, 1.0)
-
-    theta = 1.0 / 3.0 * jnp.arcsin(arg)
-    # return (
-    #     (I1 / 3.0 * jnp.sin(angle))
-    #     + jnp.sqrt(J2 * K(theta, angle) * K(theta, angle) + a_G(angle) * a_G(angle) * jnp.sin(angle) * jnp.sin(angle))
-    #     - c * jnp.cos(angle)
-    # )
+    theta_ = theta(s)
     return (
-        (I1 / 3.0 * jnp.sin(angle)) + jnp.sqrt(J2) * K(theta, angle) - c * jnp.cos(angle)
+        (I1 / 3.0 * np.sin(angle))
+        + jnp.sqrt(J2(s) * K(theta_, angle) * K(theta_, angle) + a_G(angle) * a_G(angle) * np.sin(angle) * np.sin(angle))
+        - c * np.cos(angle)
     )
+    # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
 
 # %% [markdown]
 # By picking up an appropriate angle we define the yield surface $F$ and the
@@ -367,26 +362,24 @@ def surface(sigma_local, angle):
 # JSH: Does this trace phi and psi as static constants?
 def f_MC(sigma_local):
     return surface(sigma_local, phi)
-    s = dev @ sigma_local
-    J2 = 0.5 * jnp.vdot(s, s)
-    f_vM = jnp.sqrt(3*J2) - c# von Mises
-    sigma_I = sigma_local[0]
-    sigma_II = sigma_local[1]
-    sigma_III = sigma_local[2]
-    term1 = 0.5 * jnp.abs(sigma_I - sigma_II) - 0.5 * (sigma_I + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
-    term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
-    term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
-    f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
-    return f_MC_classic  
+    # s = dev @ sigma_local
+    # J2 = 0.5 * jnp.vdot(s, s)
+    # f_vM = jnp.sqrt(3*J2) - c# von Mises
+    # sigma_I = sigma_local[0]
+    # sigma_II = sigma_local[1]
+    # sigma_III = sigma_local[2]
+    # term1 = 0.5 * jnp.abs(sigma_I - sigma_II) - 0.5 * (sigma_I + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
+    # term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
+    # term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
+    # f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
+    # return f_MC_classic
 
 
 def g_MC(sigma_local):
     # return surface(sigma_local, psi)
     return f_MC(sigma_local)
 
-
-# JSH: Isn't argnums the default?
-dgdsigma = jax.jacfwd(g_MC, argnums=(0))
+dgdsigma = jax.jacfwd(g_MC)
 
 # %% [markdown]
 # #### Solving constitutive equations
@@ -429,9 +422,6 @@ dgdsigma = jax.jacfwd(g_MC, argnums=(0))
 # its jacobian $\boldsymbol{j}$.
 
 # %%
-phi = 30 * np.pi / 180  # [rad] friction angle
-
-# %%
 # NOTE: Actually, I put conditionals inside local functions, but we may
 # implement two "branches" of the algo separetly and check the yielding
 # condition in the main Newton loop. It may be more efficient, but idk. Anyway,
@@ -448,20 +438,17 @@ C_elas = np.array(
     ],
     dtype=PETSc.ScalarType,
 )
-
+S_elas = np.linalg.inv(C_elas)
+ZERO_VECTOR = np.zeros(4, dtype=PETSc.ScalarType)
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
-    # print(sigma_elas_local.shape)
     yielding = f_MC(sigma_elas_local)
-    # print(yielding)
 
     def deps_p_elastic(sigma_local, dlambda):
-        # print('elastic flag')
-        return jnp.zeros(4, dtype=PETSc.ScalarType)
+        return ZERO_VECTOR
 
     def deps_p_plastic(sigma_local, dlambda):
-        # print('plastic flag')
         return dlambda * dgdsigma(sigma_local)
 
     return jax.lax.cond(yielding <= 0.0, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
@@ -511,6 +498,7 @@ Nitermax, tol = 200, 1e-8
 
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
+ZERO_SCALAR = np.array([0.0])
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
 
@@ -520,7 +508,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     """
     niter = 0
 
-    dlambda = jnp.array([0.0])
+    dlambda = ZERO_SCALAR
     sigma_local = sigma_n_local
     x_local = jnp.concatenate([sigma_local, dlambda])
 
@@ -555,17 +543,478 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     sigma_local = x_local[0][:4]
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
+    
+    dlambda = x_local[0][-1]
 
-    return sigma_local, (sigma_local, niter_total, yielding, norm_res)
+    return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
     # return sigma_local, (sigma_local,)
 
-# %%
-S_elas = np.linalg.inv(C_elas)
+def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
+    x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
+    j = drdx(x_local, deps_local, sigma_n_local)
+    H = jnp.linalg.inv(j)[:4,:4] @ C_elas
+    return H
+
+    # A = j[:4,:4]
+    # n = j[4,:4] # dfdsigma
+    # m = j[:4,4] # dgdsigma
+    # H = jnp.linalg.inv(A) @ C_elas
+    # term_tmp = n.T @ H @ m
+    # term = jax.lax.cond(term_tmp == 0.0, lambda x : 1., lambda x: x, term_tmp)
+    # return H - jnp.outer((H @ m), (H @ n)) / term, term
+
+C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
+
+# %% [markdown]
+# The `return_mapping` function returns a tuple with two elements. The first
+# element is an array containing values of the external operator
+# $\boldsymbol{\sigma}$ and the second one is another tuple containing
+# additional data such as e.g. information on a convergence of the Newton
+# method. Once we apply the JAX AD tool, the latter "converts" the first
+# element of the `return_mapping` output into an array with values of the
+# derivative
+# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$
+# and leaves untouched the second one. That is why we return `sigma_local`
+# twice in the `return_mapping`: ....
+#
+# COMMENT: Well, looks too wordy...
+# JSH eg.
+# `jax.jacfwd` returns a callable that returns the Jacobian as its first return
+# argument. As we also need sigma_local, we also return sigma_local as
+# auxilliary data.
+#
+#
+# NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
+# `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
+
+# %% [markdown]
+# Once we defined the function `dsigma_ddeps`, which evaluates both the
+# external operator and its derivative locally, we can just vectorize it and
+# define the final implementation of the external operator derivative.
 
 # %%
-def J2(s):
-    return 0.5 * jnp.vdot(s, s)
+dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
 
+def sigma_impl(deps):
+    deps_ = deps.reshape((-1, 4))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+
+    (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    C_tang_global, niter, yielding, norm_res = state
+
+    unique_iters, counts = jnp.unique(niter, return_counts=True)
+
+    # NOTE: The following code prints some details about the second Newton
+    # solver, solving the constitutive equations. Do we need this or it's better
+    # to have the code as clean as possible?
+
+    print("\tInner Newton summary:")
+    print(f"\t\tUnique number of iterations: {unique_iters}")
+    print(f"\t\tCounts of unique number of iterations: {counts}")
+    print(f"\t\tMaximum F: {jnp.max(yielding)}")
+    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+
+    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
+
+
+# %%
+dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
+dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
+
+
+def C_tang_impl(deps):
+    deps_ = deps.reshape((-1, 4))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+
+    (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    sigma_global, niter, yielding, norm_res, dlambda = state
+
+    # C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
+
+    # maxxx = -1.
+    # i_max = 0
+    # for i in range(len(C_tang_global.reshape(-1, 4, 4))):
+    #     eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
+    #     if eps > maxxx:
+    #         maxxx = eps
+    #         i_max = i
+    # print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
+
+    unique_iters, counts = jnp.unique(niter, return_counts=True)
+
+    # NOTE: The following code prints some details about the second Newton
+    # solver, solving the constitutive equations. Do we need this or it's better
+    # to have the code as clean as possible?
+
+    print("\tInner Newton summary:")
+    print(f"\t\tUnique number of iterations: {unique_iters}")
+    print(f"\t\tCounts of unique number of iterations: {counts}")
+    print(f"\t\tMaximum F: {jnp.max(yielding)}")
+    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+
+    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
+
+# %% [markdown]
+# Similarly to the von Mises example, we do not implement explicitly the
+# evaluation of the external operator. Instead, we obtain its values during the
+# evaluation of its derivative and then update the values of the operator in the
+# main Newton loop.
+
+# %%
+def sigma_external(derivatives):
+    # if derivatives == (0,):
+    #     return sigma_impl
+    if derivatives == (1,):
+        return C_tang_impl
+    else:
+        return NotImplementedError
+
+
+sigma.external_function = sigma_external
+
+# %% [markdown]
+# ### Defining the forms
+
+# %%
+n = ufl.FacetNormal(mesh)
+P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
+P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
+
+
+# JSH: P_o is never set to anything but zero?
+def F_ext(v):
+    return -P_i * ufl.inner(n, v) * ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v) * ds(
+        facet_tags_labels["outer"]
+    )
+
+
+u_hat = ufl.TrialFunction(V)
+F = ufl.inner(epsilon(u_), sigma) * dx - F_ext(u_)
+J = ufl.derivative(F, Du, u_hat)
+J_expanded = ufl.algorithms.expand_derivatives(J)
+
+F_replaced, F_external_operators = replace_external_operators(F)
+J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+F_form = fem.form(F_replaced)
+J_form = fem.form(J_replaced)
+
+# %%
+# # Simple Taylor test
+# # J(Du0 + h*δu) - J(Du0) - h*dJ(Du0)*δu
+# Du0 = 100.0
+# Du.x.array[:] = Du0
+# δu = fem.Function(V, name="δu")
+# δu.x.array[:] = 300000.0
+
+# F = ufl.inner(u_, Du)*ufl.dx
+# J = ufl.algorithms.compute_form_action(ufl.derivative(F, Du, u_hat), Du)
+# F = ufl.algorithms.compute_form_action(F, Du)
+# J = ufl.algorithms.compute_form_action(J, Du)
+# J_form = fem.form(J)
+# J_0 = fem.assemble_scalar(J_form) # J(Du0)
+# dJ = ufl.derivative(J, Du, u_)
+# dJ_0 = fem.petsc.assemble_vector(fem.form(dJ)) # dJ(Du0)
+# dJ_0_dot_δu = dJ_0.dot(δu.vector) # dJ(Du0)*δu
+
+# h_list = 1e-2*np.power(2., -np.arange(32))
+# conv = np.empty_like(h_list)
+
+# for i, h in enumerate(h_list):
+#     Du.x.array[:] = Du0 + h * δu.x.array
+#     J = fem.assemble_scalar(J_form)
+#     diff = J - J_0 - h * dJ_0_dot_δu
+#     conv[i] = diff
+
+# print(fem.assemble_scalar(J_form), '\n', fem.assemble_scalar(fem.form(F)))
+# print(F, '\n', J)
+# plt.loglog(h_list, conv)
+# plt.loglog(h_list, h_list**2, label=r'$h^2$')
+# plt.loglog(h_list, h_list, label=r'$h$')
+
+# plt.xlabel('h')
+# plt.ylabel('second-order Taylor remainder')
+# plt.legend()
+
+# %% [markdown]
+# ### Variables initialization and compilation
+# Before solving the problem it is required.
+
+# %%
+# Initialize variables to start the algorithm
+# NOTE: Actually we need to evaluate operators before the Newton solver
+# in order to assemble the matrix, where we expect elastic stiffness matrix
+# Shell we discuss it? The same states for the von Mises.
+Du.x.array[:] = 1.0  # any value allowing 
+
+timer1 = common.Timer("1st JAX pass")
+timer1.start()
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+timer1.stop()
+
+timer2 = common.Timer("2nd JAX pass")
+timer2.start()
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+timer2.stop()
+
+timer3 = common.Timer("3rd JAX pass")
+timer3.start()
+
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+timer3.stop()
+
+# %%
+# Du0 = 1.0
+# # sigma_n.x.array.reshape((-1, 4))[:] = np.array([0.5, 0.0, 0., 0.])
+# Du.x.array[:] = Du0
+# δu = fem.Function(V, name="δu")
+# δu.x.array[:] = 100
+
+# evaluated_operands = evaluate_operands(F_external_operators)
+# ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+# sigma.ref_coefficient.x.array[:] = sigma_new
+# sigma_n.x.array[:] = sigma_new
+
+# %%
+# # Du.x.array.reshape((-1, 2))[:][0] = 0.00000001
+
+# evaluated_operands = evaluate_operands(F_external_operators)
+# ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+# sigma.ref_coefficient.x.array[:] = sigma_new
+
+# %%
+Du0e = np.copy(Du.x.array)
+sigma_n0 = np.copy(sigma_n.x.array)
+
+# %%
+Du0 = Du0e
+Du.x.array[:] = Du0
+sigma_n.x.array[:] = sigma_n0
+sigma_n.x.array[:] = 0.0
+δu = fem.Function(V, name="δu")
+δu.x.array[:] = Du0
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+sigma.ref_coefficient.x.array[:] = sigma_new
+
+# %%
+# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+F_form = fem.form(F_replaced)
+F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
+F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+J_form = fem.form(J_replaced)
+J_matrix = fem.petsc.assemble_matrix(J_form)
+J_matrix.assemble()
+y = J_matrix.createVecLeft() # y = J * x
+
+h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+
+first_order_remainder = np.zeros_like(h_list)
+second_order_remainder = np.zeros_like(h_list)
+
+for i, h in enumerate(h_list):
+    Du.x.array[:] = Du0 + h * δu.x.array
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    sigma.ref_coefficient.x.array[:] = sigma_new
+    # sigma_n.x.array[:] = sigma_new
+
+    # Du.x.array[:] = Du0 + h * δu.x.array
+
+    F_delta = fem.petsc.assemble_vector(F_form)
+    F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+    # Du.x.array[:] = Du0
+    # J_matrix.zeroEntries()
+    # fem.petsc.assemble_matrix(J_matrix, J_form)
+    # J_matrix.assemble()
+    J_matrix.mult(δu.vector, y)
+    y.scale(h)
+
+    first_order_remainder[i] = (F_delta - F0).norm()
+    second_order_remainder[i] = (F_delta - F0 - y).norm()
+
+# %%
+# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+F_scalar = ufl.algorithms.compute_form_action(F_replaced, Du)
+F_scalar_form = fem.form(F_scalar)
+F0 = fem.assemble_scalar(F_scalar_form) # F(Du0)
+
+J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
+J_vector_form = fem.form(J_vector)
+J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
+
+h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+
+first_order_remainder = np.zeros_like(h_list)
+second_order_remainder = np.zeros_like(h_list)
+
+for i, h in enumerate(h_list):
+    Du.x.array[:] = Du0 + h * δu.x.array
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    sigma.ref_coefficient.x.array[:] = sigma_new
+    # sigma_n.x.array[:] = sigma_new
+
+    # J_vector = ufl.algorithms.compute_form_action(J_replaced, δu)
+    # J_vector_form = fem.form(J_vector)
+    # J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+    # J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
+
+    F_scalar = fem.assemble_scalar(F_scalar_form)
+
+    first_order_remainder[i] = np.abs(F_scalar - F0)
+    second_order_remainder[i] = np.abs(F_scalar - F0 - h * J0_dot_δu)
+
+
+# %%
+
+# %%
+fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+axs[0].plot(h_list, first_order_remainder, 'o-', label="1st order")
+axs[0].plot(h_list, second_order_remainder, 'o-', label="2nd order")
+axs[0].set_title(r"$|F(\Delta u_0 + hδu) - F(\Delta u_0) - hJ(\Delta u_0)δu|$")
+axs[0].set_ylabel('Taylor remainder')
+axs[0].set_xlabel('h')
+axs[0].legend()
+
+axs[1].loglog(h_list, first_order_remainder, 'o-', label="1st order")
+axs[1].loglog(h_list, second_order_remainder, 'o-', label="2nd order")
+axs[1].loglog(h_list, h_list, label=r"$O(h)$")
+axs[1].loglog(h_list, h_list**2, label=r"$O(h^2)$")
+axs[1].set_title("Log scale")
+axs[1].set_yscale('log')
+axs[1].legend()
+axs[1].set_ylabel('first-order Taylor remainder')
+axs[1].set_xlabel('h')
+
+plt.tight_layout()
+plt.show()
+first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder), 1)[0]
+
+print(first_order_rate)
+print(second_order_rate)
+
+# %%
+1.004993836703281
+1.0093125656977548
+
+# %%
+0.2412775313310373
+0.2390018855008281
+
+# %%
+np.polyfit(np.log(h_list[1:]), np.log(second_order_remainder[1:]), 1)[0]
+
+
+# %%
+# TODO: Is there a more elegant way to extract the data?
+# TODO: Maybe we analyze the compilation time in-place?
+common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+
+# %% [markdown]
+# ### Solving the problem
+#
+# Summing up, we apply the Newton method to solve the main weak problem. On each
+# iteration of the main Newton loop, we solve elastoplastic constitutive equations
+# by using the second Newton method at each Gauss point. Thanks to the framework
+# and the JAX library, the final interface is general enough to be reused for
+# other plasticity models.
+
+# %%
+external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+
+# %%
+# Defining a cell containing (Ri, 0) point, where we calculate a value of u It
+# is required to run this program via MPI in order to capture the process, to
+# which this point is attached
+x_point = np.array([[R_i, 0, 0]])
+cells, points_on_process = find_cell_by_point(mesh, x_point)
+
+# %%
+# parameters of the manual Newton method
+max_iterations, relative_tolerance = 200, 1e-8
+load_steps_1 = np.linspace(3, 36.7, 10)
+load_steps_2 = np.linspace(36.7, 36.83, 2)[1:]
+load_steps_3 = np.linspace(36.83, 36.84, 5)[1:]
+load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
+num_increments = len(load_steps)
+results = np.zeros((num_increments + 1, 2))
+
+for i, load in enumerate(load_steps[:2]):
+    P_i.value = load
+    external_operator_problem.assemble_vector()
+
+    residual_0 = external_operator_problem.b.norm()
+    residual = residual_0
+    Du.x.array[:] = 0
+
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+
+    for iteration in range(0, max_iterations):
+        if residual / residual_0 < relative_tolerance:
+            break
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tOuter Newton iteration #{iteration}")
+        external_operator_problem.assemble_matrix()
+        external_operator_problem.solve(du)
+
+        Du.vector.axpy(1.0, du.vector)
+        Du.x.scatter_forward()
+
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        # ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
+        sigma.ref_coefficient.x.array[:] = sigma_new
+        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
+
+        external_operator_problem.assemble_vector()
+        residual = external_operator_problem.b.norm()
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tResidual: {residual}\n")
+
+    u.vector.axpy(1.0, Du.vector)
+    u.x.scatter_forward()
+
+    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+
+    if len(points_on_process) > 0:
+        results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+
+# %% [markdown]
+# ## Post-processing
+
+# %%
+if len(points_on_process) > 0:
+    plt.plot(results[:, 0], results[:, 1], "o-", label="via ExternalOperator")
+    plt.xlabel("Displacement of inner boundary")
+    plt.ylabel(r"Applied pressure $q/q_{lim}$")
+    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
+    # plt.legend()
+    plt.show()
+
+
+# %%
+
+# %% [markdown]
+# ## Verification
+
+# %%
 def rho(sigma_local):
     s = dev @ sigma_local
     return jnp.sqrt(2.0 * J2(s))
@@ -581,10 +1030,6 @@ def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
     sigma_corrected, state = sigma_return_mapping(deps_elas, sigma_n_local)
     yielding = state[2]
-    # jax.debug.print("{x}", x=state[2])
-    # print(yielding)
-    # print(state[1])
-    # print(state[-1])
     return sigma_corrected, yielding
 
 angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
@@ -596,7 +1041,7 @@ N_angles = 200
 N_loads = 10
 angle_values = np.linspace(0, 2*np.pi, N_angles)
 # angle_values = np.concatenate([np.linspace(-np.pi/6, np.pi/6, 100), np.linspace(5*np.pi/6, 7*np.pi/6, 100)])
-R_values = np.linspace(0.9, 5, N_loads)
+R_values = np.linspace(0.4, 5, N_loads)
 p = 2.
 
 dsigma_paths = np.zeros((N_loads, N_angles, 4))
@@ -677,262 +1122,6 @@ for ax in [ax3, ax4]:
     ax.set_title(r'In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space')
 plt.legend()
 fig.tight_layout()
-
-# %%
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-
-# %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-# plt.legend()
-
-# %% [markdown]
-# The `return_mapping` function returns a tuple with two elements. The first
-# element is an array containing values of the external operator
-# $\boldsymbol{\sigma}$ and the second one is another tuple containing
-# additional data such as e.g. information on a convergence of the Newton
-# method. Once we apply the JAX AD tool, the latter "converts" the first
-# element of the `return_mapping` output into an array with values of the
-# derivative
-# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$
-# and leaves untouched the second one. That is why we return `sigma_local`
-# twice in the `return_mapping`: ....
-#
-# COMMENT: Well, looks too wordy...
-# JSH eg.
-# `jax.jacfwd` returns a callable that returns the Jacobian as its first return
-# argument. As we also need sigma_local, we also return sigma_local as
-# auxilliary data.
-#
-#
-# NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
-# `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
-
-# %% [markdown]
-# Once we defined the function `dsigma_ddeps`, which evaluates both the
-# external operator and its derivative locally, we can just vectorize it and
-# define the final implementation of the external operator derivative.
-
-# %%
-dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
-dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
-
-
-def C_tang_impl(deps):
-    deps_ = deps.reshape((-1, 4))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
-
-    (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    sigma_global, niter, yielding, norm_res = state
-
-    unique_iters, counts = jnp.unique(niter, return_counts=True)
-
-    # NOTE: The following code prints some details about the second Newton
-    # solver, solving the constitutive equations. Do we need this or it's better
-    # to have the code as clean as possible?
-
-    print("\tInner Newton iteration summary")
-    print(f"\t\tUnique number of iterations: {unique_iters}")
-    print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum F: {jnp.max(yielding)}")
-    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
-
-    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
-
-# %% [markdown]
-# Similarly to the von Mises example, we do not implement explicitly the
-# evaluation of the external operator. Instead, we obtain its values during the
-# evaluation of its derivative and then update the values of the operator in the
-# main Newton loop.
-
-# %%
-def sigma_external(derivatives):
-    if derivatives == (1,):
-        return C_tang_impl
-    else:
-        return NotImplementedError
-
-
-sigma.external_function = sigma_external
-
-# %% [markdown]
-# ### Defining the forms
-
-# %%
-n = ufl.FacetNormal(mesh)
-P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
-P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
-
-
-# JSH: P_o is never set to anything but zero?
-def F_ext(v):
-    return -P_i * ufl.inner(n, v) * ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v) * ds(
-        facet_tags_labels["outer"]
-    )
-
-
-u_hat = ufl.TrialFunction(V)
-F = ufl.inner(epsilon(u_), sigma) * dx - F_ext(u_)
-J = ufl.derivative(F, Du, u_hat)
-J_expanded = ufl.algorithms.expand_derivatives(J)
-
-F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
-
-F_form = fem.form(F_replaced)
-J_form = fem.form(J_replaced)
-
-# %% [markdown]
-# ### Variables initialization and compilation
-# Before solving the problem it is required.
-
-# %%
-# Initialize variables to start the algorithm
-# NOTE: Actually we need to evaluate operators before the Newton solver
-# in order to assemble the matrix, where we expect elastic stiffness matrix
-# Shell we discuss it? The same states for the von Mises.
-Du.x.array[:] = 1.0  # still the elastic flow
-
-timer1 = common.Timer("1st JAX pass")
-timer1.start()
-
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-timer1.stop()
-
-timer2 = common.Timer("2nd JAX pass")
-timer2.start()
-
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-timer2.stop()
-
-timer3 = common.Timer("3rd JAX pass")
-timer3.start()
-
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-timer3.stop()
-
-# %%
-# TODO: Is there a more elegant way to extract the data?
-# TODO: Maybe we analyze the compilation time in-place?
-common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
-
-# %% [markdown]
-# ### Solving the problem
-#
-# Summing up, we apply the Newton method to solve the main weak problem. On each
-# iteration of the main Newton loop, we solve elastoplastic constitutive equations
-# by using the second Newton method at each Gauss point. Thanks to the framework
-# and the JAX library, the final interface is general enough to be reused for
-# other plasticity models.
-
-# %%
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
-
-# %%
-# Defining a cell containing (Ri, 0) point, where we calculate a value of u It
-# is required to run this program via MPI in order to capture the process, to
-# which this point is attached
-x_point = np.array([[R_i, 0, 0]])
-cells, points_on_process = find_cell_by_point(mesh, x_point)
-
-# %%
-# parameters of the manual Newton method
-max_iterations, relative_tolerance = 200, 1e-8
-num_increments = 20
-load_steps = np.linspace(0.9, 5, num_increments, endpoint=True)[1:]
-results = np.zeros((num_increments, 2))
-
-for i, load in enumerate(load_steps):
-    P_i.value = load
-    external_operator_problem.assemble_vector()
-
-    residual_0 = external_operator_problem.b.norm()
-    residual = residual_0
-    Du.x.array[:] = 0
-
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment: {i}, load: {load}, initial residual: {residual_0}")
-
-    for iteration in range(0, max_iterations):
-        if residual / residual_0 < relative_tolerance:
-            break
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tOuter Newton iteration {iteration}")
-        external_operator_problem.assemble_matrix()
-        external_operator_problem.solve(du)
-
-        Du.vector.axpy(1.0, du.vector)
-        Du.x.scatter_forward()
-
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        sigma.ref_coefficient.x.array[:] = sigma_new
-
-        external_operator_problem.assemble_vector()
-        residual = external_operator_problem.b.norm()
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tResidual: {residual}\n")
-
-    u.vector.axpy(1.0, Du.vector)
-    u.x.scatter_forward()
-
-    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
-
-    if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
-
-# %% [markdown]
-# ### Post-processing
-
-# %%
-if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "-o", label="via ExternalOperator")
-    plt.xlabel("Displacement of inner boundary")
-    plt.ylabel(r"Applied pressure $q/q_{lim}$")
-    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
-    plt.legend()
-    plt.show()
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
