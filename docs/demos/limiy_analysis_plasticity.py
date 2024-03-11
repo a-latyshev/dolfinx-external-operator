@@ -153,7 +153,7 @@ from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
-from dolfinx import common, fem, mesh, default_scalar_type
+from dolfinx import common, fem, mesh, default_scalar_type, io
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -183,10 +183,11 @@ theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloa
 a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
-L = W = H = 1.
+L, W, H = (1.2, 2., 1.)
+Nx, Ny, Nz = (10, 10, 10)
 gamma = 1.
 N = 10
-domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0,0,0]), np.array([L, W, H])], [N, N, N])
+domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0,0,0]), np.array([L, W, H])], [Nx, Ny, Nz])
 
 # %%
 k_u = 2
@@ -205,7 +206,7 @@ bcs = [
     fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
     fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), right_dofs, V)]
 
-def epsilon(u):
+def epsilon(v):
     grad_v = ufl.grad(v)
     return ufl.as_vector([
         grad_v[0, 0], grad_v[1, 1], grad_v[2, 2],
@@ -240,6 +241,11 @@ u_ = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
+
+# %%
+V2 = fem.functionspace(domain, ("Lagrange", 1, (3,)))
+u2 = fem.Function(V2)
+
 
 # %% [markdown]
 # ### Defining the external operator
@@ -341,14 +347,16 @@ def a_G(angle):
 
 dev = np.array(
         [
-            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
+            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
+            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
+            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
         ],
         dtype=PETSc.ScalarType,
     )
-tr = np.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
+tr = np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=PETSc.ScalarType)
 
 def surface(sigma_local, angle):
     # AL: Maybe it's more efficient to use untracable np.array?
@@ -437,17 +445,16 @@ dgdsigma = jax.jacfwd(g_MC)
 
 lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
 mu = E / (2.0 * (1.0 + nu))
-C_elas = np.array(
-    [
-        [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
-        [lmbda, lmbda + 2.0 * mu, lmbda, 0.0],
-        [lmbda, lmbda, lmbda + 2.0 * mu, 0.0],
-        [0.0, 0.0, 0.0, 2.0 * mu],
-    ],
-    dtype=PETSc.ScalarType,
-)
+l, m = lmbda, mu
+C_elas = np.array([[l+2*m, l, l, 0, 0, 0],
+                    [l, l+2*m, l, 0, 0, 0],
+                    [l, l, l+2*m, 0, 0, 0],
+                    [0, 0, 0, 2*m, 0, 0],
+                    [0, 0, 0, 0, 2*m, 0],
+                    [0, 0, 0, 0, 0, 2*m],
+                    ], dtype=PETSc.ScalarType)
 S_elas = np.linalg.inv(C_elas)
-ZERO_VECTOR = np.zeros(4, dtype=PETSc.ScalarType)
+ZERO_VECTOR = np.zeros(6, dtype=PETSc.ScalarType)
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -484,7 +491,7 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
 
 
 def r(x_local, deps_local, sigma_n_local):
-    sigma_local = x_local[:4]
+    sigma_local = x_local[:6]
     dlambda_local = x_local[-1]
 
     res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
@@ -548,10 +555,10 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     norm_res, niter_total, x_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
 
-    sigma_local = x_local[0][:4]
+    sigma_local = x_local[0][:6]
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
-    
+
     dlambda = x_local[0][-1]
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
@@ -560,7 +567,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdx(x_local, deps_local, sigma_n_local)
-    H = jnp.linalg.inv(j)[:4,:4] @ C_elas
+    H = jnp.linalg.inv(j)[:6,:6] @ C_elas
     return H
 
     # A = j[:4,:4]
@@ -604,8 +611,8 @@ C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
 
 def sigma_impl(deps):
-    deps_ = deps.reshape((-1, 4))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+    deps_ = deps.reshape((-1, 6))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 6))
 
     (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     C_tang_global, niter, yielding, norm_res = state
@@ -631,8 +638,8 @@ dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
 
 def C_tang_impl(deps):
-    deps_ = deps.reshape((-1, 4))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+    deps_ = deps.reshape((-1, 6))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 6))
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     sigma_global, niter, yielding, norm_res, dlambda = state
@@ -711,6 +718,7 @@ J_form = fem.form(J_replaced)
 # in order to assemble the matrix, where we expect elastic stiffness matrix
 # Shell we discuss it? The same states for the von Mises.
 Du.x.array[:] = 1.0  # any value allowing 
+sigma_n.x.array[:] = 0.0
 
 timer1 = common.Timer("1st JAX pass")
 timer1.start()
@@ -757,21 +765,30 @@ external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u It
 # is required to run this program via MPI in order to capture the process, to
 # which this point is attached
-x_point = np.array([[R_i, 0, 0]])
+x_point = np.array([[0, 0, H]])
 cells, points_on_process = find_cell_by_point(domain, x_point)
+
+# %%
+xdmf_file = "output/limit_analysis.xdmf"
+with io.XDMFFile(domain.comm, xdmf_file, "w") as xdmf:
+    xdmf.write_mesh(domain)
 
 # %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
 load_steps_1 = np.linspace(3, 36.7, 10)
-load_steps_2 = np.linspace(36.7, 36.83, 2)[1:]
-load_steps_3 = np.linspace(36.83, 36.84, 5)[1:]
+# load_steps_2 = np.linspace(36.7, 36.83, 2)[1:]
+# load_steps_3 = np.linspace(36.83, 36.84, 5)[1:]
+load_steps_1 = np.linspace(3.5, 17, 15)
+load_steps_2 = np.linspace(17, 20, 15)[1:]
+load_steps_3 = np.linspace(20, 20.3, 15)[1:]
+# load_steps_4 = np.linspace(20.2, 20.4, 10)[1:]
 load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-for i, load in enumerate(load_steps[:2]):
-    P_i.value = load
+for i, load in enumerate(load_steps):
+    f.value = load * np.array([0, 0, -gamma])
     external_operator_problem.assemble_vector()
 
     residual_0 = external_operator_problem.b.norm()
@@ -810,8 +827,21 @@ for i, load in enumerate(load_steps[:2]):
 
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
+    u2.interpolate(u)
+
+    with io.XDMFFile(domain.comm, xdmf_file, "a") as xdmf:
+        xdmf.write_function(u2, i)
+
     if len(points_on_process) > 0:
         results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+
+print(f"Slope stability factor: {f.value[-1]*H/c}")
+
+# %%
+# 20 - critical load
+
+# %%
+f.value
 
 # %% [markdown]
 # ## Post-processing
@@ -825,8 +855,6 @@ if len(points_on_process) > 0:
     # plt.legend()
     plt.show()
 
-
-# %%
 
 # %% [markdown]
 # ## Verification

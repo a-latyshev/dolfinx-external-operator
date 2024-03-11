@@ -798,62 +798,65 @@ sigma_n0 = np.copy(sigma_n.x.array)
 Du0 = Du0e
 Du.x.array[:] = Du0
 sigma_n.x.array[:] = sigma_n0
-sigma_n.x.array[:] = 0.0
 δu = fem.Function(V, name="δu")
 δu.x.array[:] = Du0
 evaluated_operands = evaluate_operands(F_external_operators)
 ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 sigma.ref_coefficient.x.array[:] = sigma_new
+# sigma_n.x.array[:] = sigma_new
+
+
+
+# %%
+# # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+# F_form = fem.form(F_replaced)
+# F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
+# F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+# J_form = fem.form(J_replaced)
+# J_matrix = fem.petsc.assemble_matrix(J_form)
+# J_matrix.assemble()
+# y = J_matrix.createVecLeft() # y = J * x
+
+# h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+
+# first_order_remainder = np.zeros_like(h_list)
+# second_order_remainder = np.zeros_like(h_list)
+
+# for i, h in enumerate(h_list):
+#     Du.x.array[:] = Du0 + h * δu.x.array
+#     evaluated_operands = evaluate_operands(F_external_operators)
+#     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+#     sigma.ref_coefficient.x.array[:] = sigma_new
+#     sigma_n.x.array[:] = sigma_new
+
+#     # Du.x.array[:] = Du0 + h * δu.x.array
+
+#     F_delta = fem.petsc.assemble_vector(F_form)
+#     F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+#     # Du.x.array[:] = Du0
+#     # J_matrix.zeroEntries()
+#     # fem.petsc.assemble_matrix(J_matrix, J_form)
+#     # J_matrix.assemble()
+#     J_matrix.mult(δu.vector, y)
+#     y.scale(h)
+
+#     first_order_remainder[i] = (F_delta - F0).norm()
+#     second_order_remainder[i] = (F_delta - F0 - y).norm()
 
 # %%
 # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
-F_form = fem.form(F_replaced)
-F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
-F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-
-J_form = fem.form(J_replaced)
-J_matrix = fem.petsc.assemble_matrix(J_form)
-J_matrix.assemble()
-y = J_matrix.createVecLeft() # y = J * x
-
-h_list = np.logspace(-1.0, -4.0, 6)[::-1]
-
-first_order_remainder = np.zeros_like(h_list)
-second_order_remainder = np.zeros_like(h_list)
-
-for i, h in enumerate(h_list):
-    Du.x.array[:] = Du0 + h * δu.x.array
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    sigma.ref_coefficient.x.array[:] = sigma_new
-    # sigma_n.x.array[:] = sigma_new
-
-    # Du.x.array[:] = Du0 + h * δu.x.array
-
-    F_delta = fem.petsc.assemble_vector(F_form)
-    F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-
-    # Du.x.array[:] = Du0
-    # J_matrix.zeroEntries()
-    # fem.petsc.assemble_matrix(J_matrix, J_form)
-    # J_matrix.assemble()
-    J_matrix.mult(δu.vector, y)
-    y.scale(h)
-
-    first_order_remainder[i] = (F_delta - F0).norm()
-    second_order_remainder[i] = (F_delta - F0 - y).norm()
-
-# %%
-# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
-F_scalar = ufl.algorithms.compute_form_action(F_replaced, Du)
+F_scalar = ufl.algorithms.compute_form_action(F_replaced, δu)
 F_scalar_form = fem.form(F_scalar)
 F0 = fem.assemble_scalar(F_scalar_form) # F(Du0)
 
-J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
+J_vector = ufl.algorithms.compute_form_action(J_replaced, δu)
 J_vector_form = fem.form(J_vector)
 J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
 J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
 
+
 h_list = np.logspace(-1.0, -4.0, 6)[::-1]
 
 first_order_remainder = np.zeros_like(h_list)
@@ -866,10 +869,10 @@ for i, h in enumerate(h_list):
     sigma.ref_coefficient.x.array[:] = sigma_new
     # sigma_n.x.array[:] = sigma_new
 
-    # J_vector = ufl.algorithms.compute_form_action(J_replaced, δu)
+    # J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
     # J_vector_form = fem.form(J_vector)
-    # J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
-    # J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
+    J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+    J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
 
     F_scalar = fem.assemble_scalar(F_scalar_form)
 
