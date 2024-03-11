@@ -798,7 +798,7 @@ sigma_n0 = np.copy(sigma_n.x.array)
 Du0 = Du0e
 Du.x.array[:] = Du0
 sigma_n.x.array[:] = sigma_n0
-sigma_n.x.array[:] = 0.0
+# sigma_n.x.array[:] = 0.0
 δu = fem.Function(V, name="δu")
 δu.x.array[:] = Du0
 evaluated_operands = evaluate_operands(F_external_operators)
@@ -818,8 +818,8 @@ y = J_matrix.createVecLeft() # y = J * x
 
 h_list = np.logspace(-1.0, -4.0, 6)[::-1]
 
-first_order_remainder = np.zeros_like(h_list)
-second_order_remainder = np.zeros_like(h_list)
+first_order_remainder = np.full_like(h_list, -1.)
+second_order_remainder = np.full_like(h_list, -1.)
 
 for i, h in enumerate(h_list):
     Du.x.array[:] = Du0 + h * δu.x.array
@@ -828,12 +828,10 @@ for i, h in enumerate(h_list):
     sigma.ref_coefficient.x.array[:] = sigma_new
     # sigma_n.x.array[:] = sigma_new
 
-    # Du.x.array[:] = Du0 + h * δu.x.array
-
     F_delta = fem.petsc.assemble_vector(F_form)
     F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
-    # Du.x.array[:] = Du0
+    Du.x.array[:] = Du0
     # J_matrix.zeroEntries()
     # fem.petsc.assemble_matrix(J_matrix, J_form)
     # J_matrix.assemble()
@@ -844,40 +842,38 @@ for i, h in enumerate(h_list):
     second_order_remainder[i] = (F_delta - F0 - y).norm()
 
 # %%
-# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
-F_scalar = ufl.algorithms.compute_form_action(F_replaced, Du)
-F_scalar_form = fem.form(F_scalar)
-F0 = fem.assemble_scalar(F_scalar_form) # F(Du0)
+# # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+# F_scalar = ufl.algorithms.compute_form_action(F_replaced, Du)
+# F_scalar_form = fem.form(F_scalar)
+# F0 = fem.assemble_scalar(F_scalar_form) # F(Du0)
 
-J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
-J_vector_form = fem.form(J_vector)
-J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
-J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
+# J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
+# J_vector_form = fem.form(J_vector)
+# J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+# J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
 
-h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+# h_list = np.logspace(-1.0, -4.0, 6)[::-1]
 
-first_order_remainder = np.zeros_like(h_list)
-second_order_remainder = np.zeros_like(h_list)
+# first_order_remainder = np.zeros_like(h_list)
+# second_order_remainder = np.zeros_like(h_list)
 
-for i, h in enumerate(h_list):
-    Du.x.array[:] = Du0 + h * δu.x.array
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    sigma.ref_coefficient.x.array[:] = sigma_new
-    # sigma_n.x.array[:] = sigma_new
+# for i, h in enumerate(h_list):
+#     Du.x.array[:] = Du0 + h * δu.x.array
+#     evaluated_operands = evaluate_operands(F_external_operators)
+#     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+#     sigma.ref_coefficient.x.array[:] = sigma_new
+#     # sigma_n.x.array[:] = sigma_new
 
-    # J_vector = ufl.algorithms.compute_form_action(J_replaced, δu)
-    # J_vector_form = fem.form(J_vector)
-    # J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
-    # J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
+#     # J_vector = ufl.algorithms.compute_form_action(J_replaced, δu)
+#     # J_vector_form = fem.form(J_vector)
+#     # J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+#     # J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
 
-    F_scalar = fem.assemble_scalar(F_scalar_form)
+#     F_scalar = fem.assemble_scalar(F_scalar_form)
 
-    first_order_remainder[i] = np.abs(F_scalar - F0)
-    second_order_remainder[i] = np.abs(F_scalar - F0 - h * J0_dot_δu)
+#     first_order_remainder[i] = np.abs(F_scalar - F0)
+#     second_order_remainder[i] = np.abs(F_scalar - F0 - h * J0_dot_δu)
 
-
-# %%
 
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
@@ -906,6 +902,15 @@ second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder), 1
 
 print(first_order_rate)
 print(second_order_rate)
+
+# %%
+second_order_rate = np.polyfit(np.log(h_list[-3:-1]), np.log(second_order_remainder[-3:-1]), 1)[0]
+second_order_rate
+
+
+# %%
+second_order_remainder
+
 
 # %%
 1.004993836703281
@@ -953,7 +958,7 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-for i, load in enumerate(load_steps[:2]):
+for i, load in enumerate(load_steps[:1]):
     P_i.value = load
     external_operator_problem.assemble_vector()
 
