@@ -176,10 +176,10 @@ E = 6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
 P_i_value = 3.45  # [MPa]
 
-c = 3.45  # [MPa] cohesion
-phi = 25 * np.pi / 180  # [rad] friction angle
-psi = 25 * np.pi / 180  # [rad] dilatancy angle
-theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
+c = 3.45 # [MPa] cohesion
+phi = 30 * np.pi / 180  # [rad] friction angle
+psi = 30 * np.pi / 180  # [rad] dilatancy angle
+theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
@@ -776,14 +776,15 @@ with io.XDMFFile(domain.comm, xdmf_file, "w") as xdmf:
 # %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
-load_steps_1 = np.linspace(3, 36.7, 10)
 # load_steps_2 = np.linspace(36.7, 36.83, 2)[1:]
 # load_steps_3 = np.linspace(36.83, 36.84, 5)[1:]
-load_steps_1 = np.linspace(3.5, 17, 15)
-load_steps_2 = np.linspace(17, 20, 15)[1:]
-load_steps_3 = np.linspace(20, 20.3, 15)[1:]
-# load_steps_4 = np.linspace(20.2, 20.4, 10)[1:]
-load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
+load_steps_1 = np.linspace(3, 14, 15)
+load_steps_2 = np.linspace(14, 20, 15)[1:]
+load_steps_3 = np.linspace(20, 22, 10)[1:]
+load_steps_4 = np.linspace(22, 22.5, 10)[1:]
+load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3, load_steps_4])
+# load_steps_1 = np.linspace(1, 8, 30)
+# load_steps = load_steps_1
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
@@ -838,13 +839,18 @@ for i, load in enumerate(load_steps):
 print(f"Slope stability factor: {f.value[-1]*H/c}")
 
 # %%
-# 20 - critical load
+# 20 - critical load # -5.884057971014492
+#Slope stability factor: -6.521739130434782
+
 
 # %%
 f.value
 
 # %% [markdown]
 # ## Post-processing
+
+# %%
+22.5*H/c
 
 # %%
 if len(points_on_process) > 0:
