@@ -52,9 +52,9 @@
 # parallelepiped $[0; L] \times [0; W] \times [0; H]$ with homogeneous Dirichlet
 # boundary conditions for the displacement field $\boldsymbol{u} = \boldsymbol{0}$
 # on the right side $x = L$ and the bottom one $z = 0$. The loading consists of a
-# gravitational body force $\boldsymbol{f}=[0, 0, -\gamma]^T$ with $\gamma$ being
+# gravitational body force $\boldsymbol{q}=[0, 0, -\gamma]^T$ with $\gamma$ being
 # the soil self-weight. The solution of the problem is to find the collapse load
-# $f_\text{lim}$, for which we know an analytical solution in the plane-strain
+# $q_\text{lim}$, for which we know an analytical solution in the plane-strain
 # case for the standard Mohr-Coulomb criterion [CITE] (TODO: rewrite later). We
 # follow the same Mandel-Voigt notation as in the von Mises plasticity tutorial
 # but in 3D.
@@ -168,17 +168,17 @@ sigma_n = fem.Function(S, name="sigma_n")
 # ### Defining the constitutive model and the external operator
 #
 # The constitutive model of the soil is described by a non-associative plasticity
-# law without hardening that is defined by the Mohr-Coulomb yield surface $F$ and
-# the plastic potential $G$. Both quantities may be expressed through the
-# following function $H$
+# law without hardening that is defined by the Mohr-Coulomb yield surface $f$ and
+# the plastic potential $g$. Both quantities may be expressed through the
+# following function $h$
 #
 # \begin{align*}
-#     & H(\boldsymbol{\sigma}, \alpha) =
+#     & h(\boldsymbol{\sigma}, \alpha) =
 #     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
 #     \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} -
 #     c\cos\alpha, \\
-#     & F(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \phi), \\
-#     & G(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \psi),
+#     & f(\boldsymbol{\sigma}) = h(\boldsymbol{\sigma}, \phi), \\
+#     & g(\boldsymbol{\sigma}) = h(\boldsymbol{\sigma}, \psi),
 # \end{align*}
 # where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion,
 # $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first
@@ -193,17 +193,17 @@ sigma_n = fem.Function(S, name="sigma_n")
 #
 # $$
 #     \begin{cases}
-#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
+#         \boldsymbol{r}_{g}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
 #         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
 #         \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda
-#         \frac{\mathrm{d} G}{\mathrm{d}\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) =
+#         \frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) =
 #         \boldsymbol{0}, \\
-#         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
+#         r_f(\boldsymbol{\sigma}_{n+1}) = f(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
 # $$ (eq_MC_1)
 #
-# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{G}^T,
-# r_F]^T$ and its argument vector $\boldsymbol{x} = [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$ we solve the following nonlinear equation:
+# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{g}^T,
+# r_f]^T$ and its argument vector $\boldsymbol{x} = [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$ we solve the following nonlinear equation:
 #
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
@@ -237,7 +237,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 # $\boldsymbol{\sigma}$ we mean the implementation of this procedure. 
 #
 # The automatic differentiation tools of the JAX library are applied to calculate
-# the derivatives $\frac{\mathrm{d} G}{\mathrm{d}\boldsymbol{\sigma}}, \frac{\mathrm{d}
+# the derivatives $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}, \frac{\mathrm{d}
 # \boldsymbol{r}}{\mathrm{d} \boldsymbol{x}}$ as well as the stress tensor
 # derivative or the tangent stiffness matrix $\boldsymbol{C}_\text{tang} =
 # \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
@@ -245,7 +245,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 # #### Defining yield surface and plastic potential
 #
 # First of all, we define supplementary functions that help us to express the
-# yield surface $F$ and the plastic potential $G$. In the following definitions,
+# yield surface $f$ and the plastic potential $g$. In the following definitions,
 # we use built-in functions of the JAX package, in particular, the conditional
 # primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool
 # and just-in-time compilation. For more details, please, visit the JAX
@@ -327,7 +327,7 @@ def K(theta, angle):
     return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta)
 
 
-def a_G(angle):
+def a_g(angle):
     return a * np.tan(phi) / np.tan(angle)
 
 dev = np.array(
@@ -350,7 +350,7 @@ def surface(sigma_local, angle):
     theta_ = theta(s)
     return (
         (I1 / 3.0 * np.sin(angle))
-        + jnp.sqrt(J2(s) * K(theta_, angle) * K(theta_, angle) + a_G(angle) * a_G(angle) * np.sin(angle) * np.sin(angle))
+        + jnp.sqrt(J2(s) * K(theta_, angle) * K(theta_, angle) + a_g(angle) * a_g(angle) * np.sin(angle) * np.sin(angle))
         - c * np.cos(angle)
     )
     # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
@@ -360,27 +360,13 @@ def surface(sigma_local, angle):
 # plastic potential $G$.
 
 # %%
-# JSH: Does this trace phi and psi as static constants?
-def f_MC(sigma_local):
+def f(sigma_local):
     return surface(sigma_local, phi)
-    # s = dev @ sigma_local
-    # J2 = 0.5 * jnp.vdot(s, s)
-    # f_vM = jnp.sqrt(3*J2) - c# von Mises
-    # sigma_I = sigma_local[0]
-    # sigma_II = sigma_local[1]
-    # sigma_III = sigma_local[2]
-    # term1 = 0.5 * jnp.abs(sigma_I - sigma_II) - 0.5 * (sigma_I + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
-    # term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
-    # term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
-    # f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
-    # return f_MC_classic
 
+def g(sigma_local):
+    return surface(sigma_local, psi)
 
-def g_MC(sigma_local):
-    # return surface(sigma_local, psi)
-    return f_MC(sigma_local)
-
-dgdsigma = jax.jacfwd(g_MC)
+dgdsigma = jax.jacfwd(g)
 
 # %% [markdown]
 # #### Solving constitutive equations
@@ -412,7 +398,7 @@ ZERO_VECTOR = np.zeros(6, dtype=PETSc.ScalarType)
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
-    yielding = f_MC(sigma_elas_local)
+    yielding = f(sigma_elas_local)
 
     def deps_p_elastic(sigma_local, dlambda):
         return ZERO_VECTOR
@@ -423,20 +409,20 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     return jax.lax.cond(yielding <= 0.0, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
 
 
-def r_sigma(sigma_local, dlambda, deps_local, sigma_n_local):
+def r_g(sigma_local, dlambda, deps_local, sigma_n_local):
     deps_p_local = deps_p(sigma_local, dlambda, deps_local, sigma_n_local)
     return sigma_local - sigma_n_local - C_elas @ (deps_local - deps_p_local)
 
 
 def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
-    yielding = f_MC(sigma_elas_local)
+    yielding = f(sigma_elas_local)
 
     def r_f_elastic(sigma_local, dlambda):
         return dlambda
 
     def r_f_plastic(sigma_local, dlambda):
-        return f_MC(sigma_local)
+        return f(sigma_local)
 
     # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing
     # <=. AL: In the case of yielding = 1e-15 - 1e-16 (or we can choose the
@@ -448,10 +434,10 @@ def r(x_local, deps_local, sigma_n_local):
     sigma_local = x_local[:6]
     dlambda_local = x_local[-1]
 
-    res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
+    res_g = r_g(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
 
-    res = jnp.c_["0,1,-1", res_sigma, res_f]
+    res = jnp.c_["0,1,-1", res_g, res_f]
     return res
 
 
@@ -511,7 +497,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     sigma_local = x_local[0][:6]
     sigma_elas_local = C_elas @ deps_local
-    yielding = f_MC(sigma_n_local + sigma_elas_local)
+    yielding = f(sigma_n_local + sigma_elas_local)
 
     dlambda = x_local[0][-1]
 
@@ -562,29 +548,28 @@ C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 # define the final implementation of the external operator derivative.
 
 # %%
-dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
+# dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
 
-def sigma_impl(deps):
-    deps_ = deps.reshape((-1, 6))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 6))
+# def sigma_impl(deps):
+#     deps_ = deps.reshape((-1, 6))
+#     sigma_n_ = sigma_n.x.array.reshape((-1, 6))
 
-    (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    C_tang_global, niter, yielding, norm_res = state
+#     (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+#     C_tang_global, niter, yielding, norm_res = state
 
-    unique_iters, counts = jnp.unique(niter, return_counts=True)
+#     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
-    # NOTE: The following code prints some details about the second Newton
-    # solver, solving the constitutive equations. Do we need this or it's better
-    # to have the code as clean as possible?
+#     # NOTE: The following code prints some details about the second Newton
+#     # solver, solving the constitutive equations. Do we need this or it's better
+#     # to have the code as clean as possible?
 
-    print("\tInner Newton summary:")
-    print(f"\t\tUnique number of iterations: {unique_iters}")
-    print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum F: {jnp.max(yielding)}")
-    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+#     print("\tInner Newton summary:")
+#     print(f"\t\tUnique number of iterations: {unique_iters}")
+#     print(f"\t\tCounts of unique number of iterations: {counts}")
+#     print(f"\t\tMaximum F: {jnp.max(yielding)}")
+#     print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
 
-    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
-
+#     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
 # %%
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
@@ -645,10 +630,10 @@ sigma.external_function = sigma_external
 # ### Defining the forms
 
 # %%
-f = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
+q = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
 
 def F_ext(v):
-    return ufl.dot(f, v) * dx
+    return ufl.dot(q, v) * dx
 
 
 u_hat = ufl.TrialFunction(V)
