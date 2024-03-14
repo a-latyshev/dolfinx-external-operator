@@ -709,10 +709,6 @@ external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 x_point = np.array([[0, 0, H]])
 cells, points_on_process = find_cell_by_point(domain, x_point)
 
-xdmf_file = "output/limit_analysis.xdmf"
-with io.XDMFFile(domain.comm, xdmf_file, "w") as xdmf:
-    xdmf.write_mesh(domain)
-
 # %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
@@ -725,6 +721,7 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3, load_step
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
+# %%
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, 0, -gamma])
     external_operator_problem.assemble_vector()
@@ -766,11 +763,6 @@ for i, load in enumerate(load_steps):
 
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
-    # u2.interpolate(u)
-
-    # with io.XDMFFile(domain.comm, xdmf_file, "a") as xdmf:
-    #     xdmf.write_function(u2, i)
-
     if len(points_on_process) > 0:
         results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
 
@@ -783,7 +775,8 @@ print(f"Slope stability factor: {q.value[-1]*H/c}")
 
 # %% [markdown]
 # ## Verification
-#
+
+# %% [markdown]
 # ### Critical load
 
 # %%
@@ -948,6 +941,127 @@ fig.tight_layout()
 # ### Taylor test
 
 # %%
+sigma_n.x.array[:] = 0.0
+sigma.ref_coefficient.x.array[:] = 0.0
+J_external_operators[0].ref_coefficient.x.array[:] = 0.0
+Du.x.array[:] = 1.0
+evaluated_operands = evaluate_operands(F_external_operators)
+_ = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+# %%
+load_steps_1 = np.linspace(3, 14, 15)
+
+for i, load in enumerate(load_steps_1[:1]):
+    q.value = load * np.array([0, 0, -gamma])
+    external_operator_problem.assemble_vector()
+
+    residual_0 = external_operator_problem.b.norm()
+    residual = residual_0
+    Du.x.array[:] = 0
+
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+
+    for iteration in range(0, max_iterations):
+        if residual / residual_0 < relative_tolerance:
+            break
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tOuter Newton iteration #{iteration}")
+        external_operator_problem.assemble_matrix()
+        external_operator_problem.solve(du)
+
+        Du.vector.axpy(1.0, du.vector)
+        Du.x.scatter_forward()
+
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+        sigma.ref_coefficient.x.array[:] = sigma_new
+
+        external_operator_problem.assemble_vector()
+        residual = external_operator_problem.b.norm()
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tResidual: {residual}\n")
+
+    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+
+Du0 = np.copy(Du.x.array)
+sigma_n0 = np.copy(sigma_n.x.array)
+
+# %%
+# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+h_list = np.logspace(-1.0, -5.0, 6)[::-1]
+
+def perform_Taylor_test(Du0, sigma_n0):
+    Du.x.array[:] = Du0
+    sigma_n.x.array[:] = sigma_n0
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    sigma.ref_coefficient.x.array[:] = sigma_new
+
+    F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
+    F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+    J0 = fem.petsc.assemble_matrix(J_form)
+    J0.assemble() # J(Du0)
+    y = J0.createVecLeft() # y = J0 @ x
+
+    δu = fem.Function(V)
+    δu.x.array[:] = Du0
+
+    first_order_remainder = np.zeros_like(h_list)
+    second_order_remainder = np.zeros_like(h_list)
+
+    for i, h in enumerate(h_list):
+        Du.x.array[:] = Du0 + h * δu.x.array
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        sigma.ref_coefficient.x.array[:] = sigma_new
+
+        F_delta = fem.petsc.assemble_vector(F_form) # F(Du0 + h*δu)
+        F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+        J0.mult(δu.vector, y) # y = J(Du0)*δu
+        y.scale(h) # y = h*y
+
+        first_order_remainder[i] = (F_delta - F0).norm()
+        second_order_remainder[i] = (F_delta - F0 - y).norm()
+
+    return first_order_remainder, second_order_remainder
+
+
+# %%
+first_order_remainder_elastic, second_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
+first_order_remainder_plastic, second_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
+
+# %%
+fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+axs[0].loglog(h_list, first_order_remainder_elastic, 'o-', label="1st order")
+axs[0].loglog(h_list, second_order_remainder_elastic, 'o-', label="2nd order")
+axs[0].set_title("Elastic phase")
+
+axs[1].loglog(h_list, first_order_remainder_plastic, 'o-', label="1st order")
+axs[1].loglog(h_list, second_order_remainder_plastic, 'o-', label="2nd order")
+axs[1].set_title("Plastic phase")
+
+for i in range(2):
+    axs[i].loglog(h_list, h_list, label=r"$O(h)$")
+    axs[i].loglog(h_list, h_list**2, label=r"$O(h^2)$")
+    axs[i].set_xlabel('h')
+    axs[i].set_ylabel('Taylor remainder')
+    axs[i].legend()
+    axs[i].grid()
+
+plt.tight_layout()
+
+first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_elastic), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder_elastic), 1)[0]
+
+print(f"Elastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
+print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
