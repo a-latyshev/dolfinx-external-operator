@@ -59,6 +59,15 @@
 # follow the same Mandel-Voigt notation as in the von Mises plasticity tutorial
 # but in 3D.
 #
+# If $V$ is a functional space of admissible displacement fields, then we can write out a weak formulation of the problem:
+#
+# Find $\boldsymbol{u} \in V$ such that
+#
+# $$
+#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon}(\boldsymbol{v}) \mathrm{d}\boldsymbol{x} + \int\limits_\Omega \boldsymbol{q} . \boldsymbol{v} = \boldsymbol{0}, \quad \forall \boldsymbol{v} \in V, 
+# $$
+# where $\boldsymbol{\sigma}$ is an external operator representing the stress tensor.
+#
 # ```{note}
 # Although the tutorial shows the implementation of the Mohr-Coulomb model, it
 # is quite general to be adapted to a wide rage of plasticity models that may
@@ -80,12 +89,14 @@ jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pyvista
 from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
 from dolfinx import common, fem, mesh, default_scalar_type, io
+import dolfinx.plot as plot
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -103,7 +114,6 @@ from dolfinx_external_operator import (
 # %%
 E = 6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
-
 c = 3.45 # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
@@ -239,7 +249,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 # The automatic differentiation tools of the JAX library are applied to calculate
 # the derivatives $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}, \frac{\mathrm{d}
 # \boldsymbol{r}}{\mathrm{d} \boldsymbol{x}}$ as well as the stress tensor
-# derivative or the tangent stiffness matrix $\boldsymbol{C}_\text{tang} =
+# derivative or the consistent tangent stiffness matrix $\boldsymbol{C}_\text{tang} =
 # \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
 #
 # #### Defining yield surface and plastic potential
@@ -264,9 +274,6 @@ def theta(s):
     arg = jnp.clip(arg, -1.0, 1.0)
     theta = 1.0 / 3.0 * jnp.arcsin(arg)
     return theta
-
-def rho(s):
-    return jnp.sqrt(2.0 * J2(s))
 
 def sign(x):
     return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
@@ -344,7 +351,6 @@ dev = np.array(
 tr = np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=PETSc.ScalarType)
 
 def surface(sigma_local, angle):
-    # AL: Maybe it's more efficient to use untracable np.array?
     s = dev @ sigma_local
     I1 = tr @ sigma_local
     theta_ = theta(s)
@@ -356,8 +362,8 @@ def surface(sigma_local, angle):
     # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
 
 # %% [markdown]
-# By picking up an appropriate angle we define the yield surface $F$ and the
-# plastic potential $G$.
+# By picking up an appropriate angle we define the yield surface $f$ and the
+# plastic potential $g$.
 
 # %%
 def f(sigma_local):
@@ -441,7 +447,7 @@ def r(x_local, deps_local, sigma_n_local):
     return res
 
 
-drdx = jax.jacfwd(r) # Jacobian j
+drdx = jax.jacfwd(r)
 
 # %% [markdown]
 # Then we define the function `return_mapping` that implements the
@@ -449,7 +455,6 @@ drdx = jax.jacfwd(r) # Jacobian j
 
 # %%
 Nitermax, tol = 200, 1e-8
-
 
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
@@ -460,6 +465,19 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     It solves elastoplastic constitutive equations numerically by applying the
     Newton method in a single Gauss point. The Newton loop is implement via
     `jax.lax.while_loop`.
+
+    The function returns `sigma_local` two times to reuse its values after
+    differentiation, i.e. as once we apply
+    `jax.jacfwd(sigma_return_mapping, has_aux=True)` the ouput function will
+    have an output of
+    `(C_tang_local, (sigma_local, niter_total, yielding, norm_res, dlambda))`.
+
+    Returns:
+        sigma_local: The stress at the current Gauss point.
+        niter_total: The total number of iterations.
+        yielding: The value of the yield function.
+        norm_res: The norm of the residuals.
+        dlambda: The value of the plastic multiplier.
     """
     niter = 0
 
@@ -496,14 +514,25 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     norm_res, niter_total, x_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
 
     sigma_local = x_local[0][:6]
+    dlambda = x_local[0][-1]
     sigma_elas_local = C_elas @ deps_local
     yielding = f(sigma_n_local + sigma_elas_local)
 
-    dlambda = x_local[0][-1]
-
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
-    # return sigma_local, (sigma_local,)
 
+
+# %% [markdown]
+# #### Consistent tangent stiffness matrix
+#
+# Not only is the automatic differentiation able to compute the derivative of a
+# mathematical expression but also of a numerical algorithm [double-check]. For
+# instance, AD can calculate the derivative of the while loop with respect to its
+# output. In the context of the consistent tangent matrix this feature becomes
+# very useful, as there is no need to write additional algorithm computing the stress derivative.
+#
+# JAX's AD tool permits taking the derivative of the function `return_mapping`, which is factually the while loop. The derivative is taken with respect to the first output and the remaining outputs are used as auxiliary data. Thus, the derivative `dsigma_ddeps` returns both values of the consistent tangent matrix and the stress tensor, so there is no need in additional computation of stress tensor.
+
+# %%
 def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdx(x_local, deps_local, sigma_n_local)
@@ -519,33 +548,6 @@ def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     # return H - jnp.outer((H @ m), (H @ n)) / term, term
 
 C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
-
-# %% [markdown]
-# The `return_mapping` function returns a tuple with two elements. The first
-# element is an array containing values of the external operator
-# $\boldsymbol{\sigma}$ and the second one is another tuple containing
-# additional data such as e.g. information on a convergence of the Newton
-# method. Once we apply the JAX AD tool, the latter "converts" the first
-# element of the `return_mapping` output into an array with values of the
-# derivative
-# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$
-# and leaves untouched the second one. That is why we return `sigma_local`
-# twice in the `return_mapping`: ....
-#
-# COMMENT: Well, looks too wordy...
-# JSH eg.
-# `jax.jacfwd` returns a callable that returns the Jacobian as its first return
-# argument. As we also need sigma_local, we also return sigma_local as
-# auxilliary data.
-#
-#
-# NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
-# `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
-
-# %% [markdown]
-# Once we defined the function `dsigma_ddeps`, which evaluates both the
-# external operator and its derivative locally, we can just vectorize it and
-# define the final implementation of the external operator derivative.
 
 # %%
 # dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
@@ -573,6 +575,14 @@ C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 
 # %%
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
+
+# %% [markdown]
+# #### Defining external operator
+# Once we defined the function `dsigma_ddeps`, which evaluates both the
+# external operator and its derivative locally, we can just vectorize it and
+# define the final implementation of the external operator derivative.
+
+# %%
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
 
@@ -623,7 +633,6 @@ def sigma_external(derivatives):
     else:
         return NotImplementedError
 
-
 sigma.external_function = sigma_external
 
 # %% [markdown]
@@ -649,21 +658,25 @@ J_form = fem.form(J_replaced)
 
 # %% [markdown]
 # ### Variables initialization and compilation
-# Before solving the problem it is required.
+#
+# Before solving the problem we have to initialize values of the consistent
+# tangent matrix, as it requires for the system assembling. During the first load
+# step, we expect an elastic response only, so it's enough two to solve the
+# constitutive equations for any small displacements at each Gauss point. This
+# results in initializing the consistent tangent matrix with elastic modulus.
+#
+# At the same time, we can measure the compilation overhead caused by the first
+# call of JIT-ed JAX functions.
 
 # %%
-# Initialize variables to start the algorithm
-# NOTE: Actually we need to evaluate operators before the Newton solver
-# in order to assemble the matrix, where we expect elastic stiffness matrix
-# Shell we discuss it? The same states for the von Mises.
-Du.x.array[:] = 1.0  # any value allowing 
+Du.x.array[:] = 1.0
 sigma_n.x.array[:] = 0.0
 
 timer1 = common.Timer("1st JAX pass")
 timer1.start()
 
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+_ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 timer1.stop()
 
@@ -671,17 +684,9 @@ timer2 = common.Timer("2nd JAX pass")
 timer2.start()
 
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+_ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 timer2.stop()
-
-timer3 = common.Timer("3rd JAX pass")
-timer3.start()
-
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-timer3.stop()
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
@@ -693,21 +698,17 @@ common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
 #
 # Summing up, we apply the Newton method to solve the main weak problem. On each
 # iteration of the main Newton loop, we solve elastoplastic constitutive equations
-# by using the second Newton method at each Gauss point. Thanks to the framework
-# and the JAX library, the final interface is general enough to be reused for
-# other plasticity models.
+# by using the second, inner, Newton method at each Gauss point. Thanks to the
+# framework and the JAX library, the final interface is general enough to be
+# applied to other plasticity models.
 
 # %%
 external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
-# Defining a cell containing (Ri, 0) point, where we calculate a value of u It
-# is required to run this program via MPI in order to capture the process, to
-# which this point is attached
 x_point = np.array([[0, 0, H]])
 cells, points_on_process = find_cell_by_point(domain, x_point)
 
-# %%
 xdmf_file = "output/limit_analysis.xdmf"
 with io.XDMFFile(domain.comm, xdmf_file, "w") as xdmf:
     xdmf.write_mesh(domain)
@@ -715,20 +716,17 @@ with io.XDMFFile(domain.comm, xdmf_file, "w") as xdmf:
 # %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
-# load_steps_2 = np.linspace(36.7, 36.83, 2)[1:]
-# load_steps_3 = np.linspace(36.83, 36.84, 5)[1:]
+
 load_steps_1 = np.linspace(3, 14, 15)
 load_steps_2 = np.linspace(14, 20, 15)[1:]
 load_steps_3 = np.linspace(20, 22, 10)[1:]
 load_steps_4 = np.linspace(22, 22.5, 10)[1:]
 load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3, load_steps_4])
-# load_steps_1 = np.linspace(1, 8, 30)
-# load_steps = load_steps_1
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
 for i, load in enumerate(load_steps):
-    f.value = load * np.array([0, 0, -gamma])
+    q.value = load * np.array([0, 0, -gamma])
     external_operator_problem.assemble_vector()
 
     residual_0 = external_operator_problem.b.norm()
@@ -752,7 +750,8 @@ for i, load in enumerate(load_steps):
 
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        # ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
+
+        # Direct access to the external operator values
         sigma.ref_coefficient.x.array[:] = sigma_new
         # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
 
@@ -775,34 +774,67 @@ for i, load in enumerate(load_steps):
     if len(points_on_process) > 0:
         results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
 
-print(f"Slope stability factor: {f.value[-1]*H/c}")
+print(f"Slope stability factor: {q.value[-1]*H/c}")
 
 # %%
 # 20 - critical load # -5.884057971014492
 #Slope stability factor: -6.521739130434782
 
 
-# %%
-f.value
-
 # %% [markdown]
-# ## Post-processing
-
-# %%
-22.5*H/c
+# ## Verification
+#
+# ### Critical load
 
 # %%
 if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "o-", label="via ExternalOperator")
-    plt.xlabel("Displacement of inner boundary")
-    plt.ylabel(r"Applied pressure $q/q_{lim}$")
+    plt.plot(-results[:, 0], results[:, 1], "o-")
+    plt.xlabel("Displacement of the slope at (0, 0, H)")
+    plt.ylabel(r"Soil self weight $\gamma$")
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     # plt.legend()
     plt.show()
 
+# %%
+print(f"Slope stability factor for 2D plane strain factor [Chen]: {6.69}")
+print(f"Computed slope stability factor: {22.5*H/c}")
+
+# %%
+W = fem.functionspace(domain, ("Lagrange", 1, (3,)))
+u_tmp = fem.Function(W, name="Displacement")
+u_tmp.interpolate(u)
+
+pyvista.start_xvfb()
+plotter = pyvista.Plotter(window_size=[600, 400])
+topology, cell_types, x = plot.vtk_mesh(domain)
+grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+grid["u"] = u_tmp.x.array.reshape((-1, 3))
+warped = grid.warp_by_vector("u", factor=20)
+plotter.add_text("Displacement field", font_size=11)
+plotter.add_mesh(warped, show_edges=True, show_scalar_bar=True)
+plotter.view_xz()
+plotter.camera.zoom(2)
+if not pyvista.OFF_SCREEN:
+    plotter.show()
+
 
 # %% [markdown]
-# ## Verification
+# ### Yield surface
+#
+# We verify that the constitutive model is correctly implemented by tracing the
+# yield surface. We generate several stress paths and check whether they remain
+# within the yield surface. The stress tracing is performed in the
+# [Haigh–Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
+# $(\xi, \rho, \theta)$ which are defined as follows
+#
+# $$ 
+#     \xi = \frac{1}{3}I_1, \quad \rho =
+#     \sqrt{2J_2}, \quad \cos(3\theta) = \frac{3\sqrt{3}}{2}
+#     \frac{J_3}{J_2^{3/2}},
+# $$
+# where $J_3(\boldsymbol{\sigma}) = \det(\boldsymbol{s})$ is the third invariant of the deviatoric part of the stress tensor.
+#
+# TODO: Discuss this section with JB.
 
 # %%
 def rho(sigma_local):
@@ -829,56 +861,55 @@ sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 # %%
 N_angles = 200
 N_loads = 10
-angle_values = np.linspace(0, 2*np.pi, N_angles)
-# angle_values = np.concatenate([np.linspace(-np.pi/6, np.pi/6, 100), np.linspace(5*np.pi/6, 7*np.pi/6, 100)])
-R_values = np.linspace(0.4, 5, N_loads)
-p = 2.
+eps = 1e-7
+angle_values = np.linspace(0 + eps, 2*np.pi - eps, N_angles)
+R = 0.7
+p = 1.
 
-dsigma_paths = np.zeros((N_loads, N_angles, 4))
-
-for i, R in enumerate(R_values):
-    dsigma_paths[i,:,0] = np.sqrt(2./3.) * R * np.cos(angle_values)
-    dsigma_paths[i,:,1] = np.sqrt(2./3.) * R * np.sin(angle_values - np.pi/6.)
-    dsigma_paths[i,:,2] = np.sqrt(2./3.) * R * np.sin(-angle_values - np.pi/6.)
+dsigma_path = np.zeros((N_angles, 6))
+dsigma_path[:,0] = np.sqrt(2./3.) * R * np.cos(angle_values)
+dsigma_path[:,1] = np.sqrt(2./3.) * R * np.sin(angle_values - np.pi/6.)
+dsigma_path[:,2] = np.sqrt(2./3.) * R * np.sin(-angle_values - np.pi/6.)
 
 # %%
 angle_results = np.empty((N_loads, N_angles))
 rho_results = np.empty((N_loads, N_angles))
-sigma_results = np.empty((N_loads, N_angles, 4))
-sigma_n_local = np.full((N_angles, 4), p)
-derviatoric_axis = np.array([1,1,1,0])
+sigma_results = np.empty((N_loads, N_angles, 6))
+sigma_n_local = np.zeros_like(dsigma_path)
+sigma_n_local[:,0] = p
+sigma_n_local[:,1] = p
+sigma_n_local[:,2] = p
+derviatoric_axis = tr
 
-for i, R in enumerate(R_values):
+for i in range(N_loads):
     print(f"Loading#{i} {R}")
-    dsigma, yielding = sigma_tracing_vec(dsigma_paths[0], sigma_n_local)
-    p_tmp = dsigma @ tr / 3.
+    dsigma, yielding = sigma_tracing_vec(dsigma_path, sigma_n_local)
+    p_tmp = dsigma @ tr / 3.0
     dp = p_tmp - p
     dsigma -= np.outer(dp, derviatoric_axis)
-    p_tmp = dsigma @ tr / 3.
+
     sigma_results[i,:] = dsigma
-    print(f"{jnp.max(yielding)} {np.max(p_tmp)}\n")
     angle_results[i,:] = angle_v(dsigma)
     rho_results[i,:] = rho_v(dsigma)
+    print(f"{jnp.max(yielding)} {np.mean(np.abs(dp))} {np.mean(np.abs(p_tmp))} {np.mean(np.abs(p))}\n")
     sigma_n_local[:] = dsigma
 
-
-# Show the plot
-plt.show()
+# %% [markdown]
+# The stress paths are represented by a series of circles lying in each other in
+# the same octahedral plane. By applying the return-mapping algorithm defined in
+# the function `sigma_return_mapping`, we perform the correction of the stress
+# paths. Once they get close to the elastic limit the traced curves look similar
+# to the Mohr-Coulomb yield surface with apex smoothing which indicates the
+# correct implementation of the constitutive model.
 
 # %%
-fig, ax = plt.subplots(nrows=1, ncols=2, subplot_kw={'projection': 'polar'}, figsize=(10, 15))
-# fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
-for i in range(N_loads):
-    ax[0].plot(angle_results[i], rho_results[i], '.', label='Load#'+str(i))
-    ax[0].plot(np.repeat(np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
-    ax[0].plot(np.repeat(-np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
-    ax[1].plot(angle_values, rho_v(dsigma_paths[i]), '.', label='Load#'+str(i))
-    ax[0].set_title(r'Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$')
-    ax[1].set_title(r'Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$')
-plt.legend()
+fig, ax = plt.subplots(subplot_kw={'projection': 'polar'}, figsize=(8, 8))
+for j in range(12):
+    for i in range(N_loads):
+        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.')
+
+ax.set_title(r'Octahedral profile of the yield criterion on different stress paths, $(\rho, \theta)$')
 fig.tight_layout()
-
-# %%
 
 # %%
 fig = plt.figure(figsize=(15,10))
@@ -891,7 +922,7 @@ for j in range(12):
     for i in range(N_loads):
         ax1.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
 for i in range(N_loads):
-    ax2.plot(angle_values, rho_v(dsigma_paths[i]), '.', label='Load#'+str(i))
+    ax2.plot(angle_values, rho_v(dsigma_path), '.', label='Load#'+str(i))
     ax3.plot(sigma_results[i,:,0], sigma_results[i,:,1], sigma_results[i,:,2], '.')
     ax4.plot(sigma_results[i,:,0], sigma_results[i,:,1], sigma_results[i,:,2], '.')
 
@@ -912,6 +943,11 @@ for ax in [ax3, ax4]:
     ax.set_title(r'In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space')
 plt.legend()
 fig.tight_layout()
+
+# %% [markdown]
+# ### Taylor test
+
+# %%
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
