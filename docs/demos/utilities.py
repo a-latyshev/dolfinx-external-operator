@@ -80,15 +80,14 @@ def find_cell_by_point(mesh, point):
             cells.append(colliding_cells.links(i)[0])
     return cells, points_on_proc
 
+
 def plot_scalar_field(field, verbose=False, to_show=True):
     """
     Plot a scalar field with pyvista
     """
     field_name = field.name
     domain = field.function_space.mesh
-    plotter = pyvista.Plotter(
-        title=field_name, window_size=[200, 300]
-    )
+    plotter = pyvista.Plotter(title=field_name, window_size=[200, 300])
     topology, cell_types, x = plot.vtk_mesh(domain)
     grid = pyvista.UnstructuredGrid(topology, cell_types, x)
     grid.point_data[field_name] = field.x.array

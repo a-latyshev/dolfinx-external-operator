@@ -117,27 +117,31 @@ jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 # %%
 E = 6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
-c = 3.45 # [MPa] cohesion
+c = 3.45  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
-L, W, H = (1.2, 2., 1.)
+L, W, H = (1.2, 2.0, 1.0)
 Nx, Ny, Nz = (10, 10, 10)
-gamma = 1.
-domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0,0,0]), np.array([L, W, H])], [Nx, Ny, Nz])
+gamma = 1.0
+domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0, 0, 0]), np.array([L, W, H])], [Nx, Ny, Nz])
 
 # %%
 k_u = 2
 V = fem.functionspace(domain, ("Lagrange", k_u, (3,)))
+
+
 # Boundary conditions
 def on_right(x):
     return np.isclose(x[0], L)
 
+
 def on_bottom(x):
-    return np.isclose(x[2], 0.)
+    return np.isclose(x[2], 0.0)
+
 
 bottom_dofs = fem.locate_dofs_geometrical(V, on_bottom)
 right_dofs = fem.locate_dofs_geometrical(V, on_right)
@@ -148,16 +152,23 @@ right_dofs = fem.locate_dofs_geometrical(V, on_right)
 
 bcs = [
     fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
-    fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), right_dofs, V)]
+    fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), right_dofs, V),
+]
+
 
 def epsilon(v):
     grad_v = ufl.grad(v)
-    return ufl.as_vector([
-        grad_v[0, 0], grad_v[1, 1], grad_v[2, 2],
-        np.sqrt(2.0) * 0.5 * (grad_v[1, 2] + grad_v[2, 1]),
-        np.sqrt(2.0) * 0.5 * (grad_v[0, 2] + grad_v[2, 0]),
-        np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0]),
-    ])
+    return ufl.as_vector(
+        [
+            grad_v[0, 0],
+            grad_v[1, 1],
+            grad_v[2, 2],
+            np.sqrt(2.0) * 0.5 * (grad_v[1, 2] + grad_v[2, 1]),
+            np.sqrt(2.0) * 0.5 * (grad_v[0, 2] + grad_v[2, 0]),
+            np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0]),
+        ]
+    )
+
 
 k_stress = 2 * (k_u - 1)
 
@@ -272,12 +283,15 @@ sigma_n = fem.Function(S, name="sigma_n")
 # and just-in-time compilation. For more details, please, visit the JAX
 # [documentation](https://jax.readthedocs.io/en/latest/).
 
+
 # %%
 def J3(s):
     return s[2] * (s[0] * s[1] - s[3] * s[3] / 2.0)
 
+
 def J2(s):
     return 0.5 * jnp.vdot(s, s)
+
 
 def theta(s):
     J2_ = J2(s)
@@ -286,8 +300,10 @@ def theta(s):
     theta = 1.0 / 3.0 * jnp.arcsin(arg)
     return theta
 
+
 def sign(x):
     return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
+
 
 def coeff1(theta, angle):
     return np.cos(theta_T) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.sin(theta_T)
@@ -296,30 +312,30 @@ def coeff1(theta, angle):
 def coeff2(theta, angle):
     return sign(theta) * np.sin(theta_T) + (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.cos(theta_T)
 
+
 coeff3 = 18.0 * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T)
 
 
 def C(theta, angle):
     return (
-        -np.cos(3.0 * theta_T) * coeff1(theta, angle)
-        - 3.0 * sign(theta) * np.sin(3.0 * theta_T) * coeff2(theta, angle)
+        -np.cos(3.0 * theta_T) * coeff1(theta, angle) - 3.0 * sign(theta) * np.sin(3.0 * theta_T) * coeff2(theta, angle)
     ) / coeff3
 
 
 def B(theta, angle):
     return (
-        sign(theta) * np.sin(6.0 * theta_T) * coeff1(theta, angle)
-        - 6.0 * np.cos(6.0 * theta_T) * coeff2(theta, angle)
+        sign(theta) * np.sin(6.0 * theta_T) * coeff1(theta, angle) - 6.0 * np.cos(6.0 * theta_T) * coeff2(theta, angle)
     ) / coeff3
 
 
 def A(theta, angle):
     return (
         -(1.0 / np.sqrt(3.0)) * np.sin(angle) * sign(theta) * np.sin(theta_T)
-        - B(theta, angle) * sign(theta) * np.sin(3*theta_T)
+        - B(theta, angle) * sign(theta) * np.sin(3 * theta_T)
         - C(theta, angle) * np.sin(3.0 * theta_T) * np.sin(3.0 * theta_T)
         + np.cos(theta_T)
     )
+
 
 # def A(theta, angle):
 # return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) +
@@ -329,6 +345,7 @@ def A(theta, angle):
 # def B(theta, angle):
 # return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) +
 # 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
+
 
 def K(theta, angle):
     def K_false(theta):
@@ -340,6 +357,7 @@ def K(theta, angle):
             + B(theta, angle) * jnp.sin(3.0 * theta)
             + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
         )
+
     # def K_true(theta):
     #     return (
     #         A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
@@ -351,40 +369,48 @@ def K(theta, angle):
 def a_g(angle):
     return a * np.tan(phi) / np.tan(angle)
 
+
 dev = np.array(
-        [
-            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
-            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
-            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-        ],
-        dtype=PETSc.ScalarType,
-    )
+    [
+        [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
+        [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
+        [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    ],
+    dtype=PETSc.ScalarType,
+)
 tr = np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=PETSc.ScalarType)
+
 
 def surface(sigma_local, angle):
     s = dev @ sigma_local
     I1 = tr @ sigma_local
     theta_ = theta(s)
     return (
-        (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s) * K(theta_, angle) *
-        K(theta_, angle) + a_g(angle) * a_g(angle) * np.sin(angle) *
-        np.sin(angle))- c * np.cos(angle)
+        (I1 / 3.0 * np.sin(angle))
+        + jnp.sqrt(
+            J2(s) * K(theta_, angle) * K(theta_, angle) + a_g(angle) * a_g(angle) * np.sin(angle) * np.sin(angle)
+        )
+        - c * np.cos(angle)
     )
     # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
+
 
 # %% [markdown]
 # By picking up an appropriate angle we define the yield surface $f$ and the
 # plastic potential $g$.
 
+
 # %%
 def f(sigma_local):
     return surface(sigma_local, phi)
 
+
 def g(sigma_local):
     return surface(sigma_local, psi)
+
 
 dgdsigma = jax.jacfwd(g)
 
@@ -407,15 +433,20 @@ dgdsigma = jax.jacfwd(g)
 
 lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
 mu = E / (2.0 * (1.0 + nu))
-C_elas = np.array([[lmbda+2*mu, lmbda, lmbda, 0, 0, 0],
-                    [lmbda, lmbda+2*mu, lmbda, 0, 0, 0],
-                    [lmbda, lmbda, lmbda+2*mu, 0, 0, 0],
-                    [0, 0, 0, 2*mu, 0, 0],
-                    [0, 0, 0, 0, 2*mu, 0],
-                    [0, 0, 0, 0, 0, 2*mu],
-                    ], dtype=PETSc.ScalarType)
+C_elas = np.array(
+    [
+        [lmbda + 2 * mu, lmbda, lmbda, 0, 0, 0],
+        [lmbda, lmbda + 2 * mu, lmbda, 0, 0, 0],
+        [lmbda, lmbda, lmbda + 2 * mu, 0, 0, 0],
+        [0, 0, 0, 2 * mu, 0, 0],
+        [0, 0, 0, 0, 2 * mu, 0],
+        [0, 0, 0, 0, 0, 2 * mu],
+    ],
+    dtype=PETSc.ScalarType,
+)
 S_elas = np.linalg.inv(C_elas)
 ZERO_VECTOR = np.zeros(6, dtype=PETSc.ScalarType)
+
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
@@ -474,6 +505,8 @@ Nitermax, tol = 200, 1e-8
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
 ZERO_SCALAR = np.array([0.0])
+
+
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
 
@@ -552,11 +585,12 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 # and the stress tensor, so there is no need in additional computation of stress
 # tensor.
 
+
 # %%
 def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdx(x_local, deps_local, sigma_n_local)
-    H = jnp.linalg.inv(j)[:6,:6] @ C_elas
+    H = jnp.linalg.inv(j)[:6, :6] @ C_elas
     return H
 
     # A = j[:4,:4]
@@ -566,6 +600,7 @@ def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     # term_tmp = n.T @ H @ m
     # term = jax.lax.cond(term_tmp == 0.0, lambda x : 1., lambda x: x, term_tmp)
     # return H - jnp.outer((H @ m), (H @ n)) / term, term
+
 
 C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 
@@ -638,11 +673,13 @@ def C_tang_impl(deps):
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
+
 # %% [markdown]
 # Similarly to the von Mises example, we do not implement explicitly the
 # evaluation of the external operator. Instead, we obtain its values during the
 # evaluation of its derivative and then update the values of the operator in the
 # main Newton loop.
+
 
 # %%
 def sigma_external(derivatives):
@@ -653,6 +690,7 @@ def sigma_external(derivatives):
     else:
         return NotImplementedError
 
+
 sigma.external_function = sigma_external
 
 # %% [markdown]
@@ -660,6 +698,7 @@ sigma.external_function = sigma_external
 
 # %%
 q = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
+
 
 def F_ext(v):
     return ufl.dot(q, v) * dx
@@ -790,7 +829,7 @@ results = np.zeros((num_increments + 1, 2))
 
 # %%
 # 20 - critical load # -5.884057971014492
-#Slope stability factor: -6.521739130434782
+# Slope stability factor: -6.521739130434782
 
 
 # %% [markdown]
@@ -850,10 +889,12 @@ if not pyvista.OFF_SCREEN:
 #
 # TODO: Discuss this section with JB.
 
+
 # %%
 def rho(sigma_local):
     s = dev @ sigma_local
     return jnp.sqrt(2.0 * J2(s))
+
 
 def angle(sigma_local):
     s = dev @ sigma_local
@@ -862,11 +903,13 @@ def angle(sigma_local):
     angle = 1.0 / 3.0 * jnp.arcsin(arg)
     return angle
 
+
 def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
     sigma_corrected, state = sigma_return_mapping(deps_elas, sigma_n_local)
     yielding = state[2]
     return sigma_corrected, yielding
+
 
 angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
 rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
@@ -876,23 +919,23 @@ sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 N_angles = 200
 N_loads = 10
 eps = 1e-7
-angle_values = np.linspace(0 + eps, 2*np.pi - eps, N_angles)
+angle_values = np.linspace(0 + eps, 2 * np.pi - eps, N_angles)
 R = 0.7
-p = 1.
+p = 1.0
 
 dsigma_path = np.zeros((N_angles, 6))
-dsigma_path[:,0] = np.sqrt(2./3.) * R * np.cos(angle_values)
-dsigma_path[:,1] = np.sqrt(2./3.) * R * np.sin(angle_values - np.pi/6.)
-dsigma_path[:,2] = np.sqrt(2./3.) * R * np.sin(-angle_values - np.pi/6.)
+dsigma_path[:, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
+dsigma_path[:, 1] = np.sqrt(2.0 / 3.0) * R * np.sin(angle_values - np.pi / 6.0)
+dsigma_path[:, 2] = np.sqrt(2.0 / 3.0) * R * np.sin(-angle_values - np.pi / 6.0)
 
 # %%
 angle_results = np.empty((N_loads, N_angles))
 rho_results = np.empty((N_loads, N_angles))
 sigma_results = np.empty((N_loads, N_angles, 6))
 sigma_n_local = np.zeros_like(dsigma_path)
-sigma_n_local[:,0] = p
-sigma_n_local[:,1] = p
-sigma_n_local[:,2] = p
+sigma_n_local[:, 0] = p
+sigma_n_local[:, 1] = p
+sigma_n_local[:, 2] = p
 derviatoric_axis = tr
 
 for i in range(N_loads):
@@ -902,9 +945,9 @@ for i in range(N_loads):
     dp = p_tmp - p
     dsigma -= np.outer(dp, derviatoric_axis)
 
-    sigma_results[i,:] = dsigma
-    angle_results[i,:] = angle_v(dsigma)
-    rho_results[i,:] = rho_v(dsigma)
+    sigma_results[i, :] = dsigma
+    angle_results[i, :] = angle_v(dsigma)
+    rho_results[i, :] = rho_v(dsigma)
     print(f"{jnp.max(yielding)} {np.mean(np.abs(dp))} {np.mean(np.abs(p_tmp))} {np.mean(np.abs(p))}\n")
     sigma_n_local[:] = dsigma
 
@@ -917,45 +960,49 @@ for i in range(N_loads):
 # correct implementation of the constitutive model.
 
 # %%
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'}, figsize=(8, 8))
+fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
 for j in range(12):
     for i in range(N_loads):
-        ax.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.')
+        ax.plot(j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i], rho_results[i], ".")
 
-ax.set_title(r'Octahedral profile of the yield criterion on different stress paths, $(\rho, \theta)$')
+ax.set_title(r"Octahedral profile of the yield criterion on different stress paths, $(\rho, \theta)$")
 fig.tight_layout()
 
 # %%
-fig = plt.figure(figsize=(15,10))
+fig = plt.figure(figsize=(15, 10))
 # fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
 ax1 = fig.add_subplot(221, polar=True)
 ax2 = fig.add_subplot(222, polar=True)
-ax3 = fig.add_subplot(223, projection='3d')
-ax4 = fig.add_subplot(224, projection='3d')
+ax3 = fig.add_subplot(223, projection="3d")
+ax4 = fig.add_subplot(224, projection="3d")
 for j in range(12):
     for i in range(N_loads):
-        ax1.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) *
-        angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+        ax1.plot(
+            j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i],
+            rho_results[i],
+            ".",
+            label="Load#" + str(i),
+        )
 for i in range(N_loads):
-    ax2.plot(angle_values, rho_v(dsigma_path), '.', label='Load#'+str(i))
-    ax3.plot(sigma_results[i,:,0], sigma_results[i,:,1], sigma_results[i,:,2], '.')
-    ax4.plot(sigma_results[i,:,0], sigma_results[i,:,1], sigma_results[i,:,2], '.')
+    ax2.plot(angle_values, rho_v(dsigma_path), ".", label="Load#" + str(i))
+    ax3.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
+    ax4.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
 
-ax1.plot(np.repeat(np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
-ax1.plot(np.repeat(-np.pi/6, 10), np.linspace(0, np.max(rho_results), 10), color='black')
-z_min = np.min(sigma_results[:,:,2])
-z_max = np.max(sigma_results[:,:,2])
-ax4.plot(np.array([p,p]), np.array([p,p]), np.array([z_min, z_max]), linestyle='-', color='black')
+ax1.plot(np.repeat(np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
+ax1.plot(np.repeat(-np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
+z_min = np.min(sigma_results[:, :, 2])
+z_max = np.max(sigma_results[:, :, 2])
+ax4.plot(np.array([p, p]), np.array([p, p]), np.array([z_min, z_max]), linestyle="-", color="black")
 
-ax1.set_title(r'Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$')
-ax2.set_title(r'Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$')
+ax1.set_title(r"Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$")
+ax2.set_title(r"Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$")
 ax3.view_init(azim=45)
 
 for ax in [ax3, ax4]:
-    ax.set_xlabel(r'$\sigma_{I}$')
-    ax.set_ylabel(r'$\sigma_{II}$')
-    ax.set_zlabel(r'$\sigma_{III}$')
-    ax.set_title(r'In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space')
+    ax.set_xlabel(r"$\sigma_{I}$")
+    ax.set_ylabel(r"$\sigma_{II}$")
+    ax.set_zlabel(r"$\sigma_{III}$")
+    ax.set_title(r"In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space")
 plt.legend()
 fig.tight_layout()
 
@@ -1016,6 +1063,7 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
 h_list = np.logspace(-1.0, -5.0, 6)[::-1]
 
+
 def perform_Taylor_test(Du0, sigma_n0):
     Du.x.array[:] = Du0
     sigma_n.x.array[:] = sigma_n0
@@ -1023,12 +1071,12 @@ def perform_Taylor_test(Du0, sigma_n0):
     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     sigma.ref_coefficient.x.array[:] = sigma_new
 
-    F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
+    F0 = fem.petsc.assemble_vector(F_form)  # F(Du0)
     F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
     J0 = fem.petsc.assemble_matrix(J_form)
-    J0.assemble() # J(Du0)
-    y = J0.createVecLeft() # y = J0 @ x
+    J0.assemble()  # J(Du0)
+    y = J0.createVecLeft()  # y = J0 @ x
 
     δu = fem.Function(V)
     δu.x.array[:] = Du0
@@ -1042,11 +1090,11 @@ def perform_Taylor_test(Du0, sigma_n0):
         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         sigma.ref_coefficient.x.array[:] = sigma_new
 
-        F_delta = fem.petsc.assemble_vector(F_form) # F(Du0 + h*δu)
+        F_delta = fem.petsc.assemble_vector(F_form)  # F(Du0 + h*δu)
         F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
-        J0.mult(δu.vector, y) # y = J(Du0)*δu
-        y.scale(h) # y = h*y
+        J0.mult(δu.vector, y)  # y = J(Du0)*δu
+        y.scale(h)  # y = h*y
 
         first_order_remainder[i] = (F_delta - F0).norm()
         second_order_remainder[i] = (F_delta - F0 - y).norm()
@@ -1061,19 +1109,19 @@ first_order_remainder_plastic, second_order_remainder_plastic = perform_Taylor_t
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
-axs[0].loglog(h_list, first_order_remainder_elastic, 'o-', label="1st order")
-axs[0].loglog(h_list, second_order_remainder_elastic, 'o-', label="2nd order")
+axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label="1st order")
+axs[0].loglog(h_list, second_order_remainder_elastic, "o-", label="2nd order")
 axs[0].set_title("Elastic phase")
 
-axs[1].loglog(h_list, first_order_remainder_plastic, 'o-', label="1st order")
-axs[1].loglog(h_list, second_order_remainder_plastic, 'o-', label="2nd order")
+axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label="1st order")
+axs[1].loglog(h_list, second_order_remainder_plastic, "o-", label="2nd order")
 axs[1].set_title("Plastic phase")
 
 for i in range(2):
     axs[i].loglog(h_list, h_list, label=r"$O(h)$")
     axs[i].loglog(h_list, h_list**2, label=r"$O(h^2)$")
-    axs[i].set_xlabel('h')
-    axs[i].set_ylabel('Taylor remainder')
+    axs[i].set_xlabel("h")
+    axs[i].set_ylabel("Taylor remainder")
     axs[i].legend()
     axs[i].grid()
 
@@ -1098,7 +1146,6 @@ external_operator_problem.__del__()
 Du.vector.destroy()
 du.vector.destroy()
 u.vector.destroy()
-
 
 
 # %%
