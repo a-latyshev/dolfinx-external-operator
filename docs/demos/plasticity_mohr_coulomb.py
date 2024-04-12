@@ -143,8 +143,6 @@ from petsc4py import PETSc
 import jax
 import jax.lax
 import jax.numpy as jnp
-jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
-
 import matplotlib.pyplot as plt
 import numpy as np
 from solvers import LinearProblem
@@ -160,6 +158,7 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
+jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 # %% [markdown]
 # ### Model parameters
@@ -263,8 +262,8 @@ def theta(s):
     theta = 1.0 / 3.0 * jnp.arcsin(arg)
     return theta
 
-def rho(s):
-    return jnp.sqrt(2.0 * J2(s))
+# def rho(s):
+#     return jnp.sqrt(2.0 * J2(s))
 
 def sign(x):
     return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
@@ -304,10 +303,13 @@ def A(theta, angle):
     )
 
 # def A(theta, angle):
-#     return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) + 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) * np.sin(angle))
+# return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) +
+# 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) *
+# np.sin(angle))
 
 # def B(theta, angle):
-#     return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) + 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
+# return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) +
+# 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
 
 def K(theta, angle):
     def K_false(theta):
@@ -347,9 +349,9 @@ def surface(sigma_local, angle):
     I1 = tr @ sigma_local
     theta_ = theta(s)
     return (
-        (I1 / 3.0 * np.sin(angle))
-        + jnp.sqrt(J2(s) * K(theta_, angle) * K(theta_, angle) + a_G(angle) * a_G(angle) * np.sin(angle) * np.sin(angle))
-        - c * np.cos(angle)
+        (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s) * K(theta_, angle) *
+        K(theta_, angle) + a_G(angle) * a_G(angle) * np.sin(angle) *
+        np.sin(angle)) - c * np.cos(angle)
     )
     # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
 
@@ -870,8 +872,8 @@ h_list = np.logspace(-1.0, -4.0, 6)[::-1]
 
     # J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
     # J_vector_form = fem.form(J_vector)
-    J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
-    J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
+# J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+    # J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
 
 #     F_scalar = fem.assemble_scalar(F_scalar_form)
 
@@ -879,53 +881,53 @@ h_list = np.logspace(-1.0, -4.0, 6)[::-1]
 #     second_order_remainder[i] = np.abs(F_scalar - F0 - h * J0_dot_δu)
 
 
-# %%
-fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+# # %%
+# fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
-axs[0].plot(h_list, first_order_remainder, 'o-', label="1st order")
-axs[0].plot(h_list, second_order_remainder, 'o-', label="2nd order")
-axs[0].set_title(r"$|F(\Delta u_0 + hδu) - F(\Delta u_0) - hJ(\Delta u_0)δu|$")
-axs[0].set_ylabel('Taylor remainder')
-axs[0].set_xlabel('h')
-axs[0].legend()
+# axs[0].plot(h_list, first_order_remainder, 'o-', label="1st order")
+# axs[0].plot(h_list, second_order_remainder, 'o-', label="2nd order")
+# axs[0].set_title(r"$|F(\Delta u_0 + hδu) - F(\Delta u_0) - hJ(\Delta u_0)δu|$")
+# axs[0].set_ylabel('Taylor remainder')
+# axs[0].set_xlabel('h')
+# axs[0].legend()
 
-axs[1].loglog(h_list, first_order_remainder, 'o-', label="1st order")
-axs[1].loglog(h_list, second_order_remainder, 'o-', label="2nd order")
-axs[1].loglog(h_list, h_list, label=r"$O(h)$")
-axs[1].loglog(h_list, h_list**2, label=r"$O(h^2)$")
-axs[1].set_title("Log scale")
-axs[1].set_yscale('log')
-axs[1].legend()
-axs[1].set_ylabel('first-order Taylor remainder')
-axs[1].set_xlabel('h')
+# axs[1].loglog(h_list, first_order_remainder, 'o-', label="1st order")
+# axs[1].loglog(h_list, second_order_remainder, 'o-', label="2nd order")
+# axs[1].loglog(h_list, h_list, label=r"$O(h)$")
+# axs[1].loglog(h_list, h_list**2, label=r"$O(h^2)$")
+# axs[1].set_title("Log scale")
+# axs[1].set_yscale('log')
+# axs[1].legend()
+# axs[1].set_ylabel('first-order Taylor remainder')
+# axs[1].set_xlabel('h')
 
-plt.tight_layout()
-plt.show()
-first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder), 1)[0]
-second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder), 1)[0]
+# plt.tight_layout()
+# plt.show()
+# first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder), 1)[0]
+# second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder), 1)[0]
 
-print(first_order_rate)
-print(second_order_rate)
+# print(first_order_rate)
+# print(second_order_rate)
 
-# %%
-second_order_rate = np.polyfit(np.log(h_list[-3:-1]), np.log(second_order_remainder[-3:-1]), 1)[0]
-second_order_rate
-
-
-# %%
-second_order_remainder
+# # %%
+# second_order_rate = np.polyfit(np.log(h_list[-3:-1]), np.log(second_order_remainder[-3:-1]), 1)[0]
+# second_order_rate
 
 
-# %%
-1.004993836703281
-1.0093125656977548
+# # %%
+# second_order_remainder
 
-# %%
-0.2412775313310373
-0.2390018855008281
 
-# %%
-np.polyfit(np.log(h_list[1:]), np.log(second_order_remainder[1:]), 1)[0]
+# # %%
+# 1.004993836703281
+# 1.0093125656977548
+
+# # %%
+# 0.2412775313310373
+# 0.2390018855008281
+
+# # %%
+# np.polyfit(np.log(h_list[1:]), np.log(second_order_remainder[1:]), 1)[0]
 
 
 # %%
@@ -1108,7 +1110,9 @@ ax3 = fig.add_subplot(223, projection='3d')
 ax4 = fig.add_subplot(224, projection='3d')
 for j in range(12):
     for i in range(N_loads):
-        ax1.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+        ax1.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) *
+        angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+
 for i in range(N_loads):
     ax2.plot(angle_values, rho_v(dsigma_paths[i]), '.', label='Load#'+str(i))
     ax3.plot(sigma_results[i,:,0], sigma_results[i,:,1], sigma_results[i,:,2], '.')
