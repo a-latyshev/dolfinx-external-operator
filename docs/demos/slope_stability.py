@@ -89,9 +89,6 @@ from petsc4py import PETSc
 import jax
 import jax.lax
 import jax.numpy as jnp
-
-jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
@@ -108,6 +105,8 @@ from dolfinx_external_operator import (
     evaluate_operands,
     replace_external_operators,
 )
+
+jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 # %% [markdown]
 # ### Model parameters
@@ -145,7 +144,7 @@ right_dofs = fem.locate_dofs_geometrical(V, on_right)
 
 # bcs =
 # [fem.dirichletbc(0.0, bottom_dofs, V), fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), right_dofs, V)]
-# bug???
+# # bug???
 
 bcs = [
     fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
@@ -210,7 +209,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 # the following system of nonlinear equations
 #
 # $$
-
+#
 #     \begin{cases}
 #         \boldsymbol{r}_{g}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
 #         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
@@ -219,7 +218,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 #         \boldsymbol{0}, \\
 #          r_f(\boldsymbol{\sigma}_{n+1}) = f(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
-
+#
 # $$ (eq_MC_1)
 #
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{g}^T,
