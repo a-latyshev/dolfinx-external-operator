@@ -2,10 +2,11 @@
 name: Build documentation
 
 on:
+  workflow_dispatch:
   workflow_call:
   push:
     branches:
-      - "**"
+      - "!*"
 
 jobs:
   build-docs:
