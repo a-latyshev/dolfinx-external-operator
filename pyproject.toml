@@ -23,7 +23,8 @@ docs = [
 ]
 demos = [
     "numba",
-    "jax[cpu]"
+    "jax[cpu]",
+    "pyvista"
 ]
 lint = [
     "ruff"
