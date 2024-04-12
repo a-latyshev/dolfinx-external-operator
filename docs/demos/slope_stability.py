@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -59,12 +58,17 @@
 # follow the same Mandel-Voigt notation as in the von Mises plasticity tutorial
 # but in 3D.
 #
-# If $V$ is a functional space of admissible displacement fields, then we can write out a weak formulation of the problem:
+# If $V$ is a functional space of admissible displacement fields, then we can
+# write out a weak formulation of the problem:
 #
 # Find $\boldsymbol{u} \in V$ such that
 #
 # $$
-#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon}(\boldsymbol{v}) \mathrm{d}\boldsymbol{x} + \int\limits_\Omega \boldsymbol{q} . \boldsymbol{v} = \boldsymbol{0}, \quad \forall \boldsymbol{v} \in V, 
+#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
+#     \boldsymbol{\sigma}(\boldsymbol{u}) .
+#     \boldsymbol{\varepsilon}(\boldsymbol{v}) \mathrm{d}\boldsymbol{x} +
+#     \int\limits_\Omega \boldsymbol{q} . \boldsymbol{v} = \boldsymbol{0}, \quad
+#     \forall \boldsymbol{v} \in V,
 # $$
 # where $\boldsymbol{\sigma}$ is an external operator representing the stress tensor.
 #
@@ -85,25 +89,25 @@ from petsc4py import PETSc
 import jax
 import jax.lax
 import jax.numpy as jnp
+
 jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
 from solvers import LinearProblem
-from utilities import build_cylinder_quarter, find_cell_by_point
+from utilities import find_cell_by_point
 
 import basix
-import ufl
-from dolfinx import common, fem, mesh, default_scalar_type, io
 import dolfinx.plot as plot
+import ufl
+from dolfinx import common, default_scalar_type, fem, mesh
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
 )
-
 
 # %% [markdown]
 # ### Model parameters
@@ -138,7 +142,11 @@ def on_bottom(x):
 
 bottom_dofs = fem.locate_dofs_geometrical(V, on_bottom)
 right_dofs = fem.locate_dofs_geometrical(V, on_right)
-# bcs = [fem.dirichletbc(0.0, bottom_dofs, V), fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), right_dofs, V)] # bug???
+
+# bcs =
+# [fem.dirichletbc(0.0, bottom_dofs, V), fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), right_dofs, V)]
+# bug???
+
 bcs = [
     fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
     fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), right_dofs, V)]
@@ -193,7 +201,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 # where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion,
 # $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first
 # invariant of the stress tensor and $J_2(\boldsymbol{\sigma}) =
-# \frac{1}{2}\boldsymbol{s}:\boldsymbol{s}$ is the second invariant of the
+# \frac{1}{2}\boldsymbol{s}.\boldsymbol{s}$ is the second invariant of the
 # deviatoric part of the stress tensor. The expression of the coefficient
 # $K(\alpha)$ may be found in the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html).
@@ -202,18 +210,22 @@ sigma_n = fem.Function(S, name="sigma_n")
 # the following system of nonlinear equations
 #
 # $$
+
 #     \begin{cases}
 #         \boldsymbol{r}_{g}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
 #         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
 #         \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda
 #         \frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) =
 #         \boldsymbol{0}, \\
-#         r_f(\boldsymbol{\sigma}_{n+1}) = f(\boldsymbol{\sigma}_{n+1}) = 0,
+#          r_f(\boldsymbol{\sigma}_{n+1}) = f(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
+
 # $$ (eq_MC_1)
 #
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{g}^T,
-# r_f]^T$ and its argument vector $\boldsymbol{x} = [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$ we solve the following nonlinear equation:
+# r_f]^T$ and its argument vector $\boldsymbol{x} =
+# [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$ we solve the following nonlinear
+# equation:
 #
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
@@ -244,7 +256,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 # The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
 # return-mapping procedure and the solution defines the return-mapping
 # correction of the stress tensor. By implementation of the external operator
-# $\boldsymbol{\sigma}$ we mean the implementation of this procedure. 
+# $\boldsymbol{\sigma}$ we mean the implementation of this procedure.
 #
 # The automatic differentiation tools of the JAX library are applied to calculate
 # the derivatives $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}, \frac{\mathrm{d}
@@ -311,10 +323,13 @@ def A(theta, angle):
     )
 
 # def A(theta, angle):
-#     return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) + 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) * np.sin(angle))
+# return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) +
+# 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) *
+# np.sin(angle))
 
 # def B(theta, angle):
-#     return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) + 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
+# return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) +
+# 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
 
 def K(theta, angle):
     def K_false(theta):
@@ -355,9 +370,9 @@ def surface(sigma_local, angle):
     I1 = tr @ sigma_local
     theta_ = theta(s)
     return (
-        (I1 / 3.0 * np.sin(angle))
-        + jnp.sqrt(J2(s) * K(theta_, angle) * K(theta_, angle) + a_g(angle) * a_g(angle) * np.sin(angle) * np.sin(angle))
-        - c * np.cos(angle)
+        (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s) * K(theta_, angle) *
+        K(theta_, angle) + a_g(angle) * a_g(angle) * np.sin(angle) *
+        np.sin(angle))- c * np.cos(angle)
     )
     # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
 
@@ -377,9 +392,10 @@ dgdsigma = jax.jacfwd(g)
 # %% [markdown]
 # #### Solving constitutive equations
 #
-# In this section, we define the constitutive model by solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2`. They must be solved at each Gauss point, so we apply the
-# Newton method, implement the whole algorithm locally and then vectorize the
-# final result using `jax.vmap`.
+# In this section, we define the constitutive model by solving the systems
+# {eq}`eq_MC_1`--{eq}`eq_MC_2`. They must be solved at each Gauss point, so we
+# apply the Newton method, implement the whole algorithm locally and then
+# vectorize the final result using `jax.vmap`.
 #
 # In the following cell, we define locally the residual $\boldsymbol{r}$ and
 # its jacobian `drdx`.
@@ -530,7 +546,12 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 # output. In the context of the consistent tangent matrix this feature becomes
 # very useful, as there is no need to write additional algorithm computing the stress derivative.
 #
-# JAX's AD tool permits taking the derivative of the function `return_mapping`, which is factually the while loop. The derivative is taken with respect to the first output and the remaining outputs are used as auxiliary data. Thus, the derivative `dsigma_ddeps` returns both values of the consistent tangent matrix and the stress tensor, so there is no need in additional computation of stress tensor.
+# JAX's AD tool permits taking the derivative of the function `return_mapping`,
+# which is factually the while loop. The derivative is taken with respect to the
+# first output and the remaining outputs are used as auxiliary data. Thus, the
+# derivative `dsigma_ddeps` returns both values of the consistent tangent matrix
+# and the stress tensor, so there is no need in additional computation of stress
+# tensor.
 
 # %%
 def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
@@ -722,51 +743,51 @@ num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
 # %%
-for i, load in enumerate(load_steps):
-    q.value = load * np.array([0, 0, -gamma])
-    external_operator_problem.assemble_vector()
+# for i, load in enumerate(load_steps):
+#     q.value = load * np.array([0, 0, -gamma])
+#     external_operator_problem.assemble_vector()
 
-    residual_0 = external_operator_problem.b.norm()
-    residual = residual_0
-    Du.x.array[:] = 0
+#     residual_0 = external_operator_problem.b.norm()
+#     residual = residual_0
+#     Du.x.array[:] = 0
 
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+#     if MPI.COMM_WORLD.rank == 0:
+#         print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
 
-    for iteration in range(0, max_iterations):
-        if residual / residual_0 < relative_tolerance:
-            break
+#     for iteration in range(0, max_iterations):
+#         if residual / residual_0 < relative_tolerance:
+#             break
 
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tOuter Newton iteration #{iteration}")
-        external_operator_problem.assemble_matrix()
-        external_operator_problem.solve(du)
+#         if MPI.COMM_WORLD.rank == 0:
+#             print(f"\tOuter Newton iteration #{iteration}")
+#         external_operator_problem.assemble_matrix()
+#         external_operator_problem.solve(du)
 
-        Du.vector.axpy(1.0, du.vector)
-        Du.x.scatter_forward()
+#         Du.vector.axpy(1.0, du.vector)
+#         Du.x.scatter_forward()
 
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+#         evaluated_operands = evaluate_operands(F_external_operators)
+#         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
-        # Direct access to the external operator values
-        sigma.ref_coefficient.x.array[:] = sigma_new
-        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
+#         # Direct access to the external operator values
+#         sigma.ref_coefficient.x.array[:] = sigma_new
+#         # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
 
-        external_operator_problem.assemble_vector()
-        residual = external_operator_problem.b.norm()
+#         external_operator_problem.assemble_vector()
+#         residual = external_operator_problem.b.norm()
 
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tResidual: {residual}\n")
+#         if MPI.COMM_WORLD.rank == 0:
+#             print(f"\tResidual: {residual}\n")
 
-    u.vector.axpy(1.0, Du.vector)
-    u.x.scatter_forward()
+#     u.vector.axpy(1.0, Du.vector)
+#     u.x.scatter_forward()
 
-    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+#     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
-    if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+#     if len(points_on_process) > 0:
+#         results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
 
-print(f"Slope stability factor: {q.value[-1]*H/c}")
+# print(f"Slope stability factor: {q.value[-1]*H/c}")
 
 # %%
 # 20 - critical load # -5.884057971014492
@@ -780,13 +801,13 @@ print(f"Slope stability factor: {q.value[-1]*H/c}")
 # ### Critical load
 
 # %%
-if len(points_on_process) > 0:
-    plt.plot(-results[:, 0], results[:, 1], "o-")
-    plt.xlabel("Displacement of the slope at (0, 0, H)")
-    plt.ylabel(r"Soil self weight $\gamma$")
-    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
-    # plt.legend()
-    plt.show()
+# if len(points_on_process) > 0:
+#     plt.plot(-results[:, 0], results[:, 1], "o-")
+#     plt.xlabel("Displacement of the slope at (0, 0, H)")
+#     plt.ylabel(r"Soil self weight $\gamma$")
+#     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
+#     # plt.legend()
+#     plt.show()
 
 # %%
 print(f"Slope stability factor for 2D plane strain factor [Chen]: {6.69}")
@@ -817,15 +838,16 @@ if not pyvista.OFF_SCREEN:
 # We verify that the constitutive model is correctly implemented by tracing the
 # yield surface. We generate several stress paths and check whether they remain
 # within the yield surface. The stress tracing is performed in the
-# [Haigh–Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
+# [Haigh-Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
 # $(\xi, \rho, \theta)$ which are defined as follows
 #
-# $$ 
+# $$
 #     \xi = \frac{1}{3}I_1, \quad \rho =
 #     \sqrt{2J_2}, \quad \cos(3\theta) = \frac{3\sqrt{3}}{2}
 #     \frac{J_3}{J_2^{3/2}},
 # $$
-# where $J_3(\boldsymbol{\sigma}) = \det(\boldsymbol{s})$ is the third invariant of the deviatoric part of the stress tensor.
+# where $J_3(\boldsymbol{\sigma}) = \det(\boldsymbol{s})$ is the third invariant
+# of the deviatoric part of the stress tensor.
 #
 # TODO: Discuss this section with JB.
 
@@ -913,7 +935,8 @@ ax3 = fig.add_subplot(223, projection='3d')
 ax4 = fig.add_subplot(224, projection='3d')
 for j in range(12):
     for i in range(N_loads):
-        ax1.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) * angle_results[i], rho_results[i], '.', label='Load#'+str(i))
+        ax1.plot(j*np.pi/3 - j%2 * angle_results[i] + (1 - j%2) *
+        angle_results[i], rho_results[i], '.', label='Load#'+str(i))
 for i in range(N_loads):
     ax2.plot(angle_values, rho_v(dsigma_path), '.', label='Load#'+str(i))
     ax3.plot(sigma_results[i,:,0], sigma_results[i,:,1], sigma_results[i,:,2], '.')
@@ -1078,3 +1101,5 @@ du.vector.destroy()
 u.vector.destroy()
 
 
+
+# %%

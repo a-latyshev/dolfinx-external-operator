@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -543,7 +542,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     sigma_local = x_local[0][:4]
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
-    
+
     dlambda = x_local[0][-1]
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
@@ -745,7 +744,7 @@ J_form = fem.form(J_replaced)
 # NOTE: Actually we need to evaluate operators before the Newton solver
 # in order to assemble the matrix, where we expect elastic stiffness matrix
 # Shell we discuss it? The same states for the von Mises.
-Du.x.array[:] = 1.0  # any value allowing 
+Du.x.array[:] = 1.0  # any value allowing
 
 timer1 = common.Timer("1st JAX pass")
 timer1.start()
