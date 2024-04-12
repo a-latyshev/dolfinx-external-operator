@@ -175,11 +175,10 @@ nu = 0.25  # [-] Poisson ratio
 P_i_value = 3.45  # [MPa]
 
 c = 3.45  # [MPa] cohesion
-phi = 30 * np.pi / 180  # [rad] friction angle
-psi = 30 * np.pi / 180  # [rad] dilatancy angle
+phi = 25 * np.pi / 180  # [rad] friction angle
+psi = 25 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
-a = 0.5 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
-
+a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
@@ -223,7 +222,7 @@ S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_str
 S = fem.functionspace(mesh, S_element)
 
 
-Du = fem.Function(V, name="displacement_increment")
+Du = fem.Function(V, name="Du")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="du")
 v = ufl.TrialFunction(V)
@@ -231,7 +230,6 @@ u_ = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
-
 
 # %% [markdown]
 # ### Defining the external operator
@@ -252,91 +250,121 @@ sigma_n = fem.Function(S, name="sigma_n")
 
 
 # %%
-def J3(sigma_local):
-    return sigma_local[2] * (sigma_local[0] * sigma_local[1] - sigma_local[3] * sigma_local[3] / 2.0)
+def J3(s):
+    return s[2] * (s[0] * s[1] - s[3] * s[3] / 2.0)
+
+
+def J2(s):
+    return 0.5 * jnp.vdot(s, s)
+
+
+def theta(s):
+    J2_ = J2(s)
+    arg = -(3.0 * np.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2_ * J2_ * J2_))
+    arg = jnp.clip(arg, -1.0, 1.0)
+    theta = 1.0 / 3.0 * jnp.arcsin(arg)
+    return theta
+
+
+# def rho(s):
+#     return jnp.sqrt(2.0 * J2(s))
+
+
+def sign(x):
+    return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
 
 
 def coeff1(theta, angle):
-    return jnp.cos(theta_T) - (1.0 / (jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T))
+    return np.cos(theta_T) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.sin(theta_T)
 
 
 def coeff2(theta, angle):
-    return jnp.sign(theta) * jnp.sin(theta_T) + (1.0 / (jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.cos(theta_T))
+    return sign(theta) * np.sin(theta_T) + (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.cos(theta_T)
 
 
 # JSH: use float literals where you want floats.
-coeff3 = 18.0 * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T) * jnp.cos(3.0 * theta_T)
+coeff3 = 18.0 * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T)
 
 
 def C(theta, angle):
     return (
-        -jnp.cos(3.0 * theta_T) * coeff1(theta, angle)
-        - 3.0 * jnp.sign(theta) * jnp.sin(3.0 * theta_T) * coeff2(theta, angle)
+        -np.cos(3.0 * theta_T) * coeff1(theta, angle) - 3.0 * sign(theta) * np.sin(3.0 * theta_T) * coeff2(theta, angle)
     ) / coeff3
 
 
 def B(theta, angle):
     return (
-        jnp.sign(theta) * jnp.sin(6.0 * theta_T) * coeff1(theta, angle)
-        - 6.0 * jnp.cos(6.0 * theta_T) * coeff2(theta, angle)
+        sign(theta) * np.sin(6.0 * theta_T) * coeff1(theta, angle) - 6.0 * np.cos(6.0 * theta_T) * coeff2(theta, angle)
     ) / coeff3
 
 
 def A(theta, angle):
     return (
-        -(1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sign(theta) * jnp.sin(theta_T)
-        - B(theta, angle) * jnp.sign(theta) * jnp.sin(theta_T)
-        - C(theta, angle) * jnp.sin(3.0 * theta_T) * jnp.sin(3.0 * theta_T)
-        + jnp.cos(theta_T)
+        -(1.0 / np.sqrt(3.0)) * np.sin(angle) * sign(theta) * np.sin(theta_T)
+        - B(theta, angle) * sign(theta) * np.sin(3 * theta_T)
+        - C(theta, angle) * np.sin(3.0 * theta_T) * np.sin(3.0 * theta_T)
+        + np.cos(theta_T)
     )
 
 
-def K(theta, angle):
-    def K_true(theta, angle):
-        return jnp.cos(theta) - (1.0 / jnp.sqrt(3.0)) * jnp.sin(angle) * jnp.sin(theta)
+# def A(theta, angle):
+# return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) +
+# 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) *
+# np.sin(angle))
 
-    def K_false(theta, angle):
+# def B(theta, angle):
+# return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) +
+# 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
+
+
+def K(theta, angle):
+    def K_false(theta):
+        return jnp.cos(theta) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * jnp.sin(theta)
+
+    def K_true(theta):
         return (
             A(theta, angle)
             + B(theta, angle) * jnp.sin(3.0 * theta)
             + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
         )
 
-    return jax.lax.cond(jnp.abs(theta) < theta_T, K_true, K_false, theta, angle)
+    # def K_true(theta):
+    #     return (
+    #         A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
+    #     )
+
+    return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta)
 
 
 def a_G(angle):
-    return a * jnp.tan(phi) / jnp.tan(angle)
+    return a * np.tan(phi) / np.tan(angle)
+
+
+dev = np.array(
+    [
+        [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
+        [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
+        [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ],
+    dtype=PETSc.ScalarType,
+)
+tr = np.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
 
 
 def surface(sigma_local, angle):
     # AL: Maybe it's more efficient to use untracable np.array?
-    dev = jnp.array(
-        [
-            [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
-            [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ],
-        dtype=PETSc.ScalarType,
-    )
-
     s = dev @ sigma_local
-
-    tr = jnp.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
     I1 = tr @ sigma_local
-
-    J2 = 0.5 * jnp.vdot(s, s)
-
-    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2 * J2 * J2))
-    arg = jnp.clip(arg, -1.0, 1.0)
-
-    theta = 1.0 / 3.0 * jnp.arcsin(arg)
+    theta_ = theta(s)
     return (
-        (I1 / 3.0 * jnp.sin(angle))
-        + jnp.sqrt(J2 * K(theta, angle) * K(theta, angle) + a_G(angle) * a_G(angle) * jnp.sin(angle) * jnp.sin(angle))
-        - c * jnp.cos(angle)
+        (I1 / 3.0 * np.sin(angle))
+        + jnp.sqrt(
+            J2(s) * K(theta_, angle) * K(theta_, angle) + a_G(angle) * a_G(angle) * np.sin(angle) * np.sin(angle)
+        )
+        - c * np.cos(angle)
     )
+    # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
 
 
 # %% [markdown]
@@ -345,20 +373,28 @@ def surface(sigma_local, angle):
 
 
 # %%
-
-
 # JSH: Does this trace phi and psi as static constants?
 def f_MC(sigma_local):
     return surface(sigma_local, phi)
+    # s = dev @ sigma_local
+    # J2 = 0.5 * jnp.vdot(s, s)
+    # f_vM = jnp.sqrt(3*J2) - c# von Mises
+    # sigma_I = sigma_local[0]
+    # sigma_II = sigma_local[1]
+    # sigma_III = sigma_local[2]
+    # term1 = 0.5 * jnp.abs(sigma_I - sigma_II) - 0.5 * (sigma_I + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
+    # term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
+    # term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
+    # f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
+    # return f_MC_classic
 
 
 def g_MC(sigma_local):
-    return surface(sigma_local, psi)
+    # return surface(sigma_local, psi)
+    return f_MC(sigma_local)
 
 
-# JSH: Isn't argnums the default?
-dgdsigma = jax.jacfwd(g_MC, argnums=(0))
-
+dgdsigma = jax.jacfwd(g_MC)
 
 # %% [markdown]
 # #### Solving constitutive equations
@@ -417,6 +453,8 @@ C_elas = np.array(
     ],
     dtype=PETSc.ScalarType,
 )
+S_elas = np.linalg.inv(C_elas)
+ZERO_VECTOR = np.zeros(4, dtype=PETSc.ScalarType)
 
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
@@ -424,7 +462,7 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     yielding = f_MC(sigma_elas_local)
 
     def deps_p_elastic(sigma_local, dlambda):
-        return jnp.zeros(4, dtype=PETSc.ScalarType)
+        return ZERO_VECTOR
 
     def deps_p_plastic(sigma_local, dlambda):
         return dlambda * dgdsigma(sigma_local)
@@ -476,6 +514,9 @@ Nitermax, tol = 200, 1e-8
 
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
+ZERO_SCALAR = np.array([0.0])
+
+
 def sigma_return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
 
@@ -485,7 +526,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     """
     niter = 0
 
-    dlambda = jnp.array([0.0])
+    dlambda = ZERO_SCALAR
     sigma_local = sigma_n_local
     x_local = jnp.concatenate([sigma_local, dlambda])
 
@@ -521,9 +562,28 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     sigma_elas_local = C_elas @ deps_local
     yielding = f_MC(sigma_n_local + sigma_elas_local)
 
-    return sigma_local, (sigma_local, niter_total, yielding, norm_res)
+    dlambda = x_local[0][-1]
+
+    return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
     # return sigma_local, (sigma_local,)
 
+
+def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
+    x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
+    j = drdx(x_local, deps_local, sigma_n_local)
+    H = jnp.linalg.inv(j)[:4, :4] @ C_elas
+    return H
+
+    # A = j[:4,:4]
+    # n = j[4,:4] # dfdsigma
+    # m = j[:4,4] # dgdsigma
+    # H = jnp.linalg.inv(A) @ C_elas
+    # term_tmp = n.T @ H @ m
+    # term = jax.lax.cond(term_tmp == 0.0, lambda x : 1., lambda x: x, term_tmp)
+    # return H - jnp.outer((H @ m), (H @ n)) / term, term
+
+
+C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 
 # %% [markdown]
 # The `return_mapping` function returns a tuple with two elements. The first
@@ -553,6 +613,32 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 # define the final implementation of the external operator derivative.
 
 # %%
+dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
+
+
+def sigma_impl(deps):
+    deps_ = deps.reshape((-1, 4))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+
+    (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    C_tang_global, niter, yielding, norm_res = state
+
+    unique_iters, counts = jnp.unique(niter, return_counts=True)
+
+    # NOTE: The following code prints some details about the second Newton
+    # solver, solving the constitutive equations. Do we need this or it's better
+    # to have the code as clean as possible?
+
+    print("\tInner Newton summary:")
+    print(f"\t\tUnique number of iterations: {unique_iters}")
+    print(f"\t\tCounts of unique number of iterations: {counts}")
+    print(f"\t\tMaximum F: {jnp.max(yielding)}")
+    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+
+    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
+
+
+# %%
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
@@ -562,7 +648,18 @@ def C_tang_impl(deps):
     sigma_n_ = sigma_n.x.array.reshape((-1, 4))
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    sigma_global, niter, yielding, norm_res = state
+    sigma_global, niter, yielding, norm_res, dlambda = state
+
+    # C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
+
+    # maxxx = -1.
+    # i_max = 0
+    # for i in range(len(C_tang_global.reshape(-1, 4, 4))):
+    #     eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
+    #     if eps > maxxx:
+    #         maxxx = eps
+    #         i_max = i
+    # print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -570,7 +667,7 @@ def C_tang_impl(deps):
     # solver, solving the constitutive equations. Do we need this or it's better
     # to have the code as clean as possible?
 
-    print("\tInner Newton iteration summary")
+    print("\tInner Newton summary:")
     print(f"\t\tUnique number of iterations: {unique_iters}")
     print(f"\t\tCounts of unique number of iterations: {counts}")
     print(f"\t\tMaximum F: {jnp.max(yielding)}")
@@ -588,6 +685,8 @@ def C_tang_impl(deps):
 
 # %%
 def sigma_external(derivatives):
+    # if derivatives == (0,):
+    #     return sigma_impl
     if derivatives == (1,):
         return C_tang_impl
     else:
@@ -623,15 +722,53 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
+# %%
+# # Simple Taylor test
+# # J(Du0 + h*δu) - J(Du0) - h*dJ(Du0)*δu
+# Du0 = 100.0
+# Du.x.array[:] = Du0
+# δu = fem.Function(V, name="δu")
+# δu.x.array[:] = 300000.0
+
+# F = ufl.inner(u_, Du)*ufl.dx
+# J = ufl.algorithms.compute_form_action(ufl.derivative(F, Du, u_hat), Du)
+# F = ufl.algorithms.compute_form_action(F, Du)
+# J = ufl.algorithms.compute_form_action(J, Du)
+# J_form = fem.form(J)
+# J_0 = fem.assemble_scalar(J_form) # J(Du0)
+# dJ = ufl.derivative(J, Du, u_)
+# dJ_0 = fem.petsc.assemble_vector(fem.form(dJ)) # dJ(Du0)
+# dJ_0_dot_δu = dJ_0.dot(δu.vector) # dJ(Du0)*δu
+
+# h_list = 1e-2*np.power(2., -np.arange(32))
+# conv = np.empty_like(h_list)
+
+# for i, h in enumerate(h_list):
+#     Du.x.array[:] = Du0 + h * δu.x.array
+#     J = fem.assemble_scalar(J_form)
+#     diff = J - J_0 - h * dJ_0_dot_δu
+#     conv[i] = diff
+
+# print(fem.assemble_scalar(J_form), '\n', fem.assemble_scalar(fem.form(F)))
+# print(F, '\n', J)
+# plt.loglog(h_list, conv)
+# plt.loglog(h_list, h_list**2, label=r'$h^2$')
+# plt.loglog(h_list, h_list, label=r'$h$')
+
+# plt.xlabel('h')
+# plt.ylabel('second-order Taylor remainder')
+# plt.legend()
+
 # %% [markdown]
 # ### Variables initialization and compilation
 # Before solving the problem it is required.
+
 # %%
 # Initialize variables to start the algorithm
 # NOTE: Actually we need to evaluate operators before the Newton solver
 # in order to assemble the matrix, where we expect elastic stiffness matrix
 # Shell we discuss it? The same states for the von Mises.
-Du.x.array[:] = 1.0  # still the elastic flow
+Du.x.array[:] = 1.0  # any value allowing
 
 timer1 = common.Timer("1st JAX pass")
 timer1.start()
@@ -658,10 +795,166 @@ evaluated_operands = evaluate_operands(F_external_operators)
 timer3.stop()
 
 # %%
+# Du0 = 1.0
+# # sigma_n.x.array.reshape((-1, 4))[:] = np.array([0.5, 0.0, 0., 0.])
+# Du.x.array[:] = Du0
+# δu = fem.Function(V, name="δu")
+# δu.x.array[:] = 100
+
+# evaluated_operands = evaluate_operands(F_external_operators)
+# ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+# sigma.ref_coefficient.x.array[:] = sigma_new
+# sigma_n.x.array[:] = sigma_new
+
+# %%
+# # Du.x.array.reshape((-1, 2))[:][0] = 0.00000001
+
+# evaluated_operands = evaluate_operands(F_external_operators)
+# ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+# sigma.ref_coefficient.x.array[:] = sigma_new
+
+# %%
+Du0e = np.copy(Du.x.array)
+sigma_n0 = np.copy(sigma_n.x.array)
+
+# %%
+Du0 = Du0e
+Du.x.array[:] = Du0
+sigma_n.x.array[:] = sigma_n0
+δu = fem.Function(V, name="δu")
+δu.x.array[:] = Du0
+evaluated_operands = evaluate_operands(F_external_operators)
+((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+sigma.ref_coefficient.x.array[:] = sigma_new
+# sigma_n.x.array[:] = sigma_new
+
+
+# %%
+# # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+# F_form = fem.form(F_replaced)
+# F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
+# F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+# J_form = fem.form(J_replaced)
+# J_matrix = fem.petsc.assemble_matrix(J_form)
+# J_matrix.assemble()
+# y = J_matrix.createVecLeft() # y = J * x
+
+# h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+
+# first_order_remainder = np.zeros_like(h_list)
+# second_order_remainder = np.zeros_like(h_list)
+
+# for i, h in enumerate(h_list):
+#     Du.x.array[:] = Du0 + h * δu.x.array
+#     evaluated_operands = evaluate_operands(F_external_operators)
+#     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+#     sigma.ref_coefficient.x.array[:] = sigma_new
+#     sigma_n.x.array[:] = sigma_new
+
+#     # Du.x.array[:] = Du0 + h * δu.x.array
+
+#     F_delta = fem.petsc.assemble_vector(F_form)
+#     F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+#     # Du.x.array[:] = Du0
+#     # J_matrix.zeroEntries()
+#     # fem.petsc.assemble_matrix(J_matrix, J_form)
+#     # J_matrix.assemble()
+#     J_matrix.mult(δu.vector, y)
+#     y.scale(h)
+
+#     first_order_remainder[i] = (F_delta - F0).norm()
+#     second_order_remainder[i] = (F_delta - F0 - y).norm()
+
+# %%
+# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+F_scalar = ufl.algorithms.compute_form_action(F_replaced, δu)
+F_scalar_form = fem.form(F_scalar)
+F0 = fem.assemble_scalar(F_scalar_form)  # F(Du0)
+
+J_vector = ufl.algorithms.compute_form_action(J_replaced, δu)
+J_vector_form = fem.form(J_vector)
+J0 = fem.petsc.assemble_vector(J_vector_form)  # J(Du0)
+J0_dot_δu = J0.dot(δu.vector)  # dJ(Du0)*δu
+
+
+h_list = np.logspace(-1.0, -4.0, 6)[::-1]
+
+# first_order_remainder = np.zeros_like(h_list)
+# second_order_remainder = np.zeros_like(h_list)
+
+# for i, h in enumerate(h_list):
+#     Du.x.array[:] = Du0 + h * δu.x.array
+#     evaluated_operands = evaluate_operands(F_external_operators)
+#     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+#     sigma.ref_coefficient.x.array[:] = sigma_new
+#     # sigma_n.x.array[:] = sigma_new
+
+# J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
+# J_vector_form = fem.form(J_vector)
+# J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
+# J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
+
+#     F_scalar = fem.assemble_scalar(F_scalar_form)
+
+#     first_order_remainder[i] = np.abs(F_scalar - F0)
+#     second_order_remainder[i] = np.abs(F_scalar - F0 - h * J0_dot_δu)
+
+
+# # %%
+# fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+# axs[0].plot(h_list, first_order_remainder, 'o-', label="1st order")
+# axs[0].plot(h_list, second_order_remainder, 'o-', label="2nd order")
+# axs[0].set_title(r"$|F(\Delta u_0 + hδu) - F(\Delta u_0) - hJ(\Delta u_0)δu|$")
+# axs[0].set_ylabel('Taylor remainder')
+# axs[0].set_xlabel('h')
+# axs[0].legend()
+
+# axs[1].loglog(h_list, first_order_remainder, 'o-', label="1st order")
+# axs[1].loglog(h_list, second_order_remainder, 'o-', label="2nd order")
+# axs[1].loglog(h_list, h_list, label=r"$O(h)$")
+# axs[1].loglog(h_list, h_list**2, label=r"$O(h^2)$")
+# axs[1].set_title("Log scale")
+# axs[1].set_yscale('log')
+# axs[1].legend()
+# axs[1].set_ylabel('first-order Taylor remainder')
+# axs[1].set_xlabel('h')
+
+# plt.tight_layout()
+# plt.show()
+# first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder), 1)[0]
+# second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder), 1)[0]
+
+# print(first_order_rate)
+# print(second_order_rate)
+
+# # %%
+# second_order_rate = np.polyfit(np.log(h_list[-3:-1]), np.log(second_order_remainder[-3:-1]), 1)[0]
+# second_order_rate
+
+
+# # %%
+# second_order_remainder
+
+
+# # %%
+# 1.004993836703281
+# 1.0093125656977548
+
+# # %%
+# 0.2412775313310373
+# 0.2390018855008281
+
+# # %%
+# np.polyfit(np.log(h_list[1:]), np.log(second_order_remainder[1:]), 1)[0]
+
+
+# %%
 # TODO: Is there a more elegant way to extract the data?
 # TODO: Maybe we analyze the compilation time in-place?
 common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
-
 
 # %% [markdown]
 # ### Solving the problem
@@ -685,11 +978,14 @@ cells, points_on_process = find_cell_by_point(mesh, x_point)
 # %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
-num_increments = 20
-load_steps = np.linspace(0.9, 5, num_increments, endpoint=True)[1:]
-results = np.zeros((num_increments, 2))
+load_steps_1 = np.linspace(3, 36.7, 10)
+load_steps_2 = np.linspace(36.7, 36.83, 2)[1:]
+load_steps_3 = np.linspace(36.83, 36.84, 5)[1:]
+load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
+num_increments = len(load_steps)
+results = np.zeros((num_increments + 1, 2))
 
-for i, load in enumerate(load_steps):
+for i, load in enumerate(load_steps[:1]):
     P_i.value = load
     external_operator_problem.assemble_vector()
 
@@ -698,14 +994,14 @@ for i, load in enumerate(load_steps):
     Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment: {i}, load: {load}, initial residual: {residual_0}")
+        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
 
     for iteration in range(0, max_iterations):
         if residual / residual_0 < relative_tolerance:
             break
 
         if MPI.COMM_WORLD.rank == 0:
-            print(f"\tOuter Newton iteration {iteration}")
+            print(f"\tOuter Newton iteration #{iteration}")
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
 
@@ -714,7 +1010,9 @@ for i, load in enumerate(load_steps):
 
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        # ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
         sigma.ref_coefficient.x.array[:] = sigma_new
+        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
 
         external_operator_problem.assemble_vector()
         residual = external_operator_problem.b.norm()
@@ -731,16 +1029,141 @@ for i, load in enumerate(load_steps):
         results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
 
 # %% [markdown]
-# ### Post-processing
+# ## Post-processing
 
 # %%
 if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "-o", label="via ExternalOperator")
+    plt.plot(results[:, 0], results[:, 1], "o-", label="via ExternalOperator")
     plt.xlabel("Displacement of inner boundary")
     plt.ylabel(r"Applied pressure $q/q_{lim}$")
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
-    plt.legend()
+    # plt.legend()
     plt.show()
+
+
+# %%
+
+# %% [markdown]
+# ## Verification
+
+
+# %%
+def rho(sigma_local):
+    s = dev @ sigma_local
+    return jnp.sqrt(2.0 * J2(s))
+
+
+def angle(sigma_local):
+    s = dev @ sigma_local
+    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2(s) * J2(s) * J2(s)))
+    arg = jnp.clip(arg, -1.0, 1.0)
+    angle = 1.0 / 3.0 * jnp.arcsin(arg)
+    return angle
+
+
+def sigma_tracing(sigma_local, sigma_n_local):
+    deps_elas = S_elas @ sigma_local
+    sigma_corrected, state = sigma_return_mapping(deps_elas, sigma_n_local)
+    yielding = state[2]
+    return sigma_corrected, yielding
+
+
+angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
+rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
+sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
+
+# %%
+N_angles = 200
+N_loads = 10
+angle_values = np.linspace(0, 2 * np.pi, N_angles)
+# angle_values = np.concatenate([np.linspace(-np.pi/6, np.pi/6, 100), np.linspace(5*np.pi/6, 7*np.pi/6, 100)])
+R_values = np.linspace(0.4, 5, N_loads)
+p = 2.0
+
+dsigma_paths = np.zeros((N_loads, N_angles, 4))
+
+for i, R in enumerate(R_values):
+    dsigma_paths[i, :, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
+    dsigma_paths[i, :, 1] = np.sqrt(2.0 / 3.0) * R * np.sin(angle_values - np.pi / 6.0)
+    dsigma_paths[i, :, 2] = np.sqrt(2.0 / 3.0) * R * np.sin(-angle_values - np.pi / 6.0)
+
+# %%
+angle_results = np.empty((N_loads, N_angles))
+rho_results = np.empty((N_loads, N_angles))
+sigma_results = np.empty((N_loads, N_angles, 4))
+sigma_n_local = np.full((N_angles, 4), p)
+derviatoric_axis = np.array([1, 1, 1, 0])
+
+for i, R in enumerate(R_values):
+    print(f"Loading#{i} {R}")
+    dsigma, yielding = sigma_tracing_vec(dsigma_paths[0], sigma_n_local)
+    p_tmp = dsigma @ tr / 3.0
+    dp = p_tmp - p
+    dsigma -= np.outer(dp, derviatoric_axis)
+    p_tmp = dsigma @ tr / 3.0
+    sigma_results[i, :] = dsigma
+    print(f"{jnp.max(yielding)} {np.max(p_tmp)}\n")
+    angle_results[i, :] = angle_v(dsigma)
+    rho_results[i, :] = rho_v(dsigma)
+    sigma_n_local[:] = dsigma
+
+
+# Show the plot
+plt.show()
+
+# %%
+fig, ax = plt.subplots(nrows=1, ncols=2, subplot_kw={"projection": "polar"}, figsize=(10, 15))
+# fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
+for i in range(N_loads):
+    ax[0].plot(angle_results[i], rho_results[i], ".", label="Load#" + str(i))
+    ax[0].plot(np.repeat(np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
+    ax[0].plot(np.repeat(-np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
+    ax[1].plot(angle_values, rho_v(dsigma_paths[i]), ".", label="Load#" + str(i))
+    ax[0].set_title(r"Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$")
+    ax[1].set_title(r"Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$")
+plt.legend()
+fig.tight_layout()
+
+# %%
+
+# %%
+fig = plt.figure(figsize=(15, 10))
+# fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
+ax1 = fig.add_subplot(221, polar=True)
+ax2 = fig.add_subplot(222, polar=True)
+ax3 = fig.add_subplot(223, projection="3d")
+ax4 = fig.add_subplot(224, projection="3d")
+for j in range(12):
+    for i in range(N_loads):
+        ax1.plot(
+            j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i],
+            rho_results[i],
+            ".",
+            label="Load#" + str(i),
+        )
+
+for i in range(N_loads):
+    ax2.plot(angle_values, rho_v(dsigma_paths[i]), ".", label="Load#" + str(i))
+    ax3.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
+    ax4.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
+
+ax1.plot(np.repeat(np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
+ax1.plot(np.repeat(-np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
+z_min = np.min(sigma_results[:, :, 2])
+z_max = np.max(sigma_results[:, :, 2])
+ax4.plot(np.array([p, p]), np.array([p, p]), np.array([z_min, z_max]), linestyle="-", color="black")
+
+ax1.set_title(r"Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$")
+ax2.set_title(r"Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$")
+ax3.view_init(azim=45)
+
+for ax in [ax3, ax4]:
+    ax.set_xlabel(r"$\sigma_{I}$")
+    ax.set_ylabel(r"$\sigma_{II}$")
+    ax.set_zlabel(r"$\sigma_{III}$")
+    ax.set_title(r"In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space")
+plt.legend()
+fig.tight_layout()
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
@@ -755,3 +1178,160 @@ external_operator_problem.__del__()
 Du.vector.destroy()
 du.vector.destroy()
 u.vector.destroy()
+
+
+# %%
+# #### Some tests
+# def f_MC_to_plot(sigma_I, sigma_II, sigma_III):
+#     sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
+#     return f_MC(sigma_local)
+
+# f_MC_to_plot_vec = jax.vmap(f_MC_to_plot)
+# sigma_I = sigma_II = np.array([1., 2.0])
+# sigma_III = np.array([0.0, 0.0])
+# f_MC_to_plot_vec(sigma_I, sigma_II, sigma_III)
+# sigma_I = sigma_II = np.arange(1.0, 3.0, 0.05)
+# X, Y = np.meshgrid(sigma_I, sigma_II)
+# sigma_III = np.zeros_like(X)
+# Z = f_MC_to_plot_vec(X.reshape(-1), Y.reshape(-1), sigma_III.reshape(-1)).reshape(X.shape)
+# # %matplotlib widget
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+# fig = plt.figure()
+# ax = Axes3D(fig)
+# ax.set_zlim(-1, 1)
+# ax.plot_surface(X, Y, Z)
+# sigma_local = jnp.array([0.00001, 0.00001, 0.0, 0.0])
+# f_MC(sigma_local)
+# def von_mises(sigma_I, sigma_II, sigma_III):
+#     sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
+#     dev = jnp.array(
+#         [
+#             [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
+#             [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
+#             [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
+#             [0.0, 0.0, 0.0, 1.0],
+#         ],
+#         dtype=PETSc.ScalarType,
+#     )
+#     s = dev @ sigma_local
+
+#     return jnp.sqrt(3*0.5 * jnp.vdot(s, s))
+
+# von_mises_vec = jax.vmap(von_mises)
+# one = np.ones(100)
+# R = 5.
+# u = np.linspace(0, np.pi/2, 100)
+# x = R * np.outer(np.cos(u), one)
+# y = R * np.outer(np.sin(u), one)
+# z = np.outer(np.linspace(0.5, 10, 100), one)
+# R = 5.
+# height = 10
+# resolution = 100
+# theta = np.linspace(0, 2*np.pi, resolution)
+# z = np.linspace(0.1, height, resolution)
+# theta, z = np.meshgrid(theta, z)
+# x = R * np.cos(theta)
+# y = R * np.sin(theta)
+# # x = R * z/height * np.cos(theta)
+# # y = R * z/height * np.sin(theta)
+# F = f_MC_to_plot_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
+# F = von_mises_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
+# import matplotlib.pyplot as plt
+# # from mpl_toolkits.mplot3d import Axes3D
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+# ax.plot_surface(x, y, F)
+
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+
+# # Generate data points for the von Mises yield surface
+# theta = np.linspace(0, 2 * np.pi, 100)
+# phi = np.linspace(0, np.pi, 100)
+# theta, phi = np.meshgrid(theta, phi)
+# sigma_1 = np.sin(theta) * np.cos(phi)
+# sigma_2 = np.sin(theta) * np.sin(phi)
+# sigma_3 = np.cos(theta)
+# von_mises = np.sqrt(sigma_1**2 + sigma_2**2 + sigma_3**2 - sigma_1*sigma_2 - sigma_2*sigma_3 - sigma_3*sigma_1)
+
+# # Create a 3D plot
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+
+# # Plot the von Mises yield surface
+# ax.plot_surface(sigma_1, sigma_2, sigma_3, cmap='viridis', edgecolor='none')
+
+# # Set labels and title
+# ax.set_xlabel('Sigma 1')
+# ax.set_ylabel('Sigma 2')
+# ax.set_zlabel('Sigma 3')
+# ax.set_title('Von Mises Yield Surface')
+
+# # Show the plot
+# plt.show()
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+
+# # Parameters for the cone
+# radius = 1
+# height = 2
+# resolution = 100
+
+# # Generate data points for the surface of the cone
+# theta = np.linspace(0, 2*np.pi, resolution)
+# z = np.linspace(0, height, resolution)
+# theta, z = np.meshgrid(theta, z)
+# x = radius * (1 - z/height) * np.cos(theta)
+# y = radius * (1 - z/height) * np.sin(theta)
+
+# # Create a 3D plot
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+
+# # Plot the surface of the cone
+# ax.plot_surface(x, y, z, color='b', alpha=0.5)
+
+# # Set labels and title
+# ax.set_xlabel('X')
+# ax.set_ylabel('Y')
+# ax.set_zlabel('Z')
+# ax.set_title('Yield Surface: Cone')
+
+# # Show the plot
+# plt.show()
+# z.shape
+# u = np.linspace(0, 2 * np.pi, 100)
+# v = np.linspace(0, np.pi, 100)
+# v = np.full((100), np.pi/2)
+# x = np.outer(np.cos(u), np.sin(v))
+# x
+
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+
+# # Generate data points for a sphere
+# u = np.linspace(0, 2 * np.pi, 100)
+# v = np.linspace(0, np.pi, 100)
+# x = np.outer(np.cos(u), np.sin(v))
+# y = np.outer(np.sin(u), np.sin(v))
+# z = np.outer(np.ones(np.size(u)), np.cos(v))
+
+# # Create a 3D plot
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+
+# # Plot the sphere
+# ax.plot_surface(x, y, z, color='b', alpha=0.5)
+
+# # Set labels and title
+# ax.set_xlabel('X')
+# ax.set_ylabel('Y')
+# ax.set_zlabel('Z')
+# ax.set_title('Yield Surface')
+
+# # Show the plot
+# plt.show()

@@ -9,5 +9,5 @@ parts:
           - file: "demos/nonlinear_heat_equation_part2.py"
           - file: "demos/nonlinear_heat_equation_part3.py"
       - file: "demos/plasticity_von_mises.py"
-      - file: "demos/plasticity_mohr_coulomb.py"
+      - file: "demos/slope_stability.py"
       - file: "demos/simple_example.md"
