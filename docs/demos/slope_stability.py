@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -977,7 +976,7 @@ for i in range(N_loads):
     print(f"Loading#{i}")
     dsigma, yielding = sigma_tracing_vec(dsigma_path, sigma_n_local)
     dp = dsigma @ tr / 3.0 - p
-    dsigma -= np.outer(dp, derviatoric_axis) # projection on the same octahedral plane
+    dsigma -= np.outer(dp, derviatoric_axis)  # projection on the same octahedral plane
 
     sigma_results[i, :] = dsigma
     angle_results[i, :] = angle_v(dsigma)
@@ -1046,14 +1045,20 @@ fig.tight_layout()
 #
 # We can verify the provided by JAX programs correctly evaluate derivatives via correct approximation of the .
 #
-# The consequence of Taylor's theorem on Banach spaces is that for a perturbation $\boldsymbol{δu} \in V$ the first and second order Taylor reminders $R_1$ and $R_2$ of the functional $F: V \to \mathbb{R}$? has the following convergence rate
+# The consequence of Taylor's theorem on Banach spaces is that for a
+# perturbation $\boldsymbol{δu} \in V$ the first and second order Taylor reminders
+# $R_1$ and $R_2$ of the functional $F: V \to \mathbb{R}$? has the following
+# convergence rate
 #
 # $$
-#     R_1 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) - F(\boldsymbol{u}; \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h),
+# R_1 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
+# F(\boldsymbol{u}; \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h),
 # $$
 #
 # $$
-#     R_2 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) - F(\boldsymbol{u}; \boldsymbol{v}) - h \, J(\boldsymbol{u}; \hat{\boldsymbol{u}}, \boldsymbol{v})\boldsymbol{δu} | \longrightarrow 0 \text{ at } O(h^2),
+# R_2 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
+# F(\boldsymbol{u}; \boldsymbol{v}) - h \, J(\boldsymbol{u}; \hat{\boldsymbol{u}},
+# \boldsymbol{v})\boldsymbol{δu} | \longrightarrow 0 \text{ at } O(h^2),
 # $$
 #
 # The Taylor test is performed for the following values of $h$ = .
@@ -1120,6 +1125,7 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # %%
 h_list = np.logspace(-1.0, -5.0, 6)[::-1]
 
+
 def perform_Taylor_test(Du0, sigma_n0):
     # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
     Du.x.array[:] = Du0
@@ -1136,7 +1142,7 @@ def perform_Taylor_test(Du0, sigma_n0):
     y = J0.createVecLeft()  # y = J0 @ x
 
     δu = fem.Function(V)
-    δu.x.array[:] = Du0 # δu == Du0
+    δu.x.array[:] = Du0  # δu == Du0
 
     first_order_remainder = np.zeros_like(h_list)
     second_order_remainder = np.zeros_like(h_list)
