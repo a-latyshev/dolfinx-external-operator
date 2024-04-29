@@ -21,486 +21,535 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
-R_e, R_i = 1.3, 1.0  # external/internal radius
+def benchmarking(lc):
+    R_e, R_i = 1.3, 1.0  # external/internal radius
 
-E, nu = 70e3, 0.3  # elastic parameters
-E_tangent = E / 100.0  # tangent modulus
-H = E * E_tangent / (E - E_tangent)  # hardening modulus
-sigma_0 = 250.0  # yield strength
+    E, nu = 70e3, 0.3  # elastic parameters
+    E_tangent = E / 100.0  # tangent modulus
+    H = E * E_tangent / (E - E_tangent)  # hardening modulus
+    sigma_0 = 250.0  # yield strength
 
-lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
-mu = E / 2.0 / (1.0 + nu)
-# stiffness matrix
-C_elas = np.array(
-    [
-        [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
-        [lmbda, lmbda + 2.0 * mu, lmbda, 0.0],
-        [lmbda, lmbda, lmbda + 2.0 * mu, 0.0],
-        [0.0, 0.0, 0.0, 2.0 * mu],
-    ],
-    dtype=PETSc.ScalarType,
-)
+    lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
+    mu = E / 2.0 / (1.0 + nu)
+    # stiffness matrix
+    C_elas = np.array(
+        [
+            [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
+            [lmbda, lmbda + 2.0 * mu, lmbda, 0.0],
+            [lmbda, lmbda, lmbda + 2.0 * mu, 0.0],
+            [0.0, 0.0, 0.0, 2.0 * mu],
+        ],
+        dtype=PETSc.ScalarType,
+    )
 
-deviatoric = np.eye(4, dtype=PETSc.ScalarType)
-deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
+    deviatoric = np.eye(4, dtype=PETSc.ScalarType)
+    deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-mesh, facet_tags, facet_tags_labels = build_cylinder_quarter()
+    mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(lc=lc, R_e=R_e, R_i=R_i)
 
-k_u = 2
-V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
-# Boundary conditions
-bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
-left_facets = facet_tags.find(facet_tags_labels["Ly"])
+    k_u = 2
+    V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
+    # Boundary conditions
+    bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
+    left_facets = facet_tags.find(facet_tags_labels["Ly"])
 
-bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim - 1, bottom_facets)
-left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim - 1, left_facets)
+    bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim - 1, bottom_facets)
+    left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim - 1, left_facets)
 
-sym_bottom = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
-sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
+    sym_bottom = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
+    sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
 
-bcs = [sym_bottom, sym_left]
+    bcs = [sym_bottom, sym_left]
 
 
-def epsilon(v):
-    grad_v = ufl.grad(v)
-    return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
+    def epsilon(v):
+        grad_v = ufl.grad(v)
+        return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
 
-k_stress = 2 * (k_u - 1)
-ds = ufl.Measure(
-    "ds",
-    domain=mesh,
-    subdomain_data=facet_tags,
-    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
-)
+    k_stress = 2 * (k_u - 1)
+    ds = ufl.Measure(
+        "ds",
+        domain=mesh,
+        subdomain_data=facet_tags,
+        metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
+    )
 
-dx = ufl.Measure(
-    "dx",
-    domain=mesh,
-    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
-)
-
-def via_numba(verbose=False):
-    Du = fem.Function(V, name="displacement_increment")
+    dx = ufl.Measure(
+        "dx",
+        domain=mesh,
+        metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
+    )
     S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
     S = fem.functionspace(mesh, S_element)
-    sigma = FEMExternalOperator(epsilon(Du), function_space=S)
-
-    n = ufl.FacetNormal(mesh)
-    loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
-
-    v = ufl.TestFunction(V)
-    F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
-
     # Internal state
     P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
     P = fem.functionspace(mesh, P_element)
 
-    p = fem.Function(P, name="cumulative_plastic_strain")
-    dp = fem.Function(P, name="incremental_plastic_strain")
-    sigma_n = fem.Function(S, name="stress_n")
+    def via_numba(verbose=False):
+        Du = fem.Function(V, name="displacement_increment")
 
-    num_quadrature_points = P_element.dim
+        sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 
-    @numba.njit
-    def return_mapping(deps_, sigma_n_, p_):
-        """Performs the return-mapping procedure."""
-        num_cells = deps_.shape[0]
+        n = ufl.FacetNormal(mesh)
+        loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
-        C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
-        sigma_ = np.empty_like(sigma_n_)
-        dp_ = np.empty_like(p_)
+        v = ufl.TestFunction(V)
+        F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
-        def _kernel(deps_local, sigma_n_local, p_local):
-            """Performs the return-mapping procedure locally."""
-            sigma_elastic = sigma_n_local + C_elas @ deps_local
-            s = deviatoric @ sigma_elastic
-            sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
+        p = fem.Function(P, name="cumulative_plastic_strain")
+        dp = fem.Function(P, name="incremental_plastic_strain")
+        sigma_n = fem.Function(S, name="stress_n")
 
-            f_elastic = sigma_eq - sigma_0 - H * p_local
-            f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
+        num_quadrature_points = P_element.dim
 
-            dp = f_elastic_plus / (3 * mu + H)
+        @numba.njit
+        def return_mapping(deps_, sigma_n_, p_):
+            """Performs the return-mapping procedure."""
+            num_cells = deps_.shape[0]
 
-            n_elas = s / sigma_eq * f_elastic_plus / f_elastic
-            beta = 3 * mu * dp / sigma_eq
+            C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
+            sigma_ = np.empty_like(sigma_n_)
+            dp_ = np.empty_like(p_)
 
-            sigma = sigma_elastic - beta * s
+            def _kernel(deps_local, sigma_n_local, p_local):
+                """Performs the return-mapping procedure locally."""
+                sigma_elastic = sigma_n_local + C_elas @ deps_local
+                s = deviatoric @ sigma_elastic
+                sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
 
-            n_elas_matrix = np.outer(n_elas, n_elas)
-            C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
+                f_elastic = sigma_eq - sigma_0 - H * p_local
+                f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
 
-            return C_tang, sigma, dp
+                dp = f_elastic_plus / (3 * mu + H)
 
-        for i in range(0, num_cells):
-            for j in range(0, num_quadrature_points):
-                C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(deps_[i, j], sigma_n_[i, j], p_[i, j])
+                n_elas = s / sigma_eq * f_elastic_plus / f_elastic
+                beta = 3 * mu * dp / sigma_eq
 
-        return C_tang_, sigma_, dp_
+                sigma = sigma_elastic - beta * s
 
-    def C_tang_impl(deps):
-        num_cells = deps.shape[0]
-        num_quadrature_points = int(deps.shape[1] / 4)
+                n_elas_matrix = np.outer(n_elas, n_elas)
+                C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
 
-        deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
-        sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
-        p_ = p.x.array.reshape((num_cells, num_quadrature_points))
+                return C_tang, sigma, dp
 
-        C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+            for i in range(0, num_cells):
+                for j in range(0, num_quadrature_points):
+                    C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(deps_[i, j], sigma_n_[i, j], p_[i, j])
 
-        return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
+            return C_tang_, sigma_, dp_
+
+        def C_tang_impl(deps):
+            num_cells = deps.shape[0]
+            num_quadrature_points = int(deps.shape[1] / 4)
+
+            deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
+            sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
+            p_ = p.x.array.reshape((num_cells, num_quadrature_points))
+
+            C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+
+            return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
 
 
-    def sigma_external(derivatives):
-        if derivatives == (1,):
-            return C_tang_impl
-        else:
-            return NotImplementedError
+        def sigma_external(derivatives):
+            if derivatives == (1,):
+                return C_tang_impl
+            else:
+                return NotImplementedError
 
 
-    sigma.external_function = sigma_external
+        sigma.external_function = sigma_external
 
-    u_hat = ufl.TrialFunction(V)
-    J = ufl.derivative(F, Du, u_hat)
-    J_expanded = ufl.algorithms.expand_derivatives(J)
+        u_hat = ufl.TrialFunction(V)
+        J = ufl.derivative(F, Du, u_hat)
+        J_expanded = ufl.algorithms.expand_derivatives(J)
 
-    F_replaced, F_external_operators = replace_external_operators(F)
-    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+        F_replaced, F_external_operators = replace_external_operators(F)
+        J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
-    eps = np.finfo(PETSc.ScalarType).eps
-    Du.x.array[:] = eps
+        eps = np.finfo(PETSc.ScalarType).eps
+        Du.x.array[:] = eps
 
-    timer = common.Timer("DOLFINx_timer")
-    timer.start()
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    timer.stop()
-    print(f"1st Numba pass: {timer.elapsed()[0]}")
-    timer.start()
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    timer.stop()
-    print(f"2nd Numba pass: {timer.elapsed()[0]}")
+        timer = common.Timer("DOLFINx_timer")
+        timer.start()
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        timer.stop()
+        print(f"1st Numba pass: {timer.elapsed()[0]}")
+        timer.start()
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        timer.stop()
+        print(f"2nd Numba pass: {timer.elapsed()[0]}")
 
-    local_monitor = {}
-    performance_monitor = pd.DataFrame({
-        "loading_step": np.array([], dtype=np.int64),
-        "Newton_iteration": np.array([], dtype=np.int64),
-        "matrix_assembling": np.array([], dtype=np.float64),
-        "vector_assembling": np.array([], dtype=np.float64),
-        # "solve_linear_problem": np.array([], dtype=np.float64),
-        "constitutive_model_update": np.array([], dtype=np.float64),
-        # "compilation_overhead": np.array([], dtype=np.float64),
-        # "tight_compilation_overhead": np.array([], dtype=np.float64),
-        # "total_time": np.array([], dtype=np.float64),
-    })
+        local_monitor = {}
+        performance_monitor = pd.DataFrame({
+            "loading_step": np.array([], dtype=np.int64),
+            "Newton_iteration": np.array([], dtype=np.int64),
+            "matrix_assembling": np.array([], dtype=np.float64),
+            "vector_assembling": np.array([], dtype=np.float64),
+            # "solve_linear_problem": np.array([], dtype=np.float64),
+            "constitutive_model_update": np.array([], dtype=np.float64),
+            # "compilation_overhead": np.array([], dtype=np.float64),
+            # "tight_compilation_overhead": np.array([], dtype=np.float64),
+            # "total_time": np.array([], dtype=np.float64),
+        })
 
-    u = fem.Function(V, name="displacement")
-    du = fem.Function(V, name="Newton_correction")
-    problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
+        u = fem.Function(V, name="displacement")
+        du = fem.Function(V, name="Newton_correction")
+        problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
 
-    x_point = np.array([[R_i, 0, 0]])
-    cells, points_on_process = find_cell_by_point(mesh, x_point)
+        x_point = np.array([[R_i, 0, 0]])
+        cells, points_on_process = find_cell_by_point(mesh, x_point)
 
-    q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-    num_increments = 20
-    max_iterations, relative_tolerance = 200, 1e-8
-    load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
-    loadings = q_lim * load_steps
+        q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
+        num_increments = 20
+        max_iterations, relative_tolerance = 200, 1e-8
+        load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
+        loadings = q_lim * load_steps
 
-    for i, loading_v in enumerate(loadings):
-        local_monitor["loading_step"] = i
+        for i, loading_v in enumerate(loadings):
+            local_monitor["loading_step"] = i
 
-        loading.value = loading_v
-        problem.assemble_vector()
-
-        residual_0 = residual = problem.b.norm()
-        Du.x.array[:] = 0.0
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
-
-        for iteration in range(0, max_iterations):
-            if residual / residual_0 < relative_tolerance:
-                break
-            timer.start()
-            problem.assemble_matrix()
-            timer.stop()
-            local_monitor["matrix_assembling"] = timer.elapsed()[0]
-            problem.solve(du)
-            du.x.scatter_forward()
-
-            Du.vector.axpy(-1.0, du.vector)
-            Du.x.scatter_forward()
-
-            timer.start()
-            evaluated_operands = evaluate_operands(F_external_operators)
-
-            # Implementation of an external operator may return several outputs and
-            # not only its evaluation. For example, `C_tang_impl` returns a tuple of
-            # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
-            ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-            # In order to update the values of the external operator we may directly
-            # access them and avoid the call of
-            # `evaluate_external_operators(F_external_operators, evaluated_operands).`
-            sigma.ref_coefficient.x.array[:] = sigma_new
-            dp.x.array[:] = dp_new
-            timer.stop()
-            local_monitor["constitutive_model_update"] = timer.elapsed()[0]
-            timer.start()
+            loading.value = loading_v
             problem.assemble_vector()
-            timer.stop()
-            local_monitor["vector_assembling"] = timer.elapsed()[0]
-            local_monitor["Newton_iteration"] = iteration
-            performance_monitor.loc[len(performance_monitor.index)] = local_monitor
 
-            residual = problem.b.norm()
-
-            # for key, value in local_monitor.items():
-            #     print(f"{key}: {value}")
-            # print('\n')
+            residual_0 = residual = problem.b.norm()
+            Du.x.array[:] = 0.0
 
             if MPI.COMM_WORLD.rank == 0 and verbose:
-                print(f"    it# {iteration} residual: {residual}")
+                print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
 
-        u.vector.axpy(1.0, Du.vector)
-        u.x.scatter_forward()
+            for iteration in range(0, max_iterations):
+                if residual / residual_0 < relative_tolerance:
+                    break
+                timer.start()
+                problem.assemble_matrix()
+                timer.stop()
+                local_monitor["matrix_assembling"] = timer.elapsed()[0]
+                problem.solve(du)
+                du.x.scatter_forward()
 
-        # Taking into account the history of loading
-        p.vector.axpy(1.0, dp.vector)
-        # skip scatter forward, p is not ghosted.
-        # TODO: Why? What is the difference with lines above?
-        sigma_n.x.array[:] = sigma.ref_coefficient.x.array
-        # skip scatter forward, sigma is not ghosted.
+                Du.vector.axpy(-1.0, du.vector)
+                Du.x.scatter_forward()
 
-    # TODO: Is there a more elegant way to extract the data?
-    # common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
-    # print(common.timing("1st numba pass"))
-    # print(common.timing("2nd numba pass"))
-    # print(timer2.elapsed())
-    for event in ["matrix_assembling", "constitutive_model_update"]:
-        print(event)
-        print("\tmean =", performance_monitor[event].mean())
-        print("\tmean (elastic) =", performance_monitor.iloc[:11][event].mean())
-        print("\tmean (plastic) =", performance_monitor.iloc[11:][event].mean())
-        print("\tsum =", performance_monitor[event].sum())
-    def Newton_iterations_in_total():
-        N_iterations = 0
-        for i in range(0, len(loadings)):
-            N_iterations += performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
-        return N_iterations
-    print(f"Newton iterations in total = {Newton_iterations_in_total()}")
+                timer.start()
+                evaluated_operands = evaluate_operands(F_external_operators)
 
-def via_interpolation_based(verbose=False):
-    Du = fem.Function(V, name="displacement_increment")
-    S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
-    S = fem.functionspace(mesh, S_element)
-    sigma = fem.Function(S, name="stress")
-    sigma_n = fem.Function(S, name="stress_n")
-    n_elas = fem.Function(S, name="normal_to_yield_surface")
+                # Implementation of an external operator may return several outputs and
+                # not only its evaluation. For example, `C_tang_impl` returns a tuple of
+                # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
+                ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
-    n = ufl.FacetNormal(mesh)
-    loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
+                # In order to update the values of the external operator we may directly
+                # access them and avoid the call of
+                # `evaluate_external_operators(F_external_operators, evaluated_operands).`
+                sigma.ref_coefficient.x.array[:] = sigma_new
+                dp.x.array[:] = dp_new
+                timer.stop()
+                local_monitor["constitutive_model_update"] = timer.elapsed()[0]
+                timer.start()
+                problem.assemble_vector()
+                timer.stop()
+                local_monitor["vector_assembling"] = timer.elapsed()[0]
+                local_monitor["Newton_iteration"] = iteration
+                performance_monitor.loc[len(performance_monitor.index)] = local_monitor
 
-    v = ufl.TestFunction(V)
-    # F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+                residual = problem.b.norm()
 
-    # Internal state
-    P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
-    P = fem.functionspace(mesh, P_element)
-    p = fem.Function(P, name="cumulative_plastic_strain")
-    dp = fem.Function(P, name="incremental_plastic_strain")
-    beta = fem.Function(P, name="beta")
+                # for key, value in local_monitor.items():
+                #     print(f"{key}: {value}")
+                # print('\n')
 
-    def eps(v):
-        e = ufl.sym(ufl.grad(v))
-        return ufl.as_tensor([[e[0, 0], e[0, 1], 0],
-                            [e[0, 1], e[1, 1], 0],
-                            [0, 0, 0]])
+                if MPI.COMM_WORLD.rank == 0 and verbose:
+                    print(f"    it# {iteration} residual: {residual}")
 
-    def sigma_el(eps_el):
-        return lmbda*ufl.tr(eps_el)*ufl.Identity(3) + 2*mu*eps_el
+            u.vector.axpy(1.0, Du.vector)
+            u.x.scatter_forward()
 
-    def as_3D_tensor(X):
-        return ufl.as_tensor([[X[0], X[3], 0],
-                            [X[3], X[1], 0],
-                            [0, 0, X[2]]])
+            # Taking into account the history of loading
+            p.vector.axpy(1.0, dp.vector)
+            # skip scatter forward, p is not ghosted.
+            sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+            # skip scatter forward, sigma is not ghosted.
 
-    ppos = lambda x: (x + ufl.sqrt(x**2))/2.
-    def proj_sig(deps, sigma_n, p_n):
-        """Performs the predictor-corrector return mapping algorithm.
+        # for event in ["matrix_assembling", "constitutive_model_update"]:
+        #     print(event)
+        #     print("\tmean =", performance_monitor[event].mean())
+        #     print("\tmean (elastic) =", performance_monitor.iloc[:11][event].mean())
+        #     print("\tmean (plastic) =", performance_monitor.iloc[11:][event].mean())
+        #     print("\tsum =", performance_monitor[event].sum())
+        def Newton_iterations_in_total():
+            N_iterations = 0
+            for i in range(0, len(loadings)):
+                N_iterations += performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
+            return N_iterations
+        print(f"Newton iterations in total = {Newton_iterations_in_total()}")
+        return performance_monitor
 
-        This particular algorithm is analytical and based on the von Mises
-        plasticity model with linear isotropic hardening.
+    def via_interpolation_based(verbose=False):
+        Du = fem.Function(V, name="displacement_increment")
+        sigma = fem.Function(S, name="stress")
+        sigma_n = fem.Function(S, name="stress_n")
+        n_elas = fem.Function(S, name="normal_to_yield_surface")
 
-        Args:
-            deps: ufl 3x3 tensor of the current strain state.
-            sigma_n: fem.Function variable of the previous stress state.
-            p_n: fem.Function variable of the cumulative plastic strain from the previous loading step.
+        n = ufl.FacetNormal(mesh)
+        loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
-        Returns:
-            ufl vector of 4 components of the stress tensor in Voigt notation
-            ufl vector of 4 components of the normal vector to a yield surface
-            beta: ufl expression of a support variable
-            dp: ufl expression of the cumulative plastic strain increment 
-        """
-        sig_n = as_3D_tensor(sigma_n)
-        sig_elas = sig_n + sigma_el(deps)
-        s = ufl.dev(sig_elas)
-        sig_eq = ufl.sqrt(3/2.*ufl.inner(s, s))
-        f_elas = sig_eq - sigma_0 - H*p_n
-        dp = ppos(f_elas)/(3*mu+H)
-        n_elas = s/sig_eq*ppos(f_elas)/f_elas
-        beta = 3*mu*dp/sig_eq
-        new_sig = sig_elas-beta*s
-        return ufl.as_vector([new_sig[0, 0], new_sig[1, 1], new_sig[2, 2], new_sig[0, 1]]), \
-            ufl.as_vector([n_elas[0, 0], n_elas[1, 1], n_elas[2, 2], n_elas[0, 1]]), \
-            beta, dp
+        v = ufl.TestFunction(V)
 
-    def sigma_tang(e):
-        """Returns an ufl expression of the tangent stress.
+        p = fem.Function(P, name="cumulative_plastic_strain")
+        dp = fem.Function(P, name="incremental_plastic_strain")
+        beta = fem.Function(P, name="beta")
 
-        This expression is required for the variational problem in order to
-        update its bilinear part on each iteration of the Newton method.
+        def eps(v):
+            e = ufl.sym(ufl.grad(v))
+            return ufl.as_tensor([[e[0, 0], e[0, 1], 0],
+                                [e[0, 1], e[1, 1], 0],
+                                [0, 0, 0]])
 
-        Args:
-            e: ufl 3x3 tensor of the current strain state.
-        """
-        N_elas = as_3D_tensor(n_elas)
-        return sigma_el(e) - 3*mu*(3*mu/(3*mu+H)-beta)*ufl.inner(N_elas, e)*N_elas - 2*mu*beta*ufl.dev(e)
+        def sigma_el(eps_el):
+            return lmbda*ufl.tr(eps_el)*ufl.Identity(3) + 2*mu*eps_el
 
-    u_hat = ufl.TrialFunction(V)
-    J = ufl.inner(eps(v), sigma_tang(eps(u_hat)))*dx
-    F = ufl.inner(eps(v), as_3D_tensor(sigma))*dx - loading * ufl.inner(n, v)*ds(facet_tags_labels["inner"])
+        def as_3D_tensor(X):
+            return ufl.as_tensor([[X[0], X[3], 0],
+                                [X[3], X[1], 0],
+                                [0, 0, X[2]]])
 
-    problem = LinearProblem(J, F, Du, bcs=bcs)
+        ppos = lambda x: (x + ufl.sqrt(x**2))/2.
+        def proj_sig(deps, sigma_n, p_n):
+            """Performs the predictor-corrector return mapping algorithm.
 
-    u = fem.Function(V, name="displacement")
-    du = fem.Function(V, name="Newton_correction")
-    sigma.vector.set(0.0)
-    sigma_n.vector.set(0.0)
-    p.vector.set(0.0)
-    u.vector.set(0.0)
-    n_elas.vector.set(0.0)
-    beta.vector.set(0.0)
+            This particular algorithm is analytical and based on the von Mises
+            plasticity model with linear isotropic hardening.
 
-    timer = common.Timer("DOLFINx_timer")
-    local_monitor = {}
-    performance_monitor = pd.DataFrame({
-        "loading_step": np.array([], dtype=np.int64),
-        "Newton_iteration": np.array([], dtype=np.int64),
-        "matrix_assembling": np.array([], dtype=np.float64),
-        "vector_assembling": np.array([], dtype=np.float64),
-        "constitutive_model_update": np.array([], dtype=np.float64),
-    })
+            Args:
+                deps: ufl 3x3 tensor of the current strain state.
+                sigma_n: fem.Function variable of the previous stress state.
+                p_n: fem.Function variable of the cumulative plastic strain from the previous loading step.
 
-    deps = eps(Du)
-    sigma_, n_elas_, beta_, dp_ = proj_sig(deps, sigma_n, p)
-    # eps = np.finfo(PETSc.ScalarType).eps
-    # Du.x.array[:] = eps
-    def my_interpolate_quadrature(ufl_expr, fem_func:fem.Function):
-        q_dim = fem_func.function_space._ufl_element.degree
-        mesh = fem_func.ufl_function_space().mesh
+            Returns:
+                ufl vector of 4 components of the stress tensor in Voigt notation
+                ufl vector of 4 components of the normal vector to a yield surface
+                beta: ufl expression of a support variable
+                dp: ufl expression of the cumulative plastic strain increment 
+            """
+            sig_n = as_3D_tensor(sigma_n)
+            sig_elas = sig_n + sigma_el(deps)
+            s = ufl.dev(sig_elas)
+            sig_eq = ufl.sqrt(3/2.*ufl.inner(s, s))
+            f_elas = sig_eq - sigma_0 - H*p_n
+            dp = ppos(f_elas)/(3*mu+H)
+            n_elas = s/sig_eq*ppos(f_elas)/f_elas
+            beta = 3*mu*dp/sig_eq
+            new_sig = sig_elas-beta*s
+            return ufl.as_vector([new_sig[0, 0], new_sig[1, 1], new_sig[2, 2], new_sig[0, 1]]), \
+                ufl.as_vector([n_elas[0, 0], n_elas[1, 1], n_elas[2, 2], n_elas[0, 1]]), \
+                beta, dp
 
-        # basix_celltype = getattr(basix.CellType, mesh.topology.cell_type.name)
-        quadrature_points, weights = basix.make_quadrature(basix.CellType.triangle, q_dim, basix.QuadratureType.Default)
-        map_c = mesh.topology.index_map(mesh.topology.dim)
-        num_cells = map_c.size_local + map_c.num_ghosts
-        cells = np.arange(0, num_cells, dtype=np.int32)
+        def sigma_tang(e):
+            """Returns an ufl expression of the tangent stress.
 
-        # time_monitor = {}
-        # start = MPI.Wtime()
-        expr_expr = fem.Expression(ufl_expr, quadrature_points)
-        expr_eval = expr_expr.eval(mesh, cells)
-        # end = MPI.Wtime()
-        # time_monitor["eval"] = end - start
-        # start = MPI.Wtime()
-        np.copyto(fem_func.x.array, expr_eval.reshape(-1))
-        # end = MPI.Wtime()
-        # time_monitor["copy"] = end - start
-        # return time_monitor
+            This expression is required for the variational problem in order to
+            update its bilinear part on each iteration of the Newton method.
 
-    x_point = np.array([[R_i, 0, 0]])
-    cells, points_on_process = find_cell_by_point(mesh, x_point)
+            Args:
+                e: ufl 3x3 tensor of the current strain state.
+            """
+            N_elas = as_3D_tensor(n_elas)
+            return sigma_el(e) - 3*mu*(3*mu/(3*mu+H)-beta)*ufl.inner(N_elas, e)*N_elas - 2*mu*beta*ufl.dev(e)
 
-    q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-    num_increments = 20
-    max_iterations, relative_tolerance = 200, 1e-8
-    load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
-    loadings = q_lim * load_steps
+        u_hat = ufl.TrialFunction(V)
+        J = ufl.inner(eps(v), sigma_tang(eps(u_hat)))*dx
+        F = ufl.inner(eps(v), as_3D_tensor(sigma))*dx - loading * ufl.inner(n, v)*ds(facet_tags_labels["inner"])
 
-    for i, loading_v in enumerate(loadings):
-        local_monitor["loading_step"] = i
+        problem = LinearProblem(J, F, Du, bcs=bcs)
 
-        loading.value = loading_v
-        problem.assemble_vector()
+        u = fem.Function(V, name="displacement")
+        du = fem.Function(V, name="Newton_correction")
+        sigma.vector.set(0.0)
+        sigma_n.vector.set(0.0)
+        p.vector.set(0.0)
+        u.vector.set(0.0)
+        n_elas.vector.set(0.0)
+        beta.vector.set(0.0)
 
-        residual_0 = residual = problem.b.norm()
-        Du.x.array[:] = 0.0
+        timer = common.Timer("DOLFINx_timer")
+        local_monitor = {}
+        performance_monitor = pd.DataFrame({
+            "loading_step": np.array([], dtype=np.int64),
+            "Newton_iteration": np.array([], dtype=np.int64),
+            "matrix_assembling": np.array([], dtype=np.float64),
+            "vector_assembling": np.array([], dtype=np.float64),
+            "constitutive_model_update": np.array([], dtype=np.float64),
+        })
 
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
+        deps = eps(Du)
+        sigma_, n_elas_, beta_, dp_ = proj_sig(deps, sigma_n, p)
+        # eps = np.finfo(PETSc.ScalarType).eps
+        # Du.x.array[:] = eps
+        def my_interpolate_quadrature(ufl_expr, fem_func:fem.Function):
+            q_dim = fem_func.function_space._ufl_element.degree
+            mesh = fem_func.ufl_function_space().mesh
 
-        for iteration in range(0, max_iterations):
-            if residual / residual_0 < relative_tolerance:
-                break
-            timer.start()
-            problem.assemble_matrix()
-            timer.stop()
-            local_monitor["matrix_assembling"] = timer.elapsed()[0]
-            problem.solve(du)
-            du.x.scatter_forward()
+            # basix_celltype = getattr(basix.CellType, mesh.topology.cell_type.name)
+            quadrature_points, weights = basix.make_quadrature(basix.CellType.triangle, q_dim, basix.QuadratureType.Default)
+            map_c = mesh.topology.index_map(mesh.topology.dim)
+            num_cells = map_c.size_local + map_c.num_ghosts
+            cells = np.arange(0, num_cells, dtype=np.int32)
 
-            Du.vector.axpy(-1.0, du.vector)
-            Du.x.scatter_forward()
+            # time_monitor = {}
+            # start = MPI.Wtime()
+            expr_expr = fem.Expression(ufl_expr, quadrature_points)
+            expr_eval = expr_expr.eval(mesh, cells)
+            # end = MPI.Wtime()
+            # time_monitor["eval"] = end - start
+            # start = MPI.Wtime()
+            np.copyto(fem_func.x.array, expr_eval.reshape(-1))
+            # end = MPI.Wtime()
+            # time_monitor["copy"] = end - start
+            # return time_monitor
 
-            timer.start()
-            time_monitor_sig = my_interpolate_quadrature(sigma_, sigma)
-            time_monitor_n_elas = my_interpolate_quadrature(n_elas_, n_elas)
-            time_monitor_beta = my_interpolate_quadrature(beta_, beta)
-            timer.stop()
-            local_monitor["constitutive_model_update"] = timer.elapsed()[0]
-            timer.start()
+        x_point = np.array([[R_i, 0, 0]])
+        cells, points_on_process = find_cell_by_point(mesh, x_point)
+
+        q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
+        num_increments = 20
+        max_iterations, relative_tolerance = 200, 1e-8
+        load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
+        loadings = q_lim * load_steps
+
+        for i, loading_v in enumerate(loadings):
+            local_monitor["loading_step"] = i
+
+            loading.value = loading_v
             problem.assemble_vector()
-            timer.stop()
-            local_monitor["vector_assembling"] = timer.elapsed()[0]
-            local_monitor["Newton_iteration"] = iteration
-            performance_monitor.loc[len(performance_monitor.index)] = local_monitor
 
-            residual = problem.b.norm()
+            residual_0 = residual = problem.b.norm()
+            Du.x.array[:] = 0.0
 
             if MPI.COMM_WORLD.rank == 0 and verbose:
-                print(f"    it# {iteration} residual: {residual}")
+                print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
 
-        u.vector.axpy(1.0, Du.vector)
-        u.x.scatter_forward()
+            for iteration in range(0, max_iterations):
+                if residual / residual_0 < relative_tolerance:
+                    break
+                timer.start()
+                problem.assemble_matrix()
+                timer.stop()
+                local_monitor["matrix_assembling"] = timer.elapsed()[0]
+                problem.solve(du)
+                du.x.scatter_forward()
 
-        my_interpolate_quadrature(dp_, dp)
-        # Taking into account the history of loading
-        p.vector.axpy(1.0, dp.vector)
-        # skip scatter forward, p is not ghosted.
-        sigma_n.x.array[:] = sigma.x.array
-        # skip scatter forward, sigma is not ghosted.
+                Du.vector.axpy(-1.0, du.vector)
+                Du.x.scatter_forward()
 
-    # TODO: Is there a more elegant way to extract the data?
-    # common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
-    for event in ["matrix_assembling", "constitutive_model_update"]:
-        print(event)
-        print("\tmean =", performance_monitor[event].mean())
-        print("\tmean (elastic) =", performance_monitor.iloc[:11][event].mean())
-        print("\tmean (plastic) =", performance_monitor.iloc[11:][event].mean())
-        print("\tsum =", performance_monitor[event].sum())
-    # print("Newton iterations =", performance_monitor["Newton_iteration"].sum())
+                timer.start()
+                time_monitor_sig = my_interpolate_quadrature(sigma_, sigma)
+                time_monitor_n_elas = my_interpolate_quadrature(n_elas_, n_elas)
+                time_monitor_beta = my_interpolate_quadrature(beta_, beta)
+                timer.stop()
+                local_monitor["constitutive_model_update"] = timer.elapsed()[0]
+                timer.start()
+                problem.assemble_vector()
+                timer.stop()
+                local_monitor["vector_assembling"] = timer.elapsed()[0]
+                local_monitor["Newton_iteration"] = iteration
+                performance_monitor.loc[len(performance_monitor.index)] = local_monitor
 
-    def Newton_iterations_in_total():
-        N_iterations = 0
-        for i in range(0, len(loadings)):
-            N_iterations += performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
-        return N_iterations
-    print(f"Newton iterations in total = {Newton_iterations_in_total()}")
+                residual = problem.b.norm()
 
-def benchmarking():
-    
-# via_numba()
+                if MPI.COMM_WORLD.rank == 0 and verbose:
+                    print(f"    it# {iteration} residual: {residual}")
 
-# via_interpolation_based()
+            u.vector.axpy(1.0, Du.vector)
+            u.x.scatter_forward()
+
+            my_interpolate_quadrature(dp_, dp)
+            # Taking into account the history of loading
+            p.vector.axpy(1.0, dp.vector)
+            # skip scatter forward, p is not ghosted.
+            sigma_n.x.array[:] = sigma.x.array
+            # skip scatter forward, sigma is not ghosted.
+
+        # for event in ["matrix_assembling", "constitutive_model_update"]:
+        #     print(event)
+        #     print("\tmean =", performance_monitor[event].mean())
+        #     print("\tmean (elastic) =", performance_monitor.iloc[:11][event].mean())
+        #     print("\tmean (plastic) =", performance_monitor.iloc[11:][event].mean())
+        #     print("\tsum =", performance_monitor[event].sum())
+
+        def Newton_iterations_in_total():
+            N_iterations = 0
+            for i in range(0, len(loadings)):
+                N_iterations += performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
+            return N_iterations
+        print(f"Newton iterations in total = {Newton_iterations_in_total()}")
+        return performance_monitor
+
+    dofs = P.dofmap.index_map.size_global
+    approaches = {"Numba": via_numba, "interpolation": via_interpolation_based}
+    data_list = []
+    for approach, method in approaches.items():
+        data = {"dofs": dofs, "Approach": approach}
+        performance_monitor = method()
+        for event in ["matrix_assembling", "constitutive_model_update"]:
+            data[event] = performance_monitor[event].mean()
+            data[event+"(total)"] = performance_monitor[event].sum()
+        data_list.append(data)
+
+    # via_interpolation_based()
+    return data_list
+
+lc_list = [0.3, 0.1, 0.05, 0.025, 0.0175]
+lc_list = [0.3, 0.1, 0.05, 0.025, 0.0175, 0.01, 0.0075, 0.005, 0.0035]
+# DOFs_array = np.empty(len(lc_list))
+
+benchmark_data = pd.DataFrame({
+    "dofs": np.array([], dtype=np.int64),
+    "Approach": np.array([], dtype=str),
+    # "Newton_iteration": np.array([], dtype=np.int64),
+    "matrix_assembling": np.array([], dtype=np.float64),
+    "matrix_assembling(total)": np.array([], dtype=np.float64),
+    "constitutive_model_update": np.array([], dtype=np.float64),
+    "constitutive_model_update(total)": np.array([], dtype=np.float64),
+})
+
+for lc in lc_list:
+    data_list = benchmarking(lc)
+    for data in data_list:
+        benchmark_data.loc[len(benchmark_data.index)] = data
+print(benchmark_data.head())
+
+dofs = benchmark_data["dofs"].unique()
+events = ["matrix_assembling", "constitutive_model_update", "matrix_assembling(total)", "constitutive_model_update(total)"]
+events = ["matrix_assembling(total)", "constitutive_model_update(total)"]
+events = ["matrix_assembling", "constitutive_model_update"]
+approaches = benchmark_data["Approach"].unique()
+
+fig, axes = plt.subplots(1,2, figsize=(15, 5))
+for approach in approaches:
+    for event in events:
+        data = benchmark_data[benchmark_data["Approach"] == approach]
+        axes[0].loglog(dofs, data[event], 'o-', label=approach+": "+event)
+
+for approach in approaches:
+    for event in events:
+        data = benchmark_data[benchmark_data["Approach"] == approach]
+        axes[1].plot(dofs, data[event], 'o-', label=approach+": "+event)
+
+# for j, approach_name in enumerate(approaches_list):
+#     axes[0].loglog(dofs, total_time[:,j], 'o-', color=colors[j], label=approach_name + ":  total time")
+#     if approach_name != 'interpolation':
+#         axes[0].loglog(dofs, compilation_overhead[:,j], '--', color=colors[j], label=approach_name +  ": compilation overhead")
+
+
+axes[0].set_title('Log scale')
+axes[1].set_title('Standard scale')
+for i in range(2):
+    axes[i].set_xlabel("DoFs of the scalar quadrature functional space of degree 2")
+    axes[i].set_ylabel("Time (s)")
+    axes[i].legend()
+    axes[i].grid()
+fig.savefig("benchmarking.png")
+# fig.suptitle('Solving an elastoplastic problem via different approaches: interpolation, numba, jax')
