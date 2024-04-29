@@ -61,7 +61,7 @@ class LinearProblem:
         """
         self.solver.solve(self.b, du.vector)
 
-    def __del__(self):
-        self.solver.destroy()
-        self.A.destroy()
-        self.b.destroy()
+    # def __del__(self):
+        # self.solver.destroy()
+        # self.A.destroy()
+        # self.b.destroy()

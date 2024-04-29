@@ -182,7 +182,7 @@ def via_numba(verbose=False):
 
     u = fem.Function(V, name="displacement")
     du = fem.Function(V, name="Newton_correction")
-    external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
+    problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
 
     x_point = np.array([[R_i, 0, 0]])
     cells, points_on_process = find_cell_by_point(mesh, x_point)
@@ -195,9 +195,9 @@ def via_numba(verbose=False):
 
     for i, loading_v in enumerate(loadings):
         loading.value = loading_v
-        external_operator_problem.assemble_vector()
+        problem.assemble_vector()
 
-        residual_0 = residual = external_operator_problem.b.norm()
+        residual_0 = residual = problem.b.norm()
         Du.x.array[:] = 0.0
 
         if MPI.COMM_WORLD.rank == 0:
@@ -206,8 +206,8 @@ def via_numba(verbose=False):
         for iteration in range(0, max_iterations):
             if residual / residual_0 < relative_tolerance:
                 break
-            external_operator_problem.assemble_matrix()
-            external_operator_problem.solve(du)
+            problem.assemble_matrix()
+            problem.solve(du)
             du.x.scatter_forward()
 
             Du.vector.axpy(-1.0, du.vector)
@@ -226,8 +226,8 @@ def via_numba(verbose=False):
             sigma.ref_coefficient.x.array[:] = sigma_new
             dp.x.array[:] = dp_new
 
-            external_operator_problem.assemble_vector()
-            residual = external_operator_problem.b.norm()
+            problem.assemble_vector()
+            residual = problem.b.norm()
 
             if MPI.COMM_WORLD.rank == 0 and verbose:
                 print(f"    it# {iteration} residual: {residual}")
@@ -249,107 +249,128 @@ def via_interpolation_based(verbose=False):
     Du = fem.Function(V, name="displacement_increment")
     S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
     S = fem.functionspace(mesh, S_element)
-    sigma = FEMExternalOperator(epsilon(Du), function_space=S)
+    sigma = fem.Function(S, name="stress")
+    sigma_n = fem.Function(S, name="stress_n")
+    n_elas = fem.Function(S, name="normal_to_yield_surface")
 
     n = ufl.FacetNormal(mesh)
     loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
     v = ufl.TestFunction(V)
-    F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+    # F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
     # Internal state
     P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
     P = fem.functionspace(mesh, P_element)
-
     p = fem.Function(P, name="cumulative_plastic_strain")
     dp = fem.Function(P, name="incremental_plastic_strain")
-    sigma_n = fem.Function(S, name="stress_n")
+    beta = fem.Function(P, name="beta")
 
-    num_quadrature_points = P_element.dim
+    def eps(v):
+        e = ufl.sym(ufl.grad(v))
+        return ufl.as_tensor([[e[0, 0], e[0, 1], 0],
+                            [e[0, 1], e[1, 1], 0],
+                            [0, 0, 0]])
 
-    @numba.njit
-    def return_mapping(deps_, sigma_n_, p_):
-        """Performs the return-mapping procedure."""
-        num_cells = deps_.shape[0]
+    def sigma_el(eps_el):
+        return lmbda*ufl.tr(eps_el)*ufl.Identity(3) + 2*mu*eps_el
 
-        C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
-        sigma_ = np.empty_like(sigma_n_)
-        dp_ = np.empty_like(p_)
+    def as_3D_tensor(X):
+        return ufl.as_tensor([[X[0], X[3], 0],
+                            [X[3], X[1], 0],
+                            [0, 0, X[2]]])
 
-        def _kernel(deps_local, sigma_n_local, p_local):
-            """Performs the return-mapping procedure locally."""
-            sigma_elastic = sigma_n_local + C_elas @ deps_local
-            s = deviatoric @ sigma_elastic
-            sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
+    ppos = lambda x: (x + ufl.sqrt(x**2))/2.
+    def proj_sig(deps, sigma_n, p_n):
+        """Performs the predictor-corrector return mapping algorithm.
 
-            f_elastic = sigma_eq - sigma_0 - H * p_local
-            f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
+        This particular algorithm is analytical and based on the von Mises
+        plasticity model with linear isotropic hardening.
 
-            dp = f_elastic_plus / (3 * mu + H)
+        Args:
+            deps: ufl 3x3 tensor of the current strain state.
+            sigma_n: fem.Function variable of the previous stress state.
+            p_n: fem.Function variable of the cumulative plastic strain from the previous loading step.
 
-            n_elas = s / sigma_eq * f_elastic_plus / f_elastic
-            beta = 3 * mu * dp / sigma_eq
+        Returns:
+            ufl vector of 4 components of the stress tensor in Voigt notation
+            ufl vector of 4 components of the normal vector to a yield surface
+            beta: ufl expression of a support variable
+            dp: ufl expression of the cumulative plastic strain increment 
+        """
+        sig_n = as_3D_tensor(sigma_n)
+        sig_elas = sig_n + sigma_el(deps)
+        s = ufl.dev(sig_elas)
+        sig_eq = ufl.sqrt(3/2.*ufl.inner(s, s))
+        f_elas = sig_eq - sigma_0 - H*p_n
+        dp = ppos(f_elas)/(3*mu+H)
+        n_elas = s/sig_eq*ppos(f_elas)/f_elas
+        beta = 3*mu*dp/sig_eq
+        new_sig = sig_elas-beta*s
+        return ufl.as_vector([new_sig[0, 0], new_sig[1, 1], new_sig[2, 2], new_sig[0, 1]]), \
+            ufl.as_vector([n_elas[0, 0], n_elas[1, 1], n_elas[2, 2], n_elas[0, 1]]), \
+            beta, dp
 
-            sigma = sigma_elastic - beta * s
+    def sigma_tang(e):
+        """Returns an ufl expression of the tangent stress.
 
-            n_elas_matrix = np.outer(n_elas, n_elas)
-            C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
+        This expression is required for the variational problem in order to
+        update its bilinear part on each iteration of the Newton method.
 
-            return C_tang, sigma, dp
-
-        for i in range(0, num_cells):
-            for j in range(0, num_quadrature_points):
-                C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(deps_[i, j], sigma_n_[i, j], p_[i, j])
-
-        return C_tang_, sigma_, dp_
-
-    def C_tang_impl(deps):
-        num_cells = deps.shape[0]
-        num_quadrature_points = int(deps.shape[1] / 4)
-
-        deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
-        sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
-        p_ = p.x.array.reshape((num_cells, num_quadrature_points))
-
-        C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
-
-        return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
-
-
-    def sigma_external(derivatives):
-        if derivatives == (1,):
-            return C_tang_impl
-        else:
-            return NotImplementedError
-
-
-    sigma.external_function = sigma_external
+        Args:
+            e: ufl 3x3 tensor of the current strain state.
+        """
+        N_elas = as_3D_tensor(n_elas)
+        return sigma_el(e) - 3*mu*(3*mu/(3*mu+H)-beta)*ufl.inner(N_elas, e)*N_elas - 2*mu*beta*ufl.dev(e)
 
     u_hat = ufl.TrialFunction(V)
-    J = ufl.derivative(F, Du, u_hat)
-    J_expanded = ufl.algorithms.expand_derivatives(J)
+    a_Newton = ufl.inner(eps(v), sigma_tang(eps(u_hat)))*dx
+    def F_ext(v):
+        """External force representing pressure acting on the inner wall of the cylinder."""
+    return -loading * ufl.inner(n, v)*ds(facet_tags_labels["inner"])
 
-    F_replaced, F_external_operators = replace_external_operators(F)
-    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+    res = -ufl.inner(eps(u_hat), as_3D_tensor(sigma))*dx - loading * ufl.inner(n, v)*ds(facet_tags_labels["inner"])
+    # res = loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+    # fem.form(res)
 
-    eps = np.finfo(PETSc.ScalarType).eps
-    Du.x.array[:] = eps
+    # F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
-    timer1 = common.Timer("1st numba pass")
-    timer1.start()
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    timer1.stop()
-
-    timer2 = common.Timer("2nd numba pass")
-    timer2.start()
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    timer2.stop()
+    problem = LinearProblem(a_Newton, res, Du, bcs=bcs)
 
     u = fem.Function(V, name="displacement")
     du = fem.Function(V, name="Newton_correction")
-    external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
+    sigma.vector.set(0.0)
+    sigma_n.vector.set(0.0)
+    p.vector.set(0.0)
+    u.vector.set(0.0)
+    n_elas.vector.set(0.0)
+    beta.vector.set(0.0)
+
+    deps = eps(Du)
+    sigma_, n_elas_, beta_, dp_ = proj_sig(deps, sigma_n, p)
+    # eps = np.finfo(PETSc.ScalarType).eps
+    # Du.x.array[:] = eps
+    def my_interpolate_quadrature(ufl_expr, fem_func:fem.Function):
+        q_dim = fem_func.function_space._ufl_element.degree()
+        mesh = fem_func.ufl_function_space().mesh
+
+        # basix_celltype = getattr(basix.CellType, mesh.topology.cell_type.name)
+        quadrature_points, weights = basix.make_quadrature(basix.CellType.triangle, q_dim, basix.QuadratureType.Default)
+        map_c = mesh.topology.index_map(mesh.topology.dim)
+        num_cells = map_c.size_local + map_c.num_ghosts
+        cells = np.arange(0, num_cells, dtype=np.int32)
+
+        # time_monitor = {}
+        # start = MPI.Wtime()
+        expr_expr = fem.Expression(ufl_expr, quadrature_points)
+        expr_eval = expr_expr.eval(mesh, cells)
+        # end = MPI.Wtime()
+        # time_monitor["eval"] = end - start
+        # start = MPI.Wtime()
+        np.copyto(fem_func.x.array, expr_eval.reshape(-1))
+        # end = MPI.Wtime()
+        # time_monitor["copy"] = end - start
+        # return time_monitor
 
     x_point = np.array([[R_i, 0, 0]])
     cells, points_on_process = find_cell_by_point(mesh, x_point)
@@ -362,9 +383,9 @@ def via_interpolation_based(verbose=False):
 
     for i, loading_v in enumerate(loadings):
         loading.value = loading_v
-        external_operator_problem.assemble_vector()
+        problem.assemble_vector()
 
-        residual_0 = residual = external_operator_problem.b.norm()
+        residual_0 = residual = problem.b.norm()
         Du.x.array[:] = 0.0
 
         if MPI.COMM_WORLD.rank == 0:
@@ -373,28 +394,19 @@ def via_interpolation_based(verbose=False):
         for iteration in range(0, max_iterations):
             if residual / residual_0 < relative_tolerance:
                 break
-            external_operator_problem.assemble_matrix()
-            external_operator_problem.solve(du)
+            problem.assemble_matrix()
+            problem.solve(du)
             du.x.scatter_forward()
 
             Du.vector.axpy(-1.0, du.vector)
             Du.x.scatter_forward()
 
-            evaluated_operands = evaluate_operands(F_external_operators)
+            time_monitor_sig = my_interpolate_quadrature(sigma_, sigma)
+            time_monitor_n_elas = my_interpolate_quadrature(n_elas_, n_elas)
+            time_monitor_beta = my_interpolate_quadrature(beta_, beta)
 
-            # Implementation of an external operator may return several outputs and
-            # not only its evaluation. For example, `C_tang_impl` returns a tuple of
-            # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
-            ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-            # In order to update the values of the external operator we may directly
-            # access them and avoid the call of
-            # `evaluate_external_operators(F_external_operators, evaluated_operands).`
-            sigma.ref_coefficient.x.array[:] = sigma_new
-            dp.x.array[:] = dp_new
-
-            external_operator_problem.assemble_vector()
-            residual = external_operator_problem.b.norm()
+            problem.assemble_vector()
+            residual = problem.b.norm()
 
             if MPI.COMM_WORLD.rank == 0 and verbose:
                 print(f"    it# {iteration} residual: {residual}")
@@ -402,14 +414,16 @@ def via_interpolation_based(verbose=False):
         u.vector.axpy(1.0, Du.vector)
         u.x.scatter_forward()
 
+        my_interpolate_quadrature(dp_, dp)
         # Taking into account the history of loading
         p.vector.axpy(1.0, dp.vector)
         # skip scatter forward, p is not ghosted.
-        # TODO: Why? What is the difference with lines above?
-        sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+        sigma_n.x.array[:] = sigma.x.array
         # skip scatter forward, sigma is not ghosted.
 
     # TODO: Is there a more elegant way to extract the data?
     common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
 
 # via_numba()
+
+via_interpolation_based()
