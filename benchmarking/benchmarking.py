@@ -491,6 +491,7 @@ def benchmarking(lc):
     approaches = {"Numba": via_numba, "interpolation": via_interpolation_based}
     data_list = []
     for approach, method in approaches.items():
+        print(f"Approach: {approach}")
         data = {"dofs": dofs, "Approach": approach}
         performance_monitor = method()
         for event in ["matrix_assembling", "constitutive_model_update"]:
@@ -498,58 +499,4 @@ def benchmarking(lc):
             data[event+"(total)"] = performance_monitor[event].sum()
         data_list.append(data)
 
-    # via_interpolation_based()
     return data_list
-
-lc_list = [0.3, 0.1, 0.05, 0.025, 0.0175]
-lc_list = [0.3, 0.1, 0.05, 0.025, 0.0175, 0.01, 0.0075, 0.005, 0.0035]
-# DOFs_array = np.empty(len(lc_list))
-
-benchmark_data = pd.DataFrame({
-    "dofs": np.array([], dtype=np.int64),
-    "Approach": np.array([], dtype=str),
-    # "Newton_iteration": np.array([], dtype=np.int64),
-    "matrix_assembling": np.array([], dtype=np.float64),
-    "matrix_assembling(total)": np.array([], dtype=np.float64),
-    "constitutive_model_update": np.array([], dtype=np.float64),
-    "constitutive_model_update(total)": np.array([], dtype=np.float64),
-})
-
-for lc in lc_list:
-    data_list = benchmarking(lc)
-    for data in data_list:
-        benchmark_data.loc[len(benchmark_data.index)] = data
-print(benchmark_data.head())
-
-dofs = benchmark_data["dofs"].unique()
-events = ["matrix_assembling", "constitutive_model_update", "matrix_assembling(total)", "constitutive_model_update(total)"]
-events = ["matrix_assembling(total)", "constitutive_model_update(total)"]
-events = ["matrix_assembling", "constitutive_model_update"]
-approaches = benchmark_data["Approach"].unique()
-
-fig, axes = plt.subplots(1,2, figsize=(15, 5))
-for approach in approaches:
-    for event in events:
-        data = benchmark_data[benchmark_data["Approach"] == approach]
-        axes[0].loglog(dofs, data[event], 'o-', label=approach+": "+event)
-
-for approach in approaches:
-    for event in events:
-        data = benchmark_data[benchmark_data["Approach"] == approach]
-        axes[1].plot(dofs, data[event], 'o-', label=approach+": "+event)
-
-# for j, approach_name in enumerate(approaches_list):
-#     axes[0].loglog(dofs, total_time[:,j], 'o-', color=colors[j], label=approach_name + ":  total time")
-#     if approach_name != 'interpolation':
-#         axes[0].loglog(dofs, compilation_overhead[:,j], '--', color=colors[j], label=approach_name +  ": compilation overhead")
-
-
-axes[0].set_title('Log scale')
-axes[1].set_title('Standard scale')
-for i in range(2):
-    axes[i].set_xlabel("DoFs of the scalar quadrature functional space of degree 2")
-    axes[i].set_ylabel("Time (s)")
-    axes[i].legend()
-    axes[i].grid()
-fig.savefig("benchmarking.png")
-# fig.suptitle('Solving an elastoplastic problem via different approaches: interpolation, numba, jax')
