@@ -4,6 +4,7 @@ from petsc4py import PETSc
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
+import pandas as pd
 import sys
 sys.path.append("../docs/demos/")
 import solvers
@@ -168,17 +169,30 @@ def via_numba(verbose=False):
     eps = np.finfo(PETSc.ScalarType).eps
     Du.x.array[:] = eps
 
-    timer1 = common.Timer("1st numba pass")
-    timer1.start()
+    timer = common.Timer("DOLFINx_timer")
+    timer.start()
     evaluated_operands = evaluate_operands(F_external_operators)
     ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    timer1.stop()
+    timer.stop()
+    print(f"1st Numba pass: {timer.elapsed()[0]}")
+    timer.start()
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    timer.stop()
+    print(f"2nd Numba pass: {timer.elapsed()[0]}")
 
-    timer2 = common.Timer("2nd numba pass")
-    timer2.start()
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    timer2.stop()
+    local_monitor = {}
+    performance_monitor = pd.DataFrame({
+        "loading_step": np.array([], dtype=np.int64),
+        "Newton_iteration": np.array([], dtype=np.int64),
+        "matrix_assembling": np.array([], dtype=np.float64),
+        "vector_assembling": np.array([], dtype=np.float64),
+        # "solve_linear_problem": np.array([], dtype=np.float64),
+        "constitutive_model_update": np.array([], dtype=np.float64),
+        # "compilation_overhead": np.array([], dtype=np.float64),
+        # "tight_compilation_overhead": np.array([], dtype=np.float64),
+        # "total_time": np.array([], dtype=np.float64),
+    })
 
     u = fem.Function(V, name="displacement")
     du = fem.Function(V, name="Newton_correction")
@@ -194,6 +208,8 @@ def via_numba(verbose=False):
     loadings = q_lim * load_steps
 
     for i, loading_v in enumerate(loadings):
+        local_monitor["loading_step"] = i
+
         loading.value = loading_v
         problem.assemble_vector()
 
@@ -206,13 +222,17 @@ def via_numba(verbose=False):
         for iteration in range(0, max_iterations):
             if residual / residual_0 < relative_tolerance:
                 break
+            timer.start()
             problem.assemble_matrix()
+            timer.stop()
+            local_monitor["matrix_assembling"] = timer.elapsed()[0]
             problem.solve(du)
             du.x.scatter_forward()
 
             Du.vector.axpy(-1.0, du.vector)
             Du.x.scatter_forward()
 
+            timer.start()
             evaluated_operands = evaluate_operands(F_external_operators)
 
             # Implementation of an external operator may return several outputs and
@@ -225,9 +245,20 @@ def via_numba(verbose=False):
             # `evaluate_external_operators(F_external_operators, evaluated_operands).`
             sigma.ref_coefficient.x.array[:] = sigma_new
             dp.x.array[:] = dp_new
-
+            timer.stop()
+            local_monitor["constitutive_model_update"] = timer.elapsed()[0]
+            timer.start()
             problem.assemble_vector()
+            timer.stop()
+            local_monitor["vector_assembling"] = timer.elapsed()[0]
+            local_monitor["Newton_iteration"] = iteration
+            performance_monitor.loc[len(performance_monitor.index)] = local_monitor
+
             residual = problem.b.norm()
+
+            # for key, value in local_monitor.items():
+            #     print(f"{key}: {value}")
+            # print('\n')
 
             if MPI.COMM_WORLD.rank == 0 and verbose:
                 print(f"    it# {iteration} residual: {residual}")
@@ -243,7 +274,22 @@ def via_numba(verbose=False):
         # skip scatter forward, sigma is not ghosted.
 
     # TODO: Is there a more elegant way to extract the data?
-    common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+    # common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+    # print(common.timing("1st numba pass"))
+    # print(common.timing("2nd numba pass"))
+    # print(timer2.elapsed())
+    for event in ["matrix_assembling", "constitutive_model_update"]:
+        print(event)
+        print("\tmean =", performance_monitor[event].mean())
+        print("\tmean (elastic) =", performance_monitor.iloc[:11][event].mean())
+        print("\tmean (plastic) =", performance_monitor.iloc[11:][event].mean())
+        print("\tsum =", performance_monitor[event].sum())
+    def Newton_iterations_in_total():
+        N_iterations = 0
+        for i in range(0, len(loadings)):
+            N_iterations += performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
+        return N_iterations
+    print(f"Newton iterations in total = {Newton_iterations_in_total()}")
 
 def via_interpolation_based(verbose=False):
     Du = fem.Function(V, name="displacement_increment")
@@ -324,18 +370,10 @@ def via_interpolation_based(verbose=False):
         return sigma_el(e) - 3*mu*(3*mu/(3*mu+H)-beta)*ufl.inner(N_elas, e)*N_elas - 2*mu*beta*ufl.dev(e)
 
     u_hat = ufl.TrialFunction(V)
-    a_Newton = ufl.inner(eps(v), sigma_tang(eps(u_hat)))*dx
-    def F_ext(v):
-        """External force representing pressure acting on the inner wall of the cylinder."""
-    return -loading * ufl.inner(n, v)*ds(facet_tags_labels["inner"])
+    J = ufl.inner(eps(v), sigma_tang(eps(u_hat)))*dx
+    F = ufl.inner(eps(v), as_3D_tensor(sigma))*dx - loading * ufl.inner(n, v)*ds(facet_tags_labels["inner"])
 
-    res = -ufl.inner(eps(u_hat), as_3D_tensor(sigma))*dx - loading * ufl.inner(n, v)*ds(facet_tags_labels["inner"])
-    # res = loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
-    # fem.form(res)
-
-    # F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
-
-    problem = LinearProblem(a_Newton, res, Du, bcs=bcs)
+    problem = LinearProblem(J, F, Du, bcs=bcs)
 
     u = fem.Function(V, name="displacement")
     du = fem.Function(V, name="Newton_correction")
@@ -346,12 +384,22 @@ def via_interpolation_based(verbose=False):
     n_elas.vector.set(0.0)
     beta.vector.set(0.0)
 
+    timer = common.Timer("DOLFINx_timer")
+    local_monitor = {}
+    performance_monitor = pd.DataFrame({
+        "loading_step": np.array([], dtype=np.int64),
+        "Newton_iteration": np.array([], dtype=np.int64),
+        "matrix_assembling": np.array([], dtype=np.float64),
+        "vector_assembling": np.array([], dtype=np.float64),
+        "constitutive_model_update": np.array([], dtype=np.float64),
+    })
+
     deps = eps(Du)
     sigma_, n_elas_, beta_, dp_ = proj_sig(deps, sigma_n, p)
     # eps = np.finfo(PETSc.ScalarType).eps
     # Du.x.array[:] = eps
     def my_interpolate_quadrature(ufl_expr, fem_func:fem.Function):
-        q_dim = fem_func.function_space._ufl_element.degree()
+        q_dim = fem_func.function_space._ufl_element.degree
         mesh = fem_func.ufl_function_space().mesh
 
         # basix_celltype = getattr(basix.CellType, mesh.topology.cell_type.name)
@@ -382,6 +430,8 @@ def via_interpolation_based(verbose=False):
     loadings = q_lim * load_steps
 
     for i, loading_v in enumerate(loadings):
+        local_monitor["loading_step"] = i
+
         loading.value = loading_v
         problem.assemble_vector()
 
@@ -394,18 +444,29 @@ def via_interpolation_based(verbose=False):
         for iteration in range(0, max_iterations):
             if residual / residual_0 < relative_tolerance:
                 break
+            timer.start()
             problem.assemble_matrix()
+            timer.stop()
+            local_monitor["matrix_assembling"] = timer.elapsed()[0]
             problem.solve(du)
             du.x.scatter_forward()
 
             Du.vector.axpy(-1.0, du.vector)
             Du.x.scatter_forward()
 
+            timer.start()
             time_monitor_sig = my_interpolate_quadrature(sigma_, sigma)
             time_monitor_n_elas = my_interpolate_quadrature(n_elas_, n_elas)
             time_monitor_beta = my_interpolate_quadrature(beta_, beta)
-
+            timer.stop()
+            local_monitor["constitutive_model_update"] = timer.elapsed()[0]
+            timer.start()
             problem.assemble_vector()
+            timer.stop()
+            local_monitor["vector_assembling"] = timer.elapsed()[0]
+            local_monitor["Newton_iteration"] = iteration
+            performance_monitor.loc[len(performance_monitor.index)] = local_monitor
+
             residual = problem.b.norm()
 
             if MPI.COMM_WORLD.rank == 0 and verbose:
@@ -422,8 +483,24 @@ def via_interpolation_based(verbose=False):
         # skip scatter forward, sigma is not ghosted.
 
     # TODO: Is there a more elegant way to extract the data?
-    common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+    # common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+    for event in ["matrix_assembling", "constitutive_model_update"]:
+        print(event)
+        print("\tmean =", performance_monitor[event].mean())
+        print("\tmean (elastic) =", performance_monitor.iloc[:11][event].mean())
+        print("\tmean (plastic) =", performance_monitor.iloc[11:][event].mean())
+        print("\tsum =", performance_monitor[event].sum())
+    # print("Newton iterations =", performance_monitor["Newton_iteration"].sum())
 
+    def Newton_iterations_in_total():
+        N_iterations = 0
+        for i in range(0, len(loadings)):
+            N_iterations += performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
+        return N_iterations
+    print(f"Newton iterations in total = {Newton_iterations_in_total()}")
+
+def benchmarking():
+    
 # via_numba()
 
-via_interpolation_based()
+# via_interpolation_based()
