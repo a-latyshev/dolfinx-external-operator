@@ -4,6 +4,9 @@ from petsc4py import PETSc
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
+import sys
+sys.path.append("../docs/demos/")
+import solvers
 from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
@@ -40,7 +43,6 @@ C_elas = np.array(
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter()
 
 k_u = 2
@@ -76,178 +78,171 @@ dx = ufl.Measure(
     metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
 )
 
-Du = fem.Function(V, name="displacement_increment")
-S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
-S = fem.functionspace(mesh, S_element)
-sigma = FEMExternalOperator(epsilon(Du), function_space=S)
+def via_numba():
+    Du = fem.Function(V, name="displacement_increment")
+    S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
+    S = fem.functionspace(mesh, S_element)
+    sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 
-n = ufl.FacetNormal(mesh)
-loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
+    n = ufl.FacetNormal(mesh)
+    loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
-v = ufl.TestFunction(V)
-F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+    v = ufl.TestFunction(V)
+    F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
-# Internal state
-P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
-P = fem.functionspace(mesh, P_element)
+    # Internal state
+    P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
+    P = fem.functionspace(mesh, P_element)
 
-p = fem.Function(P, name="cumulative_plastic_strain")
-dp = fem.Function(P, name="incremental_plastic_strain")
-sigma_n = fem.Function(S, name="stress_n")
+    p = fem.Function(P, name="cumulative_plastic_strain")
+    dp = fem.Function(P, name="incremental_plastic_strain")
+    sigma_n = fem.Function(S, name="stress_n")
 
-num_quadrature_points = P_element.dim
+    num_quadrature_points = P_element.dim
 
-@numba.njit
-def return_mapping(deps_, sigma_n_, p_):
-    """Performs the return-mapping procedure."""
-    num_cells = deps_.shape[0]
+    @numba.njit
+    def return_mapping(deps_, sigma_n_, p_):
+        """Performs the return-mapping procedure."""
+        num_cells = deps_.shape[0]
 
-    C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
-    sigma_ = np.empty_like(sigma_n_)
-    dp_ = np.empty_like(p_)
+        C_tang_ = np.empty((num_cells, num_quadrature_points, 4, 4), dtype=PETSc.ScalarType)
+        sigma_ = np.empty_like(sigma_n_)
+        dp_ = np.empty_like(p_)
 
-    def _kernel(deps_local, sigma_n_local, p_local):
-        """Performs the return-mapping procedure locally."""
-        sigma_elastic = sigma_n_local + C_elas @ deps_local
-        s = deviatoric @ sigma_elastic
-        sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
+        def _kernel(deps_local, sigma_n_local, p_local):
+            """Performs the return-mapping procedure locally."""
+            sigma_elastic = sigma_n_local + C_elas @ deps_local
+            s = deviatoric @ sigma_elastic
+            sigma_eq = np.sqrt(3.0 / 2.0 * np.dot(s, s))
 
-        f_elastic = sigma_eq - sigma_0 - H * p_local
-        f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
+            f_elastic = sigma_eq - sigma_0 - H * p_local
+            f_elastic_plus = (f_elastic + np.sqrt(f_elastic**2)) / 2.0
 
-        dp = f_elastic_plus / (3 * mu + H)
+            dp = f_elastic_plus / (3 * mu + H)
 
-        n_elas = s / sigma_eq * f_elastic_plus / f_elastic
-        beta = 3 * mu * dp / sigma_eq
+            n_elas = s / sigma_eq * f_elastic_plus / f_elastic
+            beta = 3 * mu * dp / sigma_eq
 
-        sigma = sigma_elastic - beta * s
+            sigma = sigma_elastic - beta * s
 
-        n_elas_matrix = np.outer(n_elas, n_elas)
-        C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
+            n_elas_matrix = np.outer(n_elas, n_elas)
+            C_tang = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
 
-        return C_tang, sigma, dp
+            return C_tang, sigma, dp
 
-    for i in range(0, num_cells):
-        for j in range(0, num_quadrature_points):
-            C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(deps_[i, j], sigma_n_[i, j], p_[i, j])
+        for i in range(0, num_cells):
+            for j in range(0, num_quadrature_points):
+                C_tang_[i, j], sigma_[i, j], dp_[i, j] = _kernel(deps_[i, j], sigma_n_[i, j], p_[i, j])
 
-    return C_tang_, sigma_, dp_
+        return C_tang_, sigma_, dp_
 
-def C_tang_impl(deps):
-    num_cells = deps.shape[0]
-    num_quadrature_points = int(deps.shape[1] / 4)
+    def C_tang_impl(deps):
+        num_cells = deps.shape[0]
+        num_quadrature_points = int(deps.shape[1] / 4)
 
-    deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
-    sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
-    p_ = p.x.array.reshape((num_cells, num_quadrature_points))
+        deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
+        sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
+        p_ = p.x.array.reshape((num_cells, num_quadrature_points))
 
-    C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+        C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
 
-    return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
-
-
-def sigma_external(derivatives):
-    if derivatives == (1,):
-        return C_tang_impl
-    else:
-        return NotImplementedError
+        return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
 
 
-sigma.external_function = sigma_external
+    def sigma_external(derivatives):
+        if derivatives == (1,):
+            return C_tang_impl
+        else:
+            return NotImplementedError
 
-u_hat = ufl.TrialFunction(V)
-J = ufl.derivative(F, Du, u_hat)
-J_expanded = ufl.algorithms.expand_derivatives(J)
 
-F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
+    sigma.external_function = sigma_external
 
-F_form = fem.form(F_replaced)
-J_form = fem.form(J_replaced)
+    u_hat = ufl.TrialFunction(V)
+    J = ufl.derivative(F, Du, u_hat)
+    J_expanded = ufl.algorithms.expand_derivatives(J)
 
-eps = np.finfo(PETSc.ScalarType).eps
-Du.x.array[:] = eps
+    F_replaced, F_external_operators = replace_external_operators(F)
+    J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
-timer1 = common.Timer("1st numba pass")
-timer1.start()
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer1.stop()
+    eps = np.finfo(PETSc.ScalarType).eps
+    Du.x.array[:] = eps
 
-timer2 = common.Timer("2nd numba pass")
-timer2.start()
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer2.stop()
+    timer1 = common.Timer("1st numba pass")
+    timer1.start()
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    timer1.stop()
 
-timer3 = common.Timer("3nd numba pass")
-timer3.start()
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer3.stop()
+    timer2 = common.Timer("2nd numba pass")
+    timer2.start()
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    timer2.stop()
 
-u = fem.Function(V, name="displacement")
-du = fem.Function(V, name="Newton_correction")
-external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
+    u = fem.Function(V, name="displacement")
+    du = fem.Function(V, name="Newton_correction")
+    external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
 
-x_point = np.array([[R_i, 0, 0]])
-cells, points_on_process = find_cell_by_point(mesh, x_point)
+    x_point = np.array([[R_i, 0, 0]])
+    cells, points_on_process = find_cell_by_point(mesh, x_point)
 
-q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-num_increments = 20
-max_iterations, relative_tolerance = 200, 1e-8
-load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
-loadings = q_lim * load_steps
-results = np.zeros((num_increments, 2))
+    q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
+    num_increments = 20
+    max_iterations, relative_tolerance = 200, 1e-8
+    load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
+    loadings = q_lim * load_steps
 
-for i, loading_v in enumerate(loadings):
-    loading.value = loading_v
-    external_operator_problem.assemble_vector()
-
-    residual_0 = residual = external_operator_problem.b.norm()
-    Du.x.array[:] = 0.0
-
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
-
-    for iteration in range(0, max_iterations):
-        if residual / residual_0 < relative_tolerance:
-            break
-        external_operator_problem.assemble_matrix()
-        external_operator_problem.solve(du)
-        du.x.scatter_forward()
-
-        Du.vector.axpy(-1.0, du.vector)
-        Du.x.scatter_forward()
-
-        evaluated_operands = evaluate_operands(F_external_operators)
-
-        # Implementation of an external operator may return several outputs and
-        # not only its evaluation. For example, `C_tang_impl` returns a tuple of
-        # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
-        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-        # In order to update the values of the external operator we may directly
-        # access them and avoid the call of
-        # `evaluate_external_operators(F_external_operators, evaluated_operands).`
-        sigma.ref_coefficient.x.array[:] = sigma_new
-        dp.x.array[:] = dp_new
-
+    for i, loading_v in enumerate(loadings):
+        loading.value = loading_v
         external_operator_problem.assemble_vector()
-        residual = external_operator_problem.b.norm()
+
+        residual_0 = residual = external_operator_problem.b.norm()
+        Du.x.array[:] = 0.0
 
         if MPI.COMM_WORLD.rank == 0:
-            print(f"    it# {iteration} residual: {residual}")
+            print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
 
-    u.vector.axpy(1.0, Du.vector)
-    u.x.scatter_forward()
+        for iteration in range(0, max_iterations):
+            if residual / residual_0 < relative_tolerance:
+                break
+            external_operator_problem.assemble_matrix()
+            external_operator_problem.solve(du)
+            du.x.scatter_forward()
 
-    # Taking into account the history of loading
-    p.vector.axpy(1.0, dp.vector)
-    # skip scatter forward, p is not ghosted.
-    # TODO: Why? What is the difference with lines above?
-    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
-    # skip scatter forward, sigma is not ghosted.
+            Du.vector.axpy(-1.0, du.vector)
+            Du.x.scatter_forward()
 
-# TODO: Is there a more elegant way to extract the data?
-common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+            evaluated_operands = evaluate_operands(F_external_operators)
+
+            # Implementation of an external operator may return several outputs and
+            # not only its evaluation. For example, `C_tang_impl` returns a tuple of
+            # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
+            ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+            # In order to update the values of the external operator we may directly
+            # access them and avoid the call of
+            # `evaluate_external_operators(F_external_operators, evaluated_operands).`
+            sigma.ref_coefficient.x.array[:] = sigma_new
+            dp.x.array[:] = dp_new
+
+            external_operator_problem.assemble_vector()
+            residual = external_operator_problem.b.norm()
+
+            if MPI.COMM_WORLD.rank == 0:
+                print(f"    it# {iteration} residual: {residual}")
+
+        u.vector.axpy(1.0, Du.vector)
+        u.x.scatter_forward()
+
+        # Taking into account the history of loading
+        p.vector.axpy(1.0, dp.vector)
+        # skip scatter forward, p is not ghosted.
+        # TODO: Why? What is the difference with lines above?
+        sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+        # skip scatter forward, sigma is not ghosted.
+
+    # TODO: Is there a more elegant way to extract the data?
+    common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+
+via_numba()
