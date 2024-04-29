@@ -12,8 +12,8 @@ authors = [
 license = { file = "LICENSE" }
 readme = "README.md"
 dependencies = [
-    "fenics-dolfinx>=0.8.0.dev0,<0.9.0",
-    "fenics-ufl>=2023.3.0.dev0,<2023.4.0",
+    "fenics-dolfinx>=0.8.0.dev0,<=0.9.0",
+    "fenics-ufl>=2023.3.0.dev0,<=2024.2.0.dev0",
 ]
 
 [project.optional-dependencies]
@@ -65,3 +65,6 @@ section-order = ["future", "standard-library", "mpi", "third-party", "first-part
 
 [tool.ruff.lint.isort.sections]
 "mpi" = ["mpi4py", "petsc4py"]
+
+[tool.setuptools]
+py-modules = ["dolfinx_external_operator"]
