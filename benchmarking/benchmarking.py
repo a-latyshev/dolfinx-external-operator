@@ -26,7 +26,7 @@ from dolfinx_external_operator import (
 )
 
 def benchmarking(lc):
-    num_loads = 20
+    num_loads = 2
 
     R_e, R_i = 1.3, 1.0  # external/internal radius
 
@@ -183,9 +183,29 @@ def benchmarking(lc):
             # sigma_local = sigma_n_local + C_elas @ deps_local
             # dp_local_new = 0.0
             return sigma_local, (sigma_local, dp_local_new)
-
+        
         dsigma_ddeps = jax.jacfwd(return_mapping_jax, has_aux=True)
         dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0, 0, 0)))
+
+        @jax.jit
+        def return_mapping_jax(deps_local, sigma_n_local, p_local, dp_local):
+            sigma_elastic = sigma_n_local + C_elas @ deps_local
+            s = deviatoric @ sigma_elastic
+            sigma_eq = jnp.sqrt(3./2. * jnp.vdot(s, s))
+
+            f_elas = sigma_eq - sigma_0 - H*p_local
+            f_elas_plus = jax_ppos(f_elas)
+
+            dp_local = f_elas_plus/(3*mu+H)
+            beta = 3 * mu * dp_local / sigma_eq
+            n_elas = s / sigma_eq * f_elas_plus / f_elas
+
+            sigma_local = sigma_elastic - beta * s
+            n_elas_matrix = jnp.outer(n_elas, n_elas)
+            C_tang_local = C_elas - 3 * mu * (3 * mu / (3 * mu + H) - beta) * n_elas_matrix - 2 * mu * beta * deviatoric
+            return C_tang_local, (sigma_local, dp_local)
+
+        return_mapping_jax_vec = jax.jit(jax.vmap(return_mapping_jax, in_axes=(0, 0, 0, 0)))
 
         def C_tang_impl_jax(deps):
             deps_ = deps.reshape((-1, 4))
@@ -193,7 +213,8 @@ def benchmarking(lc):
             p_ = p.x.array.reshape(-1)
             dp_ = dp.x.array.reshape(-1)
 
-            (C_tang_global, (sigma_global, dp_global)) = dsigma_ddeps_vec(deps_, sigma_n_, p_, dp_)
+            # (C_tang_global, (sigma_global, dp_global)) = dsigma_ddeps_vec(deps_, sigma_n_, p_, dp_)
+            (C_tang_global, (sigma_global, dp_global)) = return_mapping_jax_vec(deps_, sigma_n_, p_, dp_)
 
             return C_tang_global.reshape(-1), sigma_global.reshape(-1), dp_global.reshape(-1)
 
@@ -227,13 +248,15 @@ def benchmarking(lc):
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         timer.stop()
-        print(f"1st pass: {timer.elapsed()[0]}")
+        pass_1 = timer.elapsed()[0]
+        # print(f"1st pass: {timer.elapsed()[0]}")
         timer.start()
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         timer.stop()
-        print(f"2nd pass: {timer.elapsed()[0]}")
-
+        pass_2 = timer.elapsed()[0]
+        # print(f"2nd pass: {timer.elapsed()[0]}")
+        print(f"JIT overhead = {pass_1 - pass_2}")
         local_monitor = {}
         performance_monitor = pd.DataFrame({
             "loading_step": np.array([], dtype=np.int64),
@@ -545,20 +568,21 @@ def benchmarking(lc):
     via_numba = lambda verbose=False: via_external_operator(mode="numba", verbose=verbose)
     via_jax = lambda verbose=False: via_external_operator(mode="jax", verbose=verbose)
     dofs = P.dofmap.index_map.size_global
-    approaches = {"Numba": via_numba, "JAX": via_jax, "interpolation": via_interpolation_based}
+    approaches = {"interpolation": via_interpolation_based, "Numba": via_numba, "JAX": via_jax}
+    approaches = {"interpolation": via_interpolation_based, "JAX": via_jax}
 
-    performance_monitor = via_jax(True)
-    print('\n')
-    performance_monitor = via_numba(True)
+    # performance_monitor = via_jax()
+    # print('\n')
+    # performance_monitor = via_numba(True)
     # print(performance_monitor)
-    # data_list = []
-    # for approach, method in approaches.items():
-    #     print(f"Approach: {approach}")
-    #     data = {"dofs": dofs, "Approach": approach}
-    #     performance_monitor = method()
-    #     for event in ["matrix_assembling", "constitutive_model_update"]:
-    #         data[event] = performance_monitor[event].mean()
-    #         data[event+"(total)"] = performance_monitor[event].sum()
-    #     data_list.append(data)
+    data_list = []
+    for approach, method in approaches.items():
+        print(f"Approach: {approach}")
+        data = {"dofs": dofs, "Approach": approach}
+        performance_monitor = method()
+        for event in ["matrix_assembling", "constitutive_model_update"]:
+            data[event] = performance_monitor[event].mean()
+            data[event+"(total)"] = performance_monitor[event].sum()
+        data_list.append(data)
 
-    # return data_list
+    return data_list
