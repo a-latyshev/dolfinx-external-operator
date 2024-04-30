@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 import numba
 import numpy as np
 import pandas as pd
+import jax
+jax.config.update("jax_enable_x64", True) #replace by JAX_ENABLE_X64=True
+import jax.numpy as jnp
+
 import sys
 sys.path.append("../docs/demos/")
 import solvers
@@ -22,6 +26,8 @@ from dolfinx_external_operator import (
 )
 
 def benchmarking(lc):
+    num_loads = 3
+
     R_e, R_i = 1.3, 1.0  # external/internal radius
 
     E, nu = 70e3, 0.3  # elastic parameters
@@ -85,7 +91,7 @@ def benchmarking(lc):
     P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
     P = fem.functionspace(mesh, P_element)
 
-    def via_numba(verbose=False):
+    def via_external_operator(mode, verbose=False):
         Du = fem.Function(V, name="displacement_increment")
 
         sigma = FEMExternalOperator(epsilon(Du), function_space=S)
@@ -138,7 +144,7 @@ def benchmarking(lc):
 
             return C_tang_, sigma_, dp_
 
-        def C_tang_impl(deps):
+        def C_tang_impl_numba(deps):
             num_cells = deps.shape[0]
             num_quadrature_points = int(deps.shape[1] / 4)
 
@@ -150,13 +156,83 @@ def benchmarking(lc):
 
             return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
 
+        @jax.jit
+        def jax_ppos(x):
+            return (x + jnp.sqrt(x**2))/2.
+
+        # @jax.jit
+        # def func_dp(deps_local, sigma_n_local, p_n_local):
+        #     sig_elas = sigma_n_local + C_elas @ deps_local
+        #     s = deviatoric @ sig_elas
+        #     sig_eq = jnp.sqrt(3./2. * jnp.vdot(s, s))
+
+        #     f_elas = sig_eq - sigma_0 - H*p_n_local
+        #     f_elas_plus = jax_ppos(f_elas)
+
+        #     return f_elas_plus/(3*mu+H)
+
+        @jax.jit
+        def deps_p(deps_local, sigma_n_local, p_n_local, dp_local):
+            sigma_elas_local = sigma_n_local + C_elas @ deps_local
+            s = deviatoric @ sigma_elas_local
+            sigma_eq = jnp.sqrt(3./2. * jnp.vdot(s, s))
+
+            f_elas = sigma_eq - sigma_0 - H*p_n_local
+            f_elas_plus = jax_ppos(f_elas)
+
+            dp_local = f_elas_plus/(3*mu+H)
+            deps_p_local = 3./2. * dp_local * s/sigma_eq
+            return deps_p_local, dp_local
+
+        @jax.jit
+        def return_mapping_jax(deps_local, sigma_n_local, p_n_local, dp_local):
+            deps_p_local, dp_local_new = deps_p(deps_local, sigma_n_local, p_n_local, dp_local)
+            sigma_local = sigma_n_local + C_elas @ (deps_local - deps_p_local)
+            return sigma_local, (sigma_local, dp_local_new)
+
+        dsigma_ddeps = jax.jacfwd(return_mapping_jax, has_aux=True)
+        dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0, 0, 0)))
+
+        #vectorization in the way: 
+        # vsig(deps_local=(batch_size, 4), sigma=(batch_size, 4), p_old_local=(batch_sizes), dp_local=(batch_sizes))
+        # vsig = jax.jit(jax.vmap(sig_jax, in_axes=(0, 0, 0, 0))) 
+        # vfunc_dp = jax.jit(jax.vmap(func_dp, in_axes=(0, 0, 0)))
+        # vdsigddeps = jax.jit(jax.vmap(dsigddeps, in_axes=(0, 0, 0, 0)))
+
+
+        # def func_sigma_jax(deps, sigma, sigma_old, p_old, dp):
+        #     deps_global = deps.reshape((num_cells*num_quadrature_points, 4))
+        #     sigma_old_global = sigma_old.reshape((num_cells*num_quadrature_points, 4))
+
+        #     out, dp_new = vsig(deps_global, sigma_old_global, p_old, dp)
+        #     # dp_new = vfunc_dp(deps_vectorized, sigma_old_vectorized, p_old)
+        #     np.copyto(dp, dp_new)
+        #     return out.reshape(-1)
+
+        @jax.jit
+        def C_tang_impl_jax(deps):
+            deps_ = deps.reshape((-1, 6))
+            sigma_n_ = sigma_n.x.array.reshape((-1, 6))
+            p_ = p.x.array.reshape(-1)
+            dp_ = dp.x.array.reshape(-1)
+            
+            (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_, p_, dp_)
+            sigma_global, dp_global = state
+
+            return C_tang_global.reshape(-1), sigma_global.reshape(-1), dp_global.reshape(-1)
+
+        if mode == 'numba':
+            C_tang_impl = C_tang_impl_numba
+        elif mode == 'jax':
+            C_tang_impl = C_tang_impl_jax
+        else:
+            return NotImplementedError
 
         def sigma_external(derivatives):
             if derivatives == (1,):
                 return C_tang_impl
             else:
                 return NotImplementedError
-
 
         sigma.external_function = sigma_external
 
@@ -205,7 +281,7 @@ def benchmarking(lc):
         q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
         num_increments = 20
         max_iterations, relative_tolerance = 200, 1e-8
-        load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
+        load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:num_loads]
         loadings = q_lim * load_steps
 
         for i, loading_v in enumerate(loadings):
@@ -256,10 +332,6 @@ def benchmarking(lc):
                 performance_monitor.loc[len(performance_monitor.index)] = local_monitor
 
                 residual = problem.b.norm()
-
-                # for key, value in local_monitor.items():
-                #     print(f"{key}: {value}")
-                # print('\n')
 
                 if MPI.COMM_WORLD.rank == 0 and verbose:
                     print(f"    it# {iteration} residual: {residual}")
@@ -416,7 +488,7 @@ def benchmarking(lc):
         q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
         num_increments = 20
         max_iterations, relative_tolerance = 200, 1e-8
-        load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
+        load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:num_loads]
         loadings = q_lim * load_steps
 
         for i, loading_v in enumerate(loadings):
@@ -445,9 +517,9 @@ def benchmarking(lc):
                 Du.x.scatter_forward()
 
                 timer.start()
-                time_monitor_sig = my_interpolate_quadrature(sigma_, sigma)
-                time_monitor_n_elas = my_interpolate_quadrature(n_elas_, n_elas)
-                time_monitor_beta = my_interpolate_quadrature(beta_, beta)
+                my_interpolate_quadrature(sigma_, sigma)
+                my_interpolate_quadrature(n_elas_, n_elas)
+                my_interpolate_quadrature(beta_, beta)
                 timer.stop()
                 local_monitor["constitutive_model_update"] = timer.elapsed()[0]
                 timer.start()
