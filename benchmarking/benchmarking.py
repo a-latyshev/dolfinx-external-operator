@@ -26,7 +26,7 @@ from dolfinx_external_operator import (
 )
 
 def benchmarking(lc):
-    num_loads = 3
+    num_loads = 20
 
     R_e, R_i = 1.3, 1.0  # external/internal radius
 
@@ -160,70 +160,46 @@ def benchmarking(lc):
         def jax_ppos(x):
             return (x + jnp.sqrt(x**2))/2.
 
-        # @jax.jit
-        # def func_dp(deps_local, sigma_n_local, p_n_local):
-        #     sig_elas = sigma_n_local + C_elas @ deps_local
-        #     s = deviatoric @ sig_elas
-        #     sig_eq = jnp.sqrt(3./2. * jnp.vdot(s, s))
-
-        #     f_elas = sig_eq - sigma_0 - H*p_n_local
-        #     f_elas_plus = jax_ppos(f_elas)
-
-        #     return f_elas_plus/(3*mu+H)
-
         @jax.jit
-        def deps_p(deps_local, sigma_n_local, p_n_local, dp_local):
-            sigma_elas_local = sigma_n_local + C_elas @ deps_local
-            s = deviatoric @ sigma_elas_local
+        def deps_p(deps_local, sigma_n_local, p_local, dp_local):
+            sigma_elastic = sigma_n_local + C_elas @ deps_local
+            s = deviatoric @ sigma_elastic
             sigma_eq = jnp.sqrt(3./2. * jnp.vdot(s, s))
 
-            f_elas = sigma_eq - sigma_0 - H*p_n_local
+            f_elas = sigma_eq - sigma_0 - H*p_local
             f_elas_plus = jax_ppos(f_elas)
 
             dp_local = f_elas_plus/(3*mu+H)
+            # beta = 3 * mu * dp_local / sigma_eq
+            # sigma_local = sigma_elastic - beta * s
             deps_p_local = 3./2. * dp_local * s/sigma_eq
             return deps_p_local, dp_local
 
         @jax.jit
-        def return_mapping_jax(deps_local, sigma_n_local, p_n_local, dp_local):
-            deps_p_local, dp_local_new = deps_p(deps_local, sigma_n_local, p_n_local, dp_local)
+        def return_mapping_jax(deps_local, sigma_n_local, p_local, dp_local):
+            deps_p_local, dp_local_new = deps_p(deps_local, sigma_n_local, p_local, dp_local)
             sigma_local = sigma_n_local + C_elas @ (deps_local - deps_p_local)
+            # sigma_local, dp_local_new = deps_p(deps_local, sigma_n_local, p_local, dp_local)
+            # sigma_local = sigma_n_local + C_elas @ deps_local
+            # dp_local_new = 0.0
             return sigma_local, (sigma_local, dp_local_new)
 
         dsigma_ddeps = jax.jacfwd(return_mapping_jax, has_aux=True)
         dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0, 0, 0)))
 
-        #vectorization in the way: 
-        # vsig(deps_local=(batch_size, 4), sigma=(batch_size, 4), p_old_local=(batch_sizes), dp_local=(batch_sizes))
-        # vsig = jax.jit(jax.vmap(sig_jax, in_axes=(0, 0, 0, 0))) 
-        # vfunc_dp = jax.jit(jax.vmap(func_dp, in_axes=(0, 0, 0)))
-        # vdsigddeps = jax.jit(jax.vmap(dsigddeps, in_axes=(0, 0, 0, 0)))
-
-
-        # def func_sigma_jax(deps, sigma, sigma_old, p_old, dp):
-        #     deps_global = deps.reshape((num_cells*num_quadrature_points, 4))
-        #     sigma_old_global = sigma_old.reshape((num_cells*num_quadrature_points, 4))
-
-        #     out, dp_new = vsig(deps_global, sigma_old_global, p_old, dp)
-        #     # dp_new = vfunc_dp(deps_vectorized, sigma_old_vectorized, p_old)
-        #     np.copyto(dp, dp_new)
-        #     return out.reshape(-1)
-
-        @jax.jit
         def C_tang_impl_jax(deps):
-            deps_ = deps.reshape((-1, 6))
-            sigma_n_ = sigma_n.x.array.reshape((-1, 6))
+            deps_ = deps.reshape((-1, 4))
+            sigma_n_ = sigma_n.x.array.reshape((-1, 4))
             p_ = p.x.array.reshape(-1)
             dp_ = dp.x.array.reshape(-1)
-            
-            (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_, p_, dp_)
-            sigma_global, dp_global = state
+
+            (C_tang_global, (sigma_global, dp_global)) = dsigma_ddeps_vec(deps_, sigma_n_, p_, dp_)
 
             return C_tang_global.reshape(-1), sigma_global.reshape(-1), dp_global.reshape(-1)
 
-        if mode == 'numba':
+        if mode == "numba":
             C_tang_impl = C_tang_impl_numba
-        elif mode == 'jax':
+        elif mode == "jax":
             C_tang_impl = C_tang_impl_jax
         else:
             return NotImplementedError
@@ -251,12 +227,12 @@ def benchmarking(lc):
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         timer.stop()
-        print(f"1st Numba pass: {timer.elapsed()[0]}")
+        print(f"1st pass: {timer.elapsed()[0]}")
         timer.start()
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         timer.stop()
-        print(f"2nd Numba pass: {timer.elapsed()[0]}")
+        print(f"2nd pass: {timer.elapsed()[0]}")
 
         local_monitor = {}
         performance_monitor = pd.DataFrame({
@@ -275,8 +251,8 @@ def benchmarking(lc):
         du = fem.Function(V, name="Newton_correction")
         problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
 
-        x_point = np.array([[R_i, 0, 0]])
-        cells, points_on_process = find_cell_by_point(mesh, x_point)
+        # x_point = np.array([[R_i, 0, 0]])
+        # cells, points_on_process = find_cell_by_point(mesh, x_point)
 
         q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
         num_increments = 20
@@ -309,6 +285,9 @@ def benchmarking(lc):
                 Du.vector.axpy(-1.0, du.vector)
                 Du.x.scatter_forward()
 
+                # print(f"before sigma = {sigma.ref_coefficient.x.array.mean()}")
+                # print(f"before sigma_n = {sigma_n.x.array.mean()}")
+
                 timer.start()
                 evaluated_operands = evaluate_operands(F_external_operators)
 
@@ -316,6 +295,7 @@ def benchmarking(lc):
                 # not only its evaluation. For example, `C_tang_impl` returns a tuple of
                 # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
                 ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
 
                 # In order to update the values of the external operator we may directly
                 # access them and avoid the call of
@@ -331,6 +311,9 @@ def benchmarking(lc):
                 local_monitor["Newton_iteration"] = iteration
                 performance_monitor.loc[len(performance_monitor.index)] = local_monitor
 
+                # print(f"after sigma = {sigma.ref_coefficient.x.array.mean()}")
+                # C_tang = J_external_operators[0]
+                # print(C_tang.ref_coefficient.x.array.mean())
                 residual = problem.b.norm()
 
                 if MPI.COMM_WORLD.rank == 0 and verbose:
@@ -559,16 +542,23 @@ def benchmarking(lc):
         print(f"Newton iterations in total = {Newton_iterations_in_total()}")
         return performance_monitor
 
+    via_numba = lambda verbose=False: via_external_operator(mode="numba", verbose=verbose)
+    via_jax = lambda verbose=False: via_external_operator(mode="jax", verbose=verbose)
     dofs = P.dofmap.index_map.size_global
-    approaches = {"Numba": via_numba, "interpolation": via_interpolation_based}
-    data_list = []
-    for approach, method in approaches.items():
-        print(f"Approach: {approach}")
-        data = {"dofs": dofs, "Approach": approach}
-        performance_monitor = method()
-        for event in ["matrix_assembling", "constitutive_model_update"]:
-            data[event] = performance_monitor[event].mean()
-            data[event+"(total)"] = performance_monitor[event].sum()
-        data_list.append(data)
+    approaches = {"Numba": via_numba, "JAX": via_jax, "interpolation": via_interpolation_based}
 
-    return data_list
+    performance_monitor = via_jax(True)
+    print('\n')
+    performance_monitor = via_numba(True)
+    # print(performance_monitor)
+    # data_list = []
+    # for approach, method in approaches.items():
+    #     print(f"Approach: {approach}")
+    #     data = {"dofs": dofs, "Approach": approach}
+    #     performance_monitor = method()
+    #     for event in ["matrix_assembling", "constitutive_model_update"]:
+    #         data[event] = performance_monitor[event].mean()
+    #         data[event+"(total)"] = performance_monitor[event].sum()
+    #     data_list.append(data)
+
+    # return data_list
