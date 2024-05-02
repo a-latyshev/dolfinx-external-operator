@@ -6,8 +6,8 @@ author: Andrey Latyshev, Jack S. Hale
 copyright: "2023"
 
 execute:
-  execute_notebooks: force
-  timeout: 200
+  execute_notebooks: cache
+  timeout: 1800
 # Information about where the book exists on the web
 repository:
   url: https://github.com/a-latyshev/dolfinx-external-operator/  # Online location of your book
@@ -16,11 +16,6 @@ repository:
 launch_buttons:
   notebook_interface: "jupyterlab" # The interface interactive links will activate ["classic", "jupyterlab"]
   binderhub_url: "https://mybinder.org"
-
-html:
-  use_issues_button: true
-  use_repository_button: true
-  favicon: "favicon.ico"
 
 bibtex_bibfiles:
   - references.bib
@@ -39,9 +34,31 @@ sphinx:
     - "sphinx.ext.viewcode"
 
   config:
-    html_theme_options:
-      navigation_with_keys: false
+    bibtex_reference_style: author_year
+    html_last_updated_fmt: "%b %d, %Y"
     nb_custom_formats:
       .py:
         - jupytext.reads
         - fmt: py
+    html_theme_options:
+      # navigation_with_keys: false
+      # pygment_light_style: "friendly"
+      show_navbar_depth: 1
+      home_page_in_toc: true
+      show_toc_level: 2
+      repository_url: https://github.com/a-latyshev/dolfinx-external-operator/
+      use_edit_page_button: true
+      use_repository_button: true
+      use_issues_button: true
+      use_download_button: true
+
+
+html:
+  favicon: "favicon.ico"
+#   use_issues_button: true
+#   use_repository_button: true
+#   use_edit_page_button: true
+#   favicon: "favicon.ico"
+#   show_navbar_depth: 1
+#   home_page_in_toc: true
+#   home_page_in_navbar: true

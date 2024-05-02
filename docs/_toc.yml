@@ -1,6 +1,5 @@
 format: jb-book
-root: intro
-
+root: index
 parts:
   - caption: "Demos"
     chapters:
