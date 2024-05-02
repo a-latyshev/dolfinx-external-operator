@@ -1,4 +1,4 @@
-# External operators for FEniCSx/DOLFINx
+# External operators within FEniCSx/DOLFINx
 
 Authors:
 * Andrey Latyshev (University of Luxembourg, Sorbonne Université,
@@ -9,11 +9,27 @@ Authors:
 
 ## About the project
 
-This webpage aims to teach DOLFINx users to use external operators implemented
-within the ... framework.
+This project introduces the `dolfinx-external-operator` framework that
+implements an *external operator* concept within the DOLFINx library. It allows
+to assemble forms containing symbolic objects, which are not expressible via
+Unified Form Language (UFL), and lets the user define the behaviour of these
+objects and their derivatives using third-party packages. The data manipulation
+between external software and DOLFINx is performed through `ndarray`-like
+objects of the `Numpy` package.
 
-The concept of an external operator as a part of the Unified Form Language (UFL)
-was originally introduced in {cite}`bouziani_escaping_2021`.
+Although the framework may be applied to a wide range of scientific problems,
+during the development of our framework we were mainly focused on expressing
+general constitutive models of solid mechanics problems in FEniCS. This webpage
+contains several tutorials on plasticity problems.
+
+In particular, the framework allows the DOLFINx library to use automatic
+differentiation (AD). See this tutorial for further details, where the
+constitutive model of the plasticity problem is solved via the `JAX` package, a
+robust AD software.
+
+The framework is based on the UFL extension proposed by
+{cite:t}`bouziani_escaping_2021`, where the concept of the *external operator*
+was originally introduced.
 
 ## Installation
 
@@ -35,8 +51,10 @@ agreement, the author has applied a Creative Commons Attribution 4.0
 International (CC BY 4.0) license to any Author Accepted Manuscript version
 arising from this submission.
 
-This project is created using the open source Jupyter Book project and the book
-of dolfinx-tutorial as a template.
+This project is created using the open source
+[Jupyter Book project](https://jupyterbook.org/en/stable/intro.html) and the
+webpage of [dolfinx-tutorial](https://jsdokken.com/dolfinx-tutorial/index.html)
+as a template.
 
 
 ```{bibliography}

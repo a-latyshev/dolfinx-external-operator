@@ -1,7 +1,7 @@
 # Book settings
 # Learn more at https://jupyterbook.org/customize/config.html
 
-title: "External operators with FEniCSx"
+title: "External operators within FEniCSx/DOLFINx"
 author: Andrey Latyshev, Jack S. Hale
 copyright: "2023"
 
