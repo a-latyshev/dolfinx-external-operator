@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -21,110 +22,56 @@
 #    intro, it just seems like something I could have done in e.g. MFront.
 # 2. The equations should be put down where you define them in the code.
 
+# AL: comments
+# 1. How to explain the non-associativity for the problem where it is not required??
+# 2. Maybe `FEMExternalOperator` is a good name for the framework?
+
 # %% [markdown]
-# # Plasticity of Mohr-Coulomb
+# # Plasticity of Mohr-Coulomb with apex-smoothing
 #
-# The current tutorial implements the non-associative plasticity model of
-# Mohr-Coulomb with apex-smoothing, where the constitutive relations are defined
-# using the external package JAX. Here we consider the same cylinder expansion
-# problem in the two-dimensional case in a symmetric formulation, which was
-# considered in the previous tutorial on von Mises plasticity.
+# This tutorial aims to demonstrate how modern automatic or algorithmic differentiation (AD)
+# techniques may be used to define a complex constitutive model demanding a lot of
+# by-hand differentiation. In particular, we implement the non-associative
+# plasticity model of Mohr-Coulomb with apex-smoothing applied to a slope
+# stability problem for soil. We use the JAX package to define constitutive
+# relations including the differentiation of certain terms and
+# `FEMExternalOperator` framework to incorporate this model into a weak
+# formulation within UFL.
 #
-# The tutorial is based on the MFront/TFEL
-# [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of the
-# Mohr-Coulomb elastoplastic model with apex smoothing.
+# The tutorial is based on the
+# [limit analysis](https://fenics-optim.readthedocs.io/en/latest/demos/limit_analysis_3D_SDP.html)
+# within semi-definite programming framework, where the plasticity model was
+# replaced by the MFront/TFEL
+# [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of
+# the Mohr-Coulomb elastoplastic model with apex smoothing.
+#
 #
 # ## Problem formulation
 #
-# We solve the same cylinder expansion problem from the previous tutorial of
-# von Mises plasticity and follow the same Mandel-Voigt notation. Thus, we
-# focus here on the constitutive model definition and its implementation.
+# We solve a slope stability problem of a soil domain $\Omega$ represented by a
+# parallelepiped $[0; L] \times [0; W] \times [0; H]$ with homogeneous Dirichlet
+# boundary conditions for the displacement field $\boldsymbol{u} = \boldsymbol{0}$
+# on the right side $x = L$ and the bottom one $z = 0$. The loading consists of a
+# gravitational body force $\boldsymbol{q}=[0, 0, -\gamma]^T$ with $\gamma$ being
+# the soil self-weight. The solution of the problem is to find the collapse load
+# $q_\text{lim}$, for which we know an analytical solution in the plane-strain
+# case for the standard Mohr-Coulomb criterion [CITE] (TODO: rewrite later). We
+# follow the same Mandel-Voigt notation as in the von Mises plasticity tutorial
+# but in 3D.
 #
-# We consider a non-associative plasticity law without hardening that is
-# defined by the Mohr-Coulomb yield surface $F$ and the plastic potential $G$.
-# Both quantities may be expressed through the following function $H$
+# If $V$ is a functional space of admissible displacement fields, then we can
+# write out a weak formulation of the problem:
 #
-# \begin{align*}
-#     & H(\boldsymbol{\sigma}, \alpha) =
-#     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
-#     \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} -
-#     c\cos\alpha, \\
-#     & F(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \phi), \\
-#     & G(\boldsymbol{\sigma}) = H(\boldsymbol{\sigma}, \psi),
-# \end{align*}
-# where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion,
-# $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first
-# invariant of the stress tensor and $J_2(\boldsymbol{\sigma}) =
-# \frac{1}{2}\boldsymbol{s}:\boldsymbol{s}$ is the second invariant of the
-# deviatoric part of the stress tensor. The expression of the coefficient
-# $K(\alpha)$ may be found in the MFront/TFEL
-# [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html).
-#
-# During the plastic loading the stress-strain state of the solid must satisfy
-# the following system of nonlinear equations
+# Find $\boldsymbol{u} \in V$ such that
 #
 # $$
-#     \begin{cases}
-#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
-#         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
-#         \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda
-#         \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) =
-#         \boldsymbol{0}, \\
-#         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
-#     \end{cases}
-# $$ (eq_MC_1)
-#
-# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{G}^T,
-# r_F]^T$ and its argument vector $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy},
-# \sigma_{zz}, \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$ we solve the following
-# equation:
-#
+#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
+#     \boldsymbol{\sigma}(\boldsymbol{u}) \cdot
+#     \boldsymbol{\varepsilon}(\boldsymbol{v}) \mathrm{d}\boldsymbol{x} +
+#     \int\limits_\Omega \boldsymbol{q} \cdot \boldsymbol{v} = \boldsymbol{0}, \quad
+#     \forall \boldsymbol{v} \in V,
 # $$
-#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
-# $$
-#
-# To solve this system we apply the Newton method and then introduce the
-# Jacobian of the residual vector $\boldsymbol{j} = \frac{\partial
-# \boldsymbol{r}}{\partial \boldsymbol{x}}$
-#
-# $$
-#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n})
-#     + \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} -
-#     \boldsymbol{x}_{n})
-# $$
-#
-# $$
-#     \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
-#     \boldsymbol{r}(\boldsymbol{x}_{n})
-# $$
-#
-# $$ \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{r}(\boldsymbol{x}_{n}) +
-# \boldsymbol{j}(\boldsymbol{x}_{n})(\boldsymbol{x}_{n+1} - \boldsymbol{x}_{n}) $$
-#
-# $$ \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
-# \boldsymbol{r}(\boldsymbol{x}_{n}) $$
-#
-# $$ \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y} $$
-#
-# During the elastic loading, we consider a trivial system of equations
-#
-# $$
-#     \begin{cases}
-#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
-#         \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
-#     \end{cases}
-# $$ (eq_MC_2)
-#
-# The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
-# return-mapping procedure and the solution defines the return-mapping
-# correction of the stress tensor. By implementation of the external operator
-# $\boldsymbol{\sigma}$ we mean the implementation of the return-mapping
-# procedure. By applying the automatic differentiation (AD) technique to this
-# algorithm we may restore the stress derivative
-# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
-#
-# The JAX library was used to implement the external operator and its
-# derivative.
+# where $\boldsymbol{\sigma}$ is an external operator representing the stress tensor.
 #
 # ```{note}
 # Although the tutorial shows the implementation of the Mohr-Coulomb model, it
@@ -145,12 +92,14 @@ import jax.lax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import pyvista
 from solvers import LinearProblem
-from utilities import build_cylinder_quarter, find_cell_by_point
+from utilities import find_cell_by_point
 
 import basix
+import dolfinx.plot as plot
 import ufl
-from dolfinx import common, fem
+from dolfinx import common, default_scalar_type, fem, mesh
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -158,68 +107,78 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
-jax.config.update("jax_enable_x64", True)  # replace by JAX_ENABLE_X64=True
+jax.config.update("jax_enable_x64", True)
 
 # %% [markdown]
-# ### Model parameters
-#
 # Here we define geometrical and material parameters of the problem as well as
 # some useful constants.
 
 # %%
-R_i = 1  # [m] Inner radius
-R_e = 21  # [m] Outer radius
-
 E = 6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
-P_i_value = 3.45  # [MPa]
-
 c = 3.45  # [MPa] cohesion
-phi = 25 * np.pi / 180  # [rad] friction angle
-psi = 25 * np.pi / 180  # [rad] dilatancy angle
-theta_T = 20 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
+phi = 30 * np.pi / 180  # [rad] friction angle
+psi = 30 * np.pi / 180  # [rad] dilatancy angle
+theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
-mesh, facet_tags, facet_tags_labels = build_cylinder_quarter(R_e=R_e, R_i=R_i)
+L, W, H = (1.2, 2.0, 1.0)
+Nx, Ny, Nz = (10, 10, 10)
+gamma = 1.0
+domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0, 0, 0]), np.array([L, W, H])], [Nx, Ny, Nz])
 
 # %%
 k_u = 2
-V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
+V = fem.functionspace(domain, ("Lagrange", k_u, (3,)))
+
+
 # Boundary conditions
-bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
-left_facets = facet_tags.find(facet_tags_labels["Ly"])
+def on_right(x):
+    return np.isclose(x[0], L)
 
-bottom_dofs_y = fem.locate_dofs_topological(V.sub(1), mesh.topology.dim - 1, bottom_facets)
-left_dofs_x = fem.locate_dofs_topological(V.sub(0), mesh.topology.dim - 1, left_facets)
 
-sym_bottom = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), bottom_dofs_y, V.sub(1))
-sym_left = fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), left_dofs_x, V.sub(0))
+def on_bottom(x):
+    return np.isclose(x[2], 0.0)
 
-bcs = [sym_bottom, sym_left]
+
+bottom_dofs = fem.locate_dofs_geometrical(V, on_bottom)
+right_dofs = fem.locate_dofs_geometrical(V, on_right)
+
+# bcs =
+# [fem.dirichletbc(0.0, bottom_dofs, V), fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), right_dofs, V)]
+# # bug???
+
+bcs = [
+    fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
+    fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), right_dofs, V),
+]
 
 
 def epsilon(v):
     grad_v = ufl.grad(v)
-    return ufl.as_vector([grad_v[0, 0], grad_v[1, 1], 0, np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0])])
+    return ufl.as_vector(
+        [
+            grad_v[0, 0],
+            grad_v[1, 1],
+            grad_v[2, 2],
+            np.sqrt(2.0) * 0.5 * (grad_v[1, 2] + grad_v[2, 1]),
+            np.sqrt(2.0) * 0.5 * (grad_v[0, 2] + grad_v[2, 0]),
+            np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0]),
+        ]
+    )
 
 
 k_stress = 2 * (k_u - 1)
-ds = ufl.Measure(
-    "ds",
-    domain=mesh,
-    subdomain_data=facet_tags,
-    metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
-)
 
 dx = ufl.Measure(
     "dx",
-    domain=mesh,
+    domain=domain,
     metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
 )
 
-S_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=(4,))
-S = fem.functionspace(mesh, S_element)
+S_element = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=k_stress, value_shape=(6,))
+S = fem.functionspace(domain, S_element)
 
 
 Du = fem.Function(V, name="Du")
@@ -231,18 +190,93 @@ u_ = ufl.TestFunction(V)
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
 
+
 # %% [markdown]
-# ### Defining the external operator
+# ### Defining plasticity model and external operator
 #
-# In order to define the behaviour of the external operator and its
-# derivatives, we need to implement the return-mapping procedure solving the
-# constitutive equations {eq}`eq_MC_1`--{eq}`eq_MC_2` and apply the automatic
-# differentiation tool to this algorithm.
+# The constitutive model of the soil is described by a non-associative plasticity
+# law without hardening that is defined by the Mohr-Coulomb yield surface $f$ and
+# the plastic potential $g$. Both quantities may be expressed through the
+# following function $h$
+#
+# \begin{align*}
+#     & h(\boldsymbol{\sigma}, \alpha) =
+#     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
+#     \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} -
+#     c\cos\alpha, \\
+#     & f(\boldsymbol{\sigma}) = h(\boldsymbol{\sigma}, \phi), \\
+#     & g(\boldsymbol{\sigma}) = h(\boldsymbol{\sigma}, \psi),
+# \end{align*}
+# where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion,
+# $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first
+# invariant of the stress tensor and $J_2(\boldsymbol{\sigma}) =
+# \frac{1}{2}\boldsymbol{s} \cdot \boldsymbol{s}$ is the second invariant of the
+# deviatoric part of the stress tensor. The expression of the coefficient
+# $K(\alpha)$ may be found in the MFront/TFEL
+# [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of this plastic model.
+#
+# During the plastic loading the stress-strain state of the solid must satisfy
+# the following system of nonlinear equations
+#
+# $$
+#
+#     \begin{cases}
+#         \boldsymbol{r}_{g}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
+#         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
+#         \boldsymbol{C} \cdot (\Delta\boldsymbol{\varepsilon} - \Delta\lambda
+#         \frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) =
+#         \boldsymbol{0}, \\
+#          r_f(\boldsymbol{\sigma}_{n+1}) = f(\boldsymbol{\sigma}_{n+1}) = 0,
+#     \end{cases}
+#
+# $$ (eq_MC_1)
+#
+# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{g}^T,
+# r_f]^T$ and its argument vector $\boldsymbol{x} =
+# [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$ we solve the following nonlinear
+# equation:
+#
+# $$
+#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
+# $$
+#
+# To solve this equation we apply the Newton method and introduce the Jacobian of
+# the residual vector $\boldsymbol{j} = \frac{\mathrm{d} \boldsymbol{r}}{\mathrm{d}
+# \boldsymbol{x}}$. Thus we solve the following linear system at each quadrature
+# point for the plastic phase
+#
+# $$
+#     \begin{cases}
+#         \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
+#         \boldsymbol{r}(\boldsymbol{x}_{n}), \\
+#         \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y}.
+#     \end{cases}
+# $$
+#
+# During the elastic loading, we consider a trivial system of equations
+#
+# $$
+#     \begin{cases}
+#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
+#         \boldsymbol{C} \cdot \Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
+#     \end{cases}
+# $$ (eq_MC_2)
+#
+# The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
+# return-mapping procedure and the solution defines the return-mapping
+# correction of the stress tensor. By implementation of the external operator
+# $\boldsymbol{\sigma}$ we mean the implementation of this *algorithmic* procedure.
+#
+# The automatic differentiation tools of the JAX library are applied to calculate
+# the derivatives $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}, \frac{\mathrm{d}
+# \boldsymbol{r}}{\mathrm{d} \boldsymbol{x}}$ as well as the stress tensor
+# derivative or the consistent tangent stiffness matrix $\boldsymbol{C}_\text{tang} =
+# \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
 #
 # #### Defining yield surface and plastic potential
 #
 # First of all, we define supplementary functions that help us to express the
-# yield surface $F$ and the plastic potential $G$. In the following definitions,
+# yield surface $f$ and the plastic potential $g$. In the following definitions,
 # we use built-in functions of the JAX package, in particular, the conditional
 # primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool
 # and just-in-time compilation. For more details, please, visit the JAX
@@ -266,10 +300,6 @@ def theta(s):
     return theta
 
 
-# def rho(s):
-#     return jnp.sqrt(2.0 * J2(s))
-
-
 def sign(x):
     return jax.lax.cond(x < 0.0, lambda x: -1, lambda x: 1, x)
 
@@ -282,7 +312,6 @@ def coeff2(theta, angle):
     return sign(theta) * np.sin(theta_T) + (1.0 / np.sqrt(3.0)) * np.sin(angle) * np.cos(theta_T)
 
 
-# JSH: use float literals where you want floats.
 coeff3 = 18.0 * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T) * np.cos(3.0 * theta_T)
 
 
@@ -336,31 +365,32 @@ def K(theta, angle):
     return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta)
 
 
-def a_G(angle):
+def a_g(angle):
     return a * np.tan(phi) / np.tan(angle)
 
 
 dev = np.array(
     [
-        [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
-        [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
-        [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
+        [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
+        [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
+        [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     ],
     dtype=PETSc.ScalarType,
 )
-tr = np.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
+tr = np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=PETSc.ScalarType)
 
 
 def surface(sigma_local, angle):
-    # AL: Maybe it's more efficient to use untracable np.array?
     s = dev @ sigma_local
     I1 = tr @ sigma_local
     theta_ = theta(s)
     return (
         (I1 / 3.0 * np.sin(angle))
         + jnp.sqrt(
-            J2(s) * K(theta_, angle) * K(theta_, angle) + a_G(angle) * a_G(angle) * np.sin(angle) * np.sin(angle)
+            J2(s) * K(theta_, angle) * K(theta_, angle) + a_g(angle) * a_g(angle) * np.sin(angle) * np.sin(angle)
         )
         - c * np.cos(angle)
     )
@@ -368,73 +398,31 @@ def surface(sigma_local, angle):
 
 
 # %% [markdown]
-# By picking up an appropriate angle we define the yield surface $F$ and the
-# plastic potential $G$.
+# By picking up an appropriate angle we define the yield surface $f$ and the
+# plastic potential $g$.
 
 
 # %%
-# JSH: Does this trace phi and psi as static constants?
-def f_MC(sigma_local):
+def f(sigma_local):
     return surface(sigma_local, phi)
-    # s = dev @ sigma_local
-    # J2 = 0.5 * jnp.vdot(s, s)
-    # f_vM = jnp.sqrt(3*J2) - c# von Mises
-    # sigma_I = sigma_local[0]
-    # sigma_II = sigma_local[1]
-    # sigma_III = sigma_local[2]
-    # term1 = 0.5 * jnp.abs(sigma_I - sigma_II) - 0.5 * (sigma_I + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
-    # term2 = 0.5 * jnp.abs(sigma_I - sigma_III) - 0.5 * (sigma_I + sigma_III) * jnp.sin(phi) - c * jnp.cos(phi)
-    # term3 = 0.5 * jnp.abs(sigma_III - sigma_II) - 0.5 * (sigma_III + sigma_II) * jnp.sin(phi) - c * jnp.cos(phi)
-    # f_MC_classic = jnp.max(jnp.array([term1, term2, term3]))
-    # return f_MC_classic
 
 
-def g_MC(sigma_local):
-    # return surface(sigma_local, psi)
-    return f_MC(sigma_local)
+def g(sigma_local):
+    return surface(sigma_local, psi)
 
 
-dgdsigma = jax.jacfwd(g_MC)
+dgdsigma = jax.jacfwd(g)
 
 # %% [markdown]
 # #### Solving constitutive equations
 #
-# In this section, we define the constitutive model by solving the following
-# systems
-#
-# \begin{align*}
-#     & \text{Plastic flow:} \\
-#     & \begin{cases}
-#         \boldsymbol{r}_{G}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
-#         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
-#         \boldsymbol{C}.(\Delta\boldsymbol{\varepsilon} - \Delta\lambda
-#         \frac{d G}{d\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) =
-#         \boldsymbol{0}, \\
-#         r_F(\boldsymbol{\sigma}_{n+1}) = F(\boldsymbol{\sigma}_{n+1}) = 0,
-#      \end{cases} \\
-#     & \text{Elastic flow:} \\
-#     &\begin{cases}
-#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
-#         \boldsymbol{C}.\Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
-#     \end{cases}
-# \end{align*}
-#
-# As the second one is trivial we focus on the first system only and rewrite it
-# in the following form.
-#
-# $$
-#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0},
-# $$
-#
-# where $\boldsymbol{x} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz},
-# \sqrt{2}\sigma_{xy}, \Delta\lambda]^T$.
-#
-# This nonlinear equation must be solved at each Gauss point, so we apply the
-# Newton method, implement the whole algorithm locally and then vectorize the
-# final result using `jax.vmap`.
+# In this section, we define the constitutive model by solving the systems
+# {eq}`eq_MC_1`--{eq}`eq_MC_2`. They must be solved at each Gauss point, so we
+# apply the Newton method, implement the whole algorithm locally and then
+# vectorize the final result using `jax.vmap`.
 #
 # In the following cell, we define locally the residual $\boldsymbol{r}$ and
-# its jacobian $\boldsymbol{j}$.
+# its jacobian `drdx`.
 
 # %%
 # NOTE: Actually, I put conditionals inside local functions, but we may
@@ -446,20 +434,22 @@ lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
 mu = E / (2.0 * (1.0 + nu))
 C_elas = np.array(
     [
-        [lmbda + 2.0 * mu, lmbda, lmbda, 0.0],
-        [lmbda, lmbda + 2.0 * mu, lmbda, 0.0],
-        [lmbda, lmbda, lmbda + 2.0 * mu, 0.0],
-        [0.0, 0.0, 0.0, 2.0 * mu],
+        [lmbda + 2 * mu, lmbda, lmbda, 0, 0, 0],
+        [lmbda, lmbda + 2 * mu, lmbda, 0, 0, 0],
+        [lmbda, lmbda, lmbda + 2 * mu, 0, 0, 0],
+        [0, 0, 0, 2 * mu, 0, 0],
+        [0, 0, 0, 0, 2 * mu, 0],
+        [0, 0, 0, 0, 0, 2 * mu],
     ],
     dtype=PETSc.ScalarType,
 )
 S_elas = np.linalg.inv(C_elas)
-ZERO_VECTOR = np.zeros(4, dtype=PETSc.ScalarType)
+ZERO_VECTOR = np.zeros(6, dtype=PETSc.ScalarType)
 
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
-    yielding = f_MC(sigma_elas_local)
+    yielding = f(sigma_elas_local)
 
     def deps_p_elastic(sigma_local, dlambda):
         return ZERO_VECTOR
@@ -470,20 +460,20 @@ def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
     return jax.lax.cond(yielding <= 0.0, deps_p_elastic, deps_p_plastic, sigma_local, dlambda)
 
 
-def r_sigma(sigma_local, dlambda, deps_local, sigma_n_local):
+def r_g(sigma_local, dlambda, deps_local, sigma_n_local):
     deps_p_local = deps_p(sigma_local, dlambda, deps_local, sigma_n_local)
     return sigma_local - sigma_n_local - C_elas @ (deps_local - deps_p_local)
 
 
 def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     sigma_elas_local = sigma_n_local + C_elas @ deps_local
-    yielding = f_MC(sigma_elas_local)
+    yielding = f(sigma_elas_local)
 
     def r_f_elastic(sigma_local, dlambda):
         return dlambda
 
     def r_f_plastic(sigma_local, dlambda):
-        return f_MC(sigma_local)
+        return f(sigma_local)
 
     # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing
     # <=. AL: In the case of yielding = 1e-15 - 1e-16 (or we can choose the
@@ -492,13 +482,13 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
 
 
 def r(x_local, deps_local, sigma_n_local):
-    sigma_local = x_local[:4]
+    sigma_local = x_local[:6]
     dlambda_local = x_local[-1]
 
-    res_sigma = r_sigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
+    res_g = r_g(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
 
-    res = jnp.c_["0,1,-1", res_sigma, res_f]
+    res = jnp.c_["0,1,-1", res_g, res_f]
     return res
 
 
@@ -511,7 +501,6 @@ drdx = jax.jacfwd(r)
 # %%
 Nitermax, tol = 200, 1e-8
 
-
 # JSH: You need to explain somewhere here how the while_loop interacts with
 # vmap.
 ZERO_SCALAR = np.array([0.0])
@@ -523,6 +512,19 @@ def sigma_return_mapping(deps_local, sigma_n_local):
     It solves elastoplastic constitutive equations numerically by applying the
     Newton method in a single Gauss point. The Newton loop is implement via
     `jax.lax.while_loop`.
+
+    The function returns `sigma_local` two times to reuse its values after
+    differentiation, i.e. as once we apply
+    `jax.jacfwd(sigma_return_mapping, has_aux=True)` the ouput function will
+    have an output of
+    `(C_tang_local, (sigma_local, niter_total, yielding, norm_res, dlambda))`.
+
+    Returns:
+        sigma_local: The stress at the current Gauss point.
+        niter_total: The total number of iterations.
+        yielding: The value of the yield function.
+        norm_res: The norm of the residuals.
+        dlambda: The value of the plastic multiplier.
     """
     niter = 0
 
@@ -542,8 +544,8 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
         x_local, deps_local, sigma_n_local, res = history
 
-        J = drdx(x_local, deps_local, sigma_n_local)
-        j_inv_vp = jnp.linalg.solve(J, -res)
+        j = drdx(x_local, deps_local, sigma_n_local)
+        j_inv_vp = jnp.linalg.solve(j, -res)
         x_local = x_local + j_inv_vp
 
         res = r(x_local, deps_local, sigma_n_local)
@@ -558,20 +560,38 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     norm_res, niter_total, x_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
 
-    sigma_local = x_local[0][:4]
-    sigma_elas_local = C_elas @ deps_local
-    yielding = f_MC(sigma_n_local + sigma_elas_local)
-
+    sigma_local = x_local[0][:6]
     dlambda = x_local[0][-1]
+    sigma_elas_local = C_elas @ deps_local
+    yielding = f(sigma_n_local + sigma_elas_local)
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
-    # return sigma_local, (sigma_local,)
 
 
+# %% [markdown]
+# #### Consistent tangent stiffness matrix
+#
+# Not only is the automatic differentiation able to compute the derivative of a
+# mathematical expression but also a numerical algorithm. For instance, AD can
+# calculate the derivative of the function performing return-mapping with respect
+# to its output, the stress tensor $\boldsymbol{\sigma}$. In the context of the
+# consistent tangent matrix $\boldsymbol{C}_\text{tang}$, this feature becomes
+# very useful, as there is no need to write an additional program computing the
+# stress derivative.
+#
+# JAX's AD tool permits taking the derivative of the function `return_mapping`,
+# which is factually the while loop. The derivative is taken with respect to the
+# first output and the remaining outputs are used as auxiliary data. Thus, the
+# derivative `dsigma_ddeps` returns both values of the consistent tangent matrix
+# and the stress tensor, so there is no need in a supplementary computation of the
+# stress tensor.
+
+
+# %%
 def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
     x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdx(x_local, deps_local, sigma_n_local)
-    H = jnp.linalg.inv(j)[:4, :4] @ C_elas
+    H = jnp.linalg.inv(j)[:6, :6] @ C_elas
     return H
 
     # A = j[:4,:4]
@@ -585,67 +605,46 @@ def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
 
 C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
 
-# %% [markdown]
-# The `return_mapping` function returns a tuple with two elements. The first
-# element is an array containing values of the external operator
-# $\boldsymbol{\sigma}$ and the second one is another tuple containing
-# additional data such as e.g. information on a convergence of the Newton
-# method. Once we apply the JAX AD tool, the latter "converts" the first
-# element of the `return_mapping` output into an array with values of the
-# derivative
-# $\frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$
-# and leaves untouched the second one. That is why we return `sigma_local`
-# twice in the `return_mapping`: ....
-#
-# COMMENT: Well, looks too wordy...
-# JSH eg.
-# `jax.jacfwd` returns a callable that returns the Jacobian as its first return
-# argument. As we also need sigma_local, we also return sigma_local as
-# auxilliary data.
-#
-#
-# NOTE: If we implemented the function `dsigma_ddeps` manually, it would return
-# `C_tang_local, (sigma_local, niter_total, yielding, norm_res)`
-
-# %% [markdown]
-# Once we defined the function `dsigma_ddeps`, which evaluates both the
-# external operator and its derivative locally, we can just vectorize it and
-# define the final implementation of the external operator derivative.
-
 # %%
-dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
+# dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
 
+# def sigma_impl(deps):
+#     deps_ = deps.reshape((-1, 6))
+#     sigma_n_ = sigma_n.x.array.reshape((-1, 6))
 
-def sigma_impl(deps):
-    deps_ = deps.reshape((-1, 4))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+#     (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+#     C_tang_global, niter, yielding, norm_res = state
 
-    (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    C_tang_global, niter, yielding, norm_res = state
+#     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
-    unique_iters, counts = jnp.unique(niter, return_counts=True)
+#     # NOTE: The following code prints some details about the second Newton
+#     # solver, solving the constitutive equations. Do we need this or it's better
+#     # to have the code as clean as possible?
 
-    # NOTE: The following code prints some details about the second Newton
-    # solver, solving the constitutive equations. Do we need this or it's better
-    # to have the code as clean as possible?
+#     print("\tInner Newton summary:")
+#     print(f"\t\tUnique number of iterations: {unique_iters}")
+#     print(f"\t\tCounts of unique number of iterations: {counts}")
+#     print(f"\t\tMaximum f: {jnp.max(yielding)}")
+#     print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
 
-    print("\tInner Newton summary:")
-    print(f"\t\tUnique number of iterations: {unique_iters}")
-    print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum F: {jnp.max(yielding)}")
-    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
-
-    return C_tang_global.reshape(-1), sigma_global.reshape(-1)
-
+#     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
 # %%
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
+
+# %% [markdown]
+# #### Defining external operator
+# Once we define the function `dsigma_ddeps`, which evaluates both the
+# external operator and its derivative locally, we can simply vectorize it and
+# define the final implementation of the external operator derivative.
+
+# %%
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
 
 def C_tang_impl(deps):
-    deps_ = deps.reshape((-1, 4))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 4))
+    deps_ = deps.reshape((-1, 6))
+    sigma_n_ = sigma_n.x.array.reshape((-1, 6))
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     sigma_global, niter, yielding, norm_res, dlambda = state
@@ -699,16 +698,11 @@ sigma.external_function = sigma_external
 # ### Defining the forms
 
 # %%
-n = ufl.FacetNormal(mesh)
-P_o = fem.Constant(mesh, PETSc.ScalarType(0.0))
-P_i = fem.Constant(mesh, PETSc.ScalarType(0.0))
+q = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
 
 
-# JSH: P_o is never set to anything but zero?
 def F_ext(v):
-    return -P_i * ufl.inner(n, v) * ds(facet_tags_labels["inner"]) + P_o * ufl.inner(n, v) * ds(
-        facet_tags_labels["outer"]
-    )
+    return ufl.dot(q, v) * dx
 
 
 u_hat = ufl.TrialFunction(V)
@@ -722,59 +716,27 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
-# %%
-# # Simple Taylor test
-# # J(Du0 + h*δu) - J(Du0) - h*dJ(Du0)*δu
-# Du0 = 100.0
-# Du.x.array[:] = Du0
-# δu = fem.Function(V, name="δu")
-# δu.x.array[:] = 300000.0
-
-# F = ufl.inner(u_, Du)*ufl.dx
-# J = ufl.algorithms.compute_form_action(ufl.derivative(F, Du, u_hat), Du)
-# F = ufl.algorithms.compute_form_action(F, Du)
-# J = ufl.algorithms.compute_form_action(J, Du)
-# J_form = fem.form(J)
-# J_0 = fem.assemble_scalar(J_form) # J(Du0)
-# dJ = ufl.derivative(J, Du, u_)
-# dJ_0 = fem.petsc.assemble_vector(fem.form(dJ)) # dJ(Du0)
-# dJ_0_dot_δu = dJ_0.dot(δu.vector) # dJ(Du0)*δu
-
-# h_list = 1e-2*np.power(2., -np.arange(32))
-# conv = np.empty_like(h_list)
-
-# for i, h in enumerate(h_list):
-#     Du.x.array[:] = Du0 + h * δu.x.array
-#     J = fem.assemble_scalar(J_form)
-#     diff = J - J_0 - h * dJ_0_dot_δu
-#     conv[i] = diff
-
-# print(fem.assemble_scalar(J_form), '\n', fem.assemble_scalar(fem.form(F)))
-# print(F, '\n', J)
-# plt.loglog(h_list, conv)
-# plt.loglog(h_list, h_list**2, label=r'$h^2$')
-# plt.loglog(h_list, h_list, label=r'$h$')
-
-# plt.xlabel('h')
-# plt.ylabel('second-order Taylor remainder')
-# plt.legend()
-
 # %% [markdown]
 # ### Variables initialization and compilation
-# Before solving the problem it is required.
+#
+# Before solving the problem we have to initialize values of the consistent
+# tangent matrix, as it requires for the system assembling. During the first load
+# step, we expect an elastic response only, so it's enough two to solve the
+# constitutive equations for any small displacements at each Gauss point. This
+# results in initializing the consistent tangent matrix with elastic moduli.
+#
+# At the same time, we can measure the compilation overhead caused by the first
+# call of JIT-ed JAX functions.
 
 # %%
-# Initialize variables to start the algorithm
-# NOTE: Actually we need to evaluate operators before the Newton solver
-# in order to assemble the matrix, where we expect elastic stiffness matrix
-# Shell we discuss it? The same states for the von Mises.
-Du.x.array[:] = 1.0  # any value allowing
+Du.x.array[:] = 1.0
+sigma_n.x.array[:] = 0.0
 
 timer1 = common.Timer("1st JAX pass")
 timer1.start()
 
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+_ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 timer1.stop()
 
@@ -782,174 +744,9 @@ timer2 = common.Timer("2nd JAX pass")
 timer2.start()
 
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+_ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 timer2.stop()
-
-timer3 = common.Timer("3rd JAX pass")
-timer3.start()
-
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, _),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-timer3.stop()
-
-# %%
-# Du0 = 1.0
-# # sigma_n.x.array.reshape((-1, 4))[:] = np.array([0.5, 0.0, 0., 0.])
-# Du.x.array[:] = Du0
-# δu = fem.Function(V, name="δu")
-# δu.x.array[:] = 100
-
-# evaluated_operands = evaluate_operands(F_external_operators)
-# ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-# sigma.ref_coefficient.x.array[:] = sigma_new
-# sigma_n.x.array[:] = sigma_new
-
-# %%
-# # Du.x.array.reshape((-1, 2))[:][0] = 0.00000001
-
-# evaluated_operands = evaluate_operands(F_external_operators)
-# ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-# sigma.ref_coefficient.x.array[:] = sigma_new
-
-# %%
-Du0e = np.copy(Du.x.array)
-sigma_n0 = np.copy(sigma_n.x.array)
-
-# %%
-Du0 = Du0e
-Du.x.array[:] = Du0
-sigma_n.x.array[:] = sigma_n0
-δu = fem.Function(V, name="δu")
-δu.x.array[:] = Du0
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-sigma.ref_coefficient.x.array[:] = sigma_new
-# sigma_n.x.array[:] = sigma_new
-
-
-# %%
-# # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
-# F_form = fem.form(F_replaced)
-# F0 = fem.petsc.assemble_vector(F_form) # F(Du0)
-# F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-
-# J_form = fem.form(J_replaced)
-# J_matrix = fem.petsc.assemble_matrix(J_form)
-# J_matrix.assemble()
-# y = J_matrix.createVecLeft() # y = J * x
-
-# h_list = np.logspace(-1.0, -4.0, 6)[::-1]
-
-# first_order_remainder = np.zeros_like(h_list)
-# second_order_remainder = np.zeros_like(h_list)
-
-# for i, h in enumerate(h_list):
-#     Du.x.array[:] = Du0 + h * δu.x.array
-#     evaluated_operands = evaluate_operands(F_external_operators)
-#     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-#     sigma.ref_coefficient.x.array[:] = sigma_new
-#     sigma_n.x.array[:] = sigma_new
-
-#     # Du.x.array[:] = Du0 + h * δu.x.array
-
-#     F_delta = fem.petsc.assemble_vector(F_form)
-#     F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-
-#     # Du.x.array[:] = Du0
-#     # J_matrix.zeroEntries()
-#     # fem.petsc.assemble_matrix(J_matrix, J_form)
-#     # J_matrix.assemble()
-#     J_matrix.mult(δu.vector, y)
-#     y.scale(h)
-
-#     first_order_remainder[i] = (F_delta - F0).norm()
-#     second_order_remainder[i] = (F_delta - F0 - y).norm()
-
-# %%
-# F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
-F_scalar = ufl.algorithms.compute_form_action(F_replaced, δu)
-F_scalar_form = fem.form(F_scalar)
-F0 = fem.assemble_scalar(F_scalar_form)  # F(Du0)
-
-J_vector = ufl.algorithms.compute_form_action(J_replaced, δu)
-J_vector_form = fem.form(J_vector)
-J0 = fem.petsc.assemble_vector(J_vector_form)  # J(Du0)
-J0_dot_δu = J0.dot(δu.vector)  # dJ(Du0)*δu
-
-
-h_list = np.logspace(-1.0, -4.0, 6)[::-1]
-
-# first_order_remainder = np.zeros_like(h_list)
-# second_order_remainder = np.zeros_like(h_list)
-
-# for i, h in enumerate(h_list):
-#     Du.x.array[:] = Du0 + h * δu.x.array
-#     evaluated_operands = evaluate_operands(F_external_operators)
-#     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-#     sigma.ref_coefficient.x.array[:] = sigma_new
-#     # sigma_n.x.array[:] = sigma_new
-
-# J_vector = ufl.algorithms.compute_form_action(J_replaced, Du)
-# J_vector_form = fem.form(J_vector)
-# J0 = fem.petsc.assemble_vector(J_vector_form) # J(Du0)
-# J0_dot_δu = J0.dot(δu.vector) # dJ(Du0)*δu
-
-#     F_scalar = fem.assemble_scalar(F_scalar_form)
-
-#     first_order_remainder[i] = np.abs(F_scalar - F0)
-#     second_order_remainder[i] = np.abs(F_scalar - F0 - h * J0_dot_δu)
-
-
-# # %%
-# fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-
-# axs[0].plot(h_list, first_order_remainder, 'o-', label="1st order")
-# axs[0].plot(h_list, second_order_remainder, 'o-', label="2nd order")
-# axs[0].set_title(r"$|F(\Delta u_0 + hδu) - F(\Delta u_0) - hJ(\Delta u_0)δu|$")
-# axs[0].set_ylabel('Taylor remainder')
-# axs[0].set_xlabel('h')
-# axs[0].legend()
-
-# axs[1].loglog(h_list, first_order_remainder, 'o-', label="1st order")
-# axs[1].loglog(h_list, second_order_remainder, 'o-', label="2nd order")
-# axs[1].loglog(h_list, h_list, label=r"$O(h)$")
-# axs[1].loglog(h_list, h_list**2, label=r"$O(h^2)$")
-# axs[1].set_title("Log scale")
-# axs[1].set_yscale('log')
-# axs[1].legend()
-# axs[1].set_ylabel('first-order Taylor remainder')
-# axs[1].set_xlabel('h')
-
-# plt.tight_layout()
-# plt.show()
-# first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder), 1)[0]
-# second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder), 1)[0]
-
-# print(first_order_rate)
-# print(second_order_rate)
-
-# # %%
-# second_order_rate = np.polyfit(np.log(h_list[-3:-1]), np.log(second_order_remainder[-3:-1]), 1)[0]
-# second_order_rate
-
-
-# # %%
-# second_order_remainder
-
-
-# # %%
-# 1.004993836703281
-# 1.0093125656977548
-
-# # %%
-# 0.2412775313310373
-# 0.2390018855008281
-
-# # %%
-# np.polyfit(np.log(h_list[1:]), np.log(second_order_remainder[1:]), 1)[0]
-
 
 # %%
 # TODO: Is there a more elegant way to extract the data?
@@ -961,90 +758,166 @@ common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
 #
 # Summing up, we apply the Newton method to solve the main weak problem. On each
 # iteration of the main Newton loop, we solve elastoplastic constitutive equations
-# by using the second Newton method at each Gauss point. Thanks to the framework
-# and the JAX library, the final interface is general enough to be reused for
-# other plasticity models.
+# by using the second, inner, Newton method at each Gauss point. Thanks to the
+# framework and the JAX library, the final interface is general enough to be
+# applied to other plasticity models.
 
 # %%
 external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
-# Defining a cell containing (Ri, 0) point, where we calculate a value of u It
-# is required to run this program via MPI in order to capture the process, to
-# which this point is attached
-x_point = np.array([[R_i, 0, 0]])
-cells, points_on_process = find_cell_by_point(mesh, x_point)
+x_point = np.array([[0, 0, H]])
+cells, points_on_process = find_cell_by_point(domain, x_point)
 
 # %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
-load_steps_1 = np.linspace(3, 36.7, 10)
-load_steps_2 = np.linspace(36.7, 36.83, 2)[1:]
-load_steps_3 = np.linspace(36.83, 36.84, 5)[1:]
-load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3])
+
+load_steps_1 = np.linspace(3, 14, 15)
+load_steps_2 = np.linspace(14, 20, 15)[1:]
+load_steps_3 = np.linspace(20, 22, 10)[1:]
+load_steps_4 = np.linspace(22, 22.5, 10)[1:]
+load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3, load_steps_4])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-for i, load in enumerate(load_steps[:1]):
-    P_i.value = load
-    external_operator_problem.assemble_vector()
+# %%
+# for i, load in enumerate(load_steps):
+#     q.value = load * np.array([0, 0, -gamma])
+#     external_operator_problem.assemble_vector()
 
-    residual_0 = external_operator_problem.b.norm()
-    residual = residual_0
-    Du.x.array[:] = 0
+#     residual_0 = external_operator_problem.b.norm()
+#     residual = residual_0
+#     Du.x.array[:] = 0
 
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+#     if MPI.COMM_WORLD.rank == 0:
+#         print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
 
-    for iteration in range(0, max_iterations):
-        if residual / residual_0 < relative_tolerance:
-            break
+#     for iteration in range(0, max_iterations):
+#         if residual / residual_0 < relative_tolerance:
+#             break
 
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tOuter Newton iteration #{iteration}")
-        external_operator_problem.assemble_matrix()
-        external_operator_problem.solve(du)
+#         if MPI.COMM_WORLD.rank == 0:
+#             print(f"\tOuter Newton iteration #{iteration}")
+#         external_operator_problem.assemble_matrix()
+#         external_operator_problem.solve(du)
 
-        Du.vector.axpy(1.0, du.vector)
-        Du.x.scatter_forward()
+#         Du.vector.axpy(1.0, du.vector)
+#         Du.x.scatter_forward()
 
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        # ((C_tang_new, sigma_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
-        sigma.ref_coefficient.x.array[:] = sigma_new
-        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
+#         evaluated_operands = evaluate_operands(F_external_operators)
+#         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
-        external_operator_problem.assemble_vector()
-        residual = external_operator_problem.b.norm()
+#         # Direct access to the external operator values
+#         sigma.ref_coefficient.x.array[:] = sigma_new
+#         # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
 
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tResidual: {residual}\n")
+#         external_operator_problem.assemble_vector()
+#         residual = external_operator_problem.b.norm()
 
-    u.vector.axpy(1.0, Du.vector)
-    u.x.scatter_forward()
+#         if MPI.COMM_WORLD.rank == 0:
+#             print(f"\tResidual: {residual}\n")
 
-    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+#     u.vector.axpy(1.0, Du.vector)
+#     u.x.scatter_forward()
 
-    if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+#     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+
+#     if len(points_on_process) > 0:
+#         results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+
+# print(f"Slope stability factor: {q.value[-1]*H/c}")
+
+# %%
+# 20 - critical load # -5.884057971014492
+# Slope stability factor: -6.521739130434782
+
 
 # %% [markdown]
-# ## Post-processing
+# ## Verification
+
+# %% [markdown]
+# ### Critical load
 
 # %%
 if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "o-", label="via ExternalOperator")
-    plt.xlabel("Displacement of inner boundary")
-    plt.ylabel(r"Applied pressure $q/q_{lim}$")
+    plt.plot(-results[:, 0], results[:, 1], "o-")
+    plt.xlabel("Displacement of the slope at (0, 0, H)")
+    plt.ylabel(r"Soil self weight $\gamma$")
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     # plt.legend()
     plt.show()
 
+# %%
+print(f"Slope stability factor for 2D plane strain factor [Chen]: {6.69}")
+print(f"Computed slope stability factor: {22.5*H/c}")
 
 # %%
+W = fem.functionspace(domain, ("Lagrange", 1, (3,)))
+u_tmp = fem.Function(W, name="Displacement")
+u_tmp.interpolate(u)
+
+pyvista.start_xvfb()
+plotter = pyvista.Plotter(window_size=[600, 400])
+topology, cell_types, x = plot.vtk_mesh(domain)
+grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+grid["u"] = u_tmp.x.array.reshape((-1, 3))
+warped = grid.warp_by_vector("u", factor=20)
+plotter.add_text("Displacement field", font_size=11)
+plotter.add_mesh(warped, show_edges=True, show_scalar_bar=True)
+plotter.view_xz()
+plotter.camera.zoom(2)
+if not pyvista.OFF_SCREEN:
+    plotter.show()
+
 
 # %% [markdown]
-# ## Verification
+# ### Yield surface
+#
+# We verify that the constitutive model is correctly implemented by tracing the
+# yield surface. We generate several stress paths and check whether they remain
+# within the yield surface. The stress tracing is performed in the
+# [Haigh-Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
+# $(\xi, \rho, \theta)$ which are defined as follows
+#
+# $$
+#     \xi = \frac{1}{\sqrt{3}}I_1, \quad \rho =
+#     \sqrt{2J_2}, \quad \cos(3\theta) = \frac{3\sqrt{3}}{2}
+#     \frac{J_3}{J_2^{3/2}},
+# $$
+# where $J_3(\boldsymbol{\sigma}) = \det(\boldsymbol{s})$ is the third invariant
+# of the deviatoric part of the stress tensor, $\xi$ is the deviatoric coordinate,
+# $\rho$ is the radial coordinate and the angle $\theta \in
+# [-\frac{\pi}{6}, \frac{\pi}{6}]$ is called Lode or stress angle.
+#
+# By introducing the hydrostatic variable $p = \xi/\sqrt{3}$ The principal
+# stresses can be written in Haigh-Westergaard coordinates
+#
+# $$
+#     \begin{pmatrix}
+#         \sigma_{I} \\
+#         \sigma_{II} \\
+#         \sigma_{III} \\
+#     \end{pmatrix}
+#     = p
+#     \begin{pmatrix}
+#         1 \\
+#         1 \\
+#         1 \\
+#     \end{pmatrix}
+#     + \sqrt{\frac{2}{3}}\rho
+#     \begin{pmatrix}
+#         \cos{\theta} \\
+#         -\sin{\frac{\pi}{6} - \theta} \\
+#         -\sin{\frac{\pi}{6} + \theta} \\
+#     \end{pmatrix}.
+# $$
+#
+# Firstly, we define and vectorize functions `rho`, `angle` and `sigma_tracing`
+# evaluating respectively the coordinates $\rho$ and $\theta$ and the corrected
+# stress tensor for a certain stress state.
+#
+# TODO: Discuss this section with JB.
 
 
 # %%
@@ -1072,266 +945,336 @@ angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
 rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
 sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 
+# %% [markdown]
+# Secondly, we generate a loading path by evaluating principal stresses through
+# Haigh-Westergaard coordinates, where $\rho$ and $\xi$ are fixed ones.
+
 # %%
 N_angles = 200
 N_loads = 10
-angle_values = np.linspace(0, 2 * np.pi, N_angles)
-# angle_values = np.concatenate([np.linspace(-np.pi/6, np.pi/6, 100), np.linspace(5*np.pi/6, 7*np.pi/6, 100)])
-R_values = np.linspace(0.4, 5, N_loads)
-p = 2.0
+eps = 1e-7
+angle_values = np.linspace(0 + eps, 2 * np.pi - eps, N_angles)
+R = 0.7
+p = 1.0
 
-dsigma_paths = np.zeros((N_loads, N_angles, 4))
-
-for i, R in enumerate(R_values):
-    dsigma_paths[i, :, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
-    dsigma_paths[i, :, 1] = np.sqrt(2.0 / 3.0) * R * np.sin(angle_values - np.pi / 6.0)
-    dsigma_paths[i, :, 2] = np.sqrt(2.0 / 3.0) * R * np.sin(-angle_values - np.pi / 6.0)
+dsigma_path = np.zeros((N_angles, 6))
+dsigma_path[:, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
+dsigma_path[:, 1] = np.sqrt(2.0 / 3.0) * R * np.sin(angle_values - np.pi / 6.0)
+dsigma_path[:, 2] = np.sqrt(2.0 / 3.0) * R * np.sin(-angle_values - np.pi / 6.0)
 
 # %%
 angle_results = np.empty((N_loads, N_angles))
 rho_results = np.empty((N_loads, N_angles))
-sigma_results = np.empty((N_loads, N_angles, 4))
-sigma_n_local = np.full((N_angles, 4), p)
-derviatoric_axis = np.array([1, 1, 1, 0])
+sigma_results = np.empty((N_loads, N_angles, 6))
+sigma_n_local = np.zeros_like(dsigma_path)
+sigma_n_local[:, 0] = p
+sigma_n_local[:, 1] = p
+sigma_n_local[:, 2] = p
+derviatoric_axis = tr
 
-for i, R in enumerate(R_values):
-    print(f"Loading#{i} {R}")
-    dsigma, yielding = sigma_tracing_vec(dsigma_paths[0], sigma_n_local)
-    p_tmp = dsigma @ tr / 3.0
-    dp = p_tmp - p
-    dsigma -= np.outer(dp, derviatoric_axis)
-    p_tmp = dsigma @ tr / 3.0
+print(f"rho = {R}, p = {p} - projection onto the octahedral plane\n")
+for i in range(N_loads):
+    print(f"Loading#{i}")
+    dsigma, yielding = sigma_tracing_vec(dsigma_path, sigma_n_local)
+    dp = dsigma @ tr / 3.0 - p
+    dsigma -= np.outer(dp, derviatoric_axis)  # projection on the same octahedral plane
+
     sigma_results[i, :] = dsigma
-    print(f"{jnp.max(yielding)} {np.max(p_tmp)}\n")
     angle_results[i, :] = angle_v(dsigma)
     rho_results[i, :] = rho_v(dsigma)
+    print(f"max f: {jnp.max(yielding)}\n")
     sigma_n_local[:] = dsigma
 
-
-# Show the plot
-plt.show()
-
-# %%
-fig, ax = plt.subplots(nrows=1, ncols=2, subplot_kw={"projection": "polar"}, figsize=(10, 15))
-# fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
-for i in range(N_loads):
-    ax[0].plot(angle_results[i], rho_results[i], ".", label="Load#" + str(i))
-    ax[0].plot(np.repeat(np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
-    ax[0].plot(np.repeat(-np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
-    ax[1].plot(angle_values, rho_v(dsigma_paths[i]), ".", label="Load#" + str(i))
-    ax[0].set_title(r"Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$")
-    ax[1].set_title(r"Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$")
-plt.legend()
-fig.tight_layout()
+# %% [markdown]
+# Finally, the stress paths are represented by a series of circles lying in each other in
+# the same octahedral plane. By applying the return-mapping algorithm defined in
+# the function `sigma_return_mapping`, we perform the correction of the stress
+# paths. Once they get close to the elastic limit the traced curves look similar
+# to the Mohr-Coulomb yield surface with apex smoothing which indicates the
+# correct implementation of the constitutive model.
 
 # %%
-
-# %%
-fig = plt.figure(figsize=(15, 10))
-# fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
-ax1 = fig.add_subplot(221, polar=True)
-ax2 = fig.add_subplot(222, polar=True)
-ax3 = fig.add_subplot(223, projection="3d")
-ax4 = fig.add_subplot(224, projection="3d")
+fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
 for j in range(12):
     for i in range(N_loads):
-        ax1.plot(
-            j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i],
-            rho_results[i],
-            ".",
-            label="Load#" + str(i),
-        )
+        ax.plot(j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i], rho_results[i], ".")
 
-for i in range(N_loads):
-    ax2.plot(angle_values, rho_v(dsigma_paths[i]), ".", label="Load#" + str(i))
-    ax3.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
-    ax4.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
-
-ax1.plot(np.repeat(np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
-ax1.plot(np.repeat(-np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
-z_min = np.min(sigma_results[:, :, 2])
-z_max = np.max(sigma_results[:, :, 2])
-ax4.plot(np.array([p, p]), np.array([p, p]), np.array([z_min, z_max]), linestyle="-", color="black")
-
-ax1.set_title(r"Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$")
-ax2.set_title(r"Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$")
-ax3.view_init(azim=45)
-
-for ax in [ax3, ax4]:
-    ax.set_xlabel(r"$\sigma_{I}$")
-    ax.set_ylabel(r"$\sigma_{II}$")
-    ax.set_zlabel(r"$\sigma_{III}$")
-    ax.set_title(r"In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space")
-plt.legend()
+title = "Octahedral profile of the Mohr-Coulomb yield criterion with apex smoothing on different stress paths, "
+ax.set_title(title + r"$(\rho, \theta)$")
 fig.tight_layout()
 
 # %%
-# TODO: Is there a more elegant way to extract the data?
-# common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+# fig = plt.figure(figsize=(15, 10))
+# # fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
+# ax1 = fig.add_subplot(221, polar=True)
+# ax2 = fig.add_subplot(222, polar=True)
+# ax3 = fig.add_subplot(223, projection="3d")
+# ax4 = fig.add_subplot(224, projection="3d")
+# for j in range(12):
+#     for i in range(N_loads):
+#         ax1.plot(
+#             j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i],
+#             rho_results[i],
+#             ".",
+#             label="Load#" + str(i),
+#         )
+# for i in range(N_loads):
+#     ax2.plot(angle_values, rho_v(dsigma_path), ".", label="Load#" + str(i))
+#     ax3.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
+#     ax4.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
+
+# ax1.plot(np.repeat(np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
+# ax1.plot(np.repeat(-np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
+# z_min = np.min(sigma_results[:, :, 2])
+# z_max = np.max(sigma_results[:, :, 2])
+# ax4.plot(np.array([p, p]), np.array([p, p]), np.array([z_min, z_max]), linestyle="-", color="black")
+
+# ax1.set_title(r"Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$")
+# ax2.set_title(r"Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$")
+# ax3.view_init(azim=45)
+
+# for ax in [ax3, ax4]:
+#     ax.set_xlabel(r"$\sigma_{I}$")
+#     ax.set_ylabel(r"$\sigma_{II}$")
+#     ax.set_zlabel(r"$\sigma_{III}$")
+#     ax.set_title(r"In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space")
+# plt.legend()
+# fig.tight_layout()
+
+# %% [markdown]
+# ### Taylor test
+#
+# The derivatives, on which the form $F$ and its jacobian $J$ are based, are
+# automatically derived using the JAX AD tools. In this regards, we perform the
+# Taylor test to ensure that these derivatives are computed correctly.
+#
+# Indeed, by following the Taylor's theorem and perturbating the functional $F: V
+# \to \mathbb{R}$ in the direction $h \, \boldsymbol{δu} \in V$ for $h > 0$, the
+# first and second order Taylor reminders $R_1$ and $R_2$ have the following
+# convergence rates
+#
+# $$
+#     R_1 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
+# F(\boldsymbol{u}; \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h),
+# $$
+#
+# $$
+#     R_2 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
+# F(\boldsymbol{u}; \boldsymbol{v}) - \, J(\boldsymbol{u}; h\boldsymbol{δu},
+# \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h^2),
+# $$
+#
+# --- 
+#
+# $$
+#     \boldsymbol{u} = \sum_i^n u_i\varphi_i = \boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi} \in V_h \subset V, \\ 
+#     \boldsymbol{v} = \sum_i^n v_i\varphi_i = \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi} \in V_h \subset V
+# $$
+#
+# ---
+#
+# $$
+#     F_h(\boldsymbol{\mathcal{U}}) = F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) \quad \forall \, \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi} \in V_h
+# $$
+# Then by setting $\boldsymbol{\mathcal{V}} = (0,...,1_i, ..., 0)^T$, we get 
+#
+# $$
+#     \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) = \boldsymbol{F}(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) : \mathbb{R}^n \to \mathbb{R}^n
+# $$
+#
+# then
+# $$
+#     \boldsymbol{J}_h(\boldsymbol{\mathcal{U}}) = \frac{d \boldsymbol{F}_h(\boldsymbol{\mathcal{U}})}{d \boldsymbol{\mathcal{U}}}(\boldsymbol{\mathcal{U}}) : \mathbb{R}^n \to \mathbb{R}^n 
+# $$
+# By applying the Taylor theorem to $\boldsymbol{F}_h(\boldsymbol{\mathcal{U}})$ we obtain
+#
+# $$
+#     R_2 = \|\boldsymbol{F}_h(\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}}) - \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) - h \boldsymbol{J}_h(\boldsymbol{\mathcal{U}})\boldsymbol{\Delta \mathcal{U}} \|_2
+# $$
+#
+# but it's not good??
+#
+# ---
+#
+# if we start with $J(\boldsymbol{u}; h\boldsymbol{\delta u}, \boldsymbol{v})$ and
+# picking independently $\boldsymbol{v} = \varphi_i$ and $\delta u_j \varphi_j$, then
+#
+# $$
+#     J_h(\boldsymbol{\mathcal{U}})\boldsymbol{{\Delta\mathcal{U}}} = J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h \delta u_j \varphi_j, \varphi_i) = h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \varphi_j, \varphi_i)\delta u_j  : \mathbb{R}^n \to \mathbb{R}^n \quad \forall \, i,j
+# $$
+#
+# or set $\boldsymbol{\mathcal{V}} = (0,...,1_i, ..., 0)^T$
+#
+# $$
+#     J_h(\boldsymbol{\mathcal{U}})\boldsymbol{{\Delta\mathcal{U}}} = h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T, \boldsymbol{\varPhi}) \boldsymbol{{\Delta\mathcal{U}}}^T : \mathbb{R}^n \to \mathbb{R}^n 
+# $$
+# ---
+# Another way to perform the Taylor test is stick to the original functionals $V
+# \to \mathbb{R}$
+# $$
+#     R_2 = | F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) -
+#     F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) -  \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h \boldsymbol{\varPhi}^T\boldsymbol{\Delta \mathcal{U}}, \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) | = \\
+#     = | \boldsymbol{\mathcal{V}}^T [F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\varPhi}) - F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) - h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T, \boldsymbol{\varPhi}) \boldsymbol{\Delta \mathcal{U}}] |
+# $$
+# $$
+#     R_2(v) \longrightarrow 0 \text{ at } O(h^2) \quad \forall v \in V
+# $$
+#
+# $$
+#     R_2 = | \boldsymbol{\mathcal{V}}_i [F(u + h \, \delta u; \varphi_i) - F(u; \varphi_i) - h \, J(\boldsymbol{u}; \varphi_i, \varphi_j) \boldsymbol{\Delta \mathcal{U}}_j] |
+# $$
+#
+# In the following code-blocks you may find the implementation of the Taylor test
+# justifying the first and second convergence rates.
+
+# %%
+# Reset main variables to zero including the external operators values
+sigma_n.x.array[:] = 0.0
+sigma.ref_coefficient.x.array[:] = 0.0
+J_external_operators[0].ref_coefficient.x.array[:] = 0.0
+# Reset the values of the consistent tangent matrix to elastic moduli
+Du.x.array[:] = 1.0
+evaluated_operands = evaluate_operands(F_external_operators)
+_ = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+# %% [markdown]
+# As the derivatives of the constitutive model are different for elastic and
+# plastic phases, we must consider two initial states for the Taylor test. For
+# this reason, we solve the problem once for a certain loading value to get the
+# initial state close to the one with plastic deformations.
+
+# %%
+# load_steps_1 = np.linspace(3, 14, 15)
+# for i, load in enumerate(load_steps_1[:1]):
+i = 0
+load = 3.0
+q.value = load * np.array([0, 0, -gamma])
+external_operator_problem.assemble_vector()
+
+residual_0 = external_operator_problem.b.norm()
+residual = residual_0
+Du.x.array[:] = 0
+
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+
+for iteration in range(0, max_iterations):
+    if residual / residual_0 < relative_tolerance:
+        break
+
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"\tOuter Newton iteration #{iteration}")
+    external_operator_problem.assemble_matrix()
+    external_operator_problem.solve(du)
+
+    Du.vector.axpy(1.0, du.vector)
+    Du.x.scatter_forward()
+
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+    sigma.ref_coefficient.x.array[:] = sigma_new
+
+    external_operator_problem.assemble_vector()
+    residual = external_operator_problem.b.norm()
+
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"\tResidual: {residual}\n")
+
+sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+
+# Initial values of the displacement field and the stress state for the Taylor
+# test
+Du0 = np.copy(Du.x.array)
+sigma_n0 = np.copy(sigma_n.x.array)
+
+# %%
+h_list = np.logspace(-1.0, -5.0, 6)[::-1]
+
+def perform_Taylor_test(Du0, sigma_n0):
+    # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+    Du.x.array[:] = Du0
+    sigma_n.x.array[:] = sigma_n0
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    sigma.ref_coefficient.x.array[:] = sigma_new
+
+    F0 = fem.petsc.assemble_vector(F_form)  # F(Du0)
+    F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+    J0 = fem.petsc.assemble_matrix(J_form)
+    J0.assemble()  # J(Du0)
+    y = J0.createVecLeft()  # y = J0 @ x
+
+    δu = fem.Function(V)
+    δu.x.array[:] = Du0  # δu == Du0
+
+    first_order_remainder = np.zeros_like(h_list)
+    second_order_remainder = np.zeros_like(h_list)
+
+    for i, h in enumerate(h_list):
+        Du.x.array[:] = Du0 + h * δu.x.array
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        sigma.ref_coefficient.x.array[:] = sigma_new
+
+        F_delta = fem.petsc.assemble_vector(F_form)  # F(Du0 + h*δu)
+        F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+        J0.mult(δu.vector, y)  # y = J(Du0)*δu
+        y.scale(h)  # y = h*y
+
+        first_order_remainder[i] = (F_delta - F0).norm()
+        second_order_remainder[i] = (F_delta - F0 - y).norm()
+
+    return first_order_remainder, second_order_remainder
+
+
+# %% [markdown]
+# As we vary
+
+# %%
+print("Elastic phase")
+first_order_remainder_elastic, second_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
+print("Plastic phase")
+first_order_remainder_plastic, second_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
+
+# %%
+fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label="1st order")
+axs[0].loglog(h_list, second_order_remainder_elastic, "o-", label="2nd order")
+axs[0].set_title("Elastic phase")
+
+axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label="1st order")
+axs[1].loglog(h_list, second_order_remainder_plastic, "o-", label="2nd order")
+axs[1].set_title("Plastic phase")
+
+for i in range(2):
+    axs[i].loglog(h_list, h_list, label=r"$O(h)$")
+    axs[i].loglog(h_list, h_list**2, label=r"$O(h^2)$")
+    axs[i].set_xlabel("h")
+    axs[i].set_ylabel("Taylor remainder")
+    axs[i].legend()
+    axs[i].grid()
+
+plt.tight_layout()
+
+first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_elastic), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder_elastic), 1)[0]
+
+print(f"Elastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
+print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %%
 # # NOTE: There is the warning `[WARNING] yaksa: N leaked handle pool objects`
 # for # the call `.assemble_vector()` and `.vector`. # NOTE: The following
 # lines eleminate the leakes (except the mesh ones). # NOTE: To test this for
 # the newest version of the DOLFINx.
-external_operator_problem.__del__()
-Du.vector.destroy()
-du.vector.destroy()
-u.vector.destroy()
+# external_operator_problem.__del__()
+# Du.vector.destroy()
+# du.vector.destroy()
+# u.vector.destroy()
 
 
 # %%
-# #### Some tests
-# def f_MC_to_plot(sigma_I, sigma_II, sigma_III):
-#     sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
-#     return f_MC(sigma_local)
-
-# f_MC_to_plot_vec = jax.vmap(f_MC_to_plot)
-# sigma_I = sigma_II = np.array([1., 2.0])
-# sigma_III = np.array([0.0, 0.0])
-# f_MC_to_plot_vec(sigma_I, sigma_II, sigma_III)
-# sigma_I = sigma_II = np.arange(1.0, 3.0, 0.05)
-# X, Y = np.meshgrid(sigma_I, sigma_II)
-# sigma_III = np.zeros_like(X)
-# Z = f_MC_to_plot_vec(X.reshape(-1), Y.reshape(-1), sigma_III.reshape(-1)).reshape(X.shape)
-# # %matplotlib widget
-# import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-# fig = plt.figure()
-# ax = Axes3D(fig)
-# ax.set_zlim(-1, 1)
-# ax.plot_surface(X, Y, Z)
-# sigma_local = jnp.array([0.00001, 0.00001, 0.0, 0.0])
-# f_MC(sigma_local)
-# def von_mises(sigma_I, sigma_II, sigma_III):
-#     sigma_local = jnp.array([sigma_I, sigma_II, sigma_III, 0])
-#     dev = jnp.array(
-#         [
-#             [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
-#             [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
-#             [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
-#             [0.0, 0.0, 0.0, 1.0],
-#         ],
-#         dtype=PETSc.ScalarType,
-#     )
-#     s = dev @ sigma_local
-
-#     return jnp.sqrt(3*0.5 * jnp.vdot(s, s))
-
-# von_mises_vec = jax.vmap(von_mises)
-# one = np.ones(100)
-# R = 5.
-# u = np.linspace(0, np.pi/2, 100)
-# x = R * np.outer(np.cos(u), one)
-# y = R * np.outer(np.sin(u), one)
-# z = np.outer(np.linspace(0.5, 10, 100), one)
-# R = 5.
-# height = 10
-# resolution = 100
-# theta = np.linspace(0, 2*np.pi, resolution)
-# z = np.linspace(0.1, height, resolution)
-# theta, z = np.meshgrid(theta, z)
-# x = R * np.cos(theta)
-# y = R * np.sin(theta)
-# # x = R * z/height * np.cos(theta)
-# # y = R * z/height * np.sin(theta)
-# F = f_MC_to_plot_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
-# F = von_mises_vec(x.reshape(-1), y.reshape(-1), z.reshape(-1)).reshape(x.shape)
-# import matplotlib.pyplot as plt
-# # from mpl_toolkits.mplot3d import Axes3D
-# fig = plt.figure()
-# ax = fig.add_subplot(111, projection='3d')
-# ax.plot_surface(x, y, F)
-
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-
-# # Generate data points for the von Mises yield surface
-# theta = np.linspace(0, 2 * np.pi, 100)
-# phi = np.linspace(0, np.pi, 100)
-# theta, phi = np.meshgrid(theta, phi)
-# sigma_1 = np.sin(theta) * np.cos(phi)
-# sigma_2 = np.sin(theta) * np.sin(phi)
-# sigma_3 = np.cos(theta)
-# von_mises = np.sqrt(sigma_1**2 + sigma_2**2 + sigma_3**2 - sigma_1*sigma_2 - sigma_2*sigma_3 - sigma_3*sigma_1)
-
-# # Create a 3D plot
-# fig = plt.figure()
-# ax = fig.add_subplot(111, projection='3d')
-
-# # Plot the von Mises yield surface
-# ax.plot_surface(sigma_1, sigma_2, sigma_3, cmap='viridis', edgecolor='none')
-
-# # Set labels and title
-# ax.set_xlabel('Sigma 1')
-# ax.set_ylabel('Sigma 2')
-# ax.set_zlabel('Sigma 3')
-# ax.set_title('Von Mises Yield Surface')
-
-# # Show the plot
-# plt.show()
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-
-# # Parameters for the cone
-# radius = 1
-# height = 2
-# resolution = 100
-
-# # Generate data points for the surface of the cone
-# theta = np.linspace(0, 2*np.pi, resolution)
-# z = np.linspace(0, height, resolution)
-# theta, z = np.meshgrid(theta, z)
-# x = radius * (1 - z/height) * np.cos(theta)
-# y = radius * (1 - z/height) * np.sin(theta)
-
-# # Create a 3D plot
-# fig = plt.figure()
-# ax = fig.add_subplot(111, projection='3d')
-
-# # Plot the surface of the cone
-# ax.plot_surface(x, y, z, color='b', alpha=0.5)
-
-# # Set labels and title
-# ax.set_xlabel('X')
-# ax.set_ylabel('Y')
-# ax.set_zlabel('Z')
-# ax.set_title('Yield Surface: Cone')
-
-# # Show the plot
-# plt.show()
-# z.shape
-# u = np.linspace(0, 2 * np.pi, 100)
-# v = np.linspace(0, np.pi, 100)
-# v = np.full((100), np.pi/2)
-# x = np.outer(np.cos(u), np.sin(v))
-# x
-
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-
-# # Generate data points for a sphere
-# u = np.linspace(0, 2 * np.pi, 100)
-# v = np.linspace(0, np.pi, 100)
-# x = np.outer(np.cos(u), np.sin(v))
-# y = np.outer(np.sin(u), np.sin(v))
-# z = np.outer(np.ones(np.size(u)), np.cos(v))
-
-# # Create a 3D plot
-# fig = plt.figure()
-# ax = fig.add_subplot(111, projection='3d')
-
-# # Plot the sphere
-# ax.plot_surface(x, y, z, color='b', alpha=0.5)
-
-# # Set labels and title
-# ax.set_xlabel('X')
-# ax.set_ylabel('Y')
-# ax.set_zlabel('Z')
-# ax.set_title('Yield Surface')
-
-# # Show the plot
-# plt.show()
