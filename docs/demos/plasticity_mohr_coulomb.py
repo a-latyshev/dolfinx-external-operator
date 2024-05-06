@@ -1210,8 +1210,8 @@ def perform_Taylor_test(Du0, sigma_n0):
     δu = fem.Function(V)
     δu.x.array[:] = Du0  # δu == Du0
 
+    zero_order_remainder = np.zeros_like(h_list)
     first_order_remainder = np.zeros_like(h_list)
-    second_order_remainder = np.zeros_like(h_list)
 
     for i, h in enumerate(h_list):
         Du.x.array[:] = Du0 + h * δu.x.array
@@ -1225,10 +1225,10 @@ def perform_Taylor_test(Du0, sigma_n0):
         J0.mult(δu.vector, y)  # y = J(Du0)*δu
         y.scale(h)  # y = h*y
 
-        first_order_remainder[i] = (F_delta - F0).norm()
-        second_order_remainder[i] = (F_delta - F0 - y).norm()
+        zero_order_remainder[i] = (F_delta - F0).norm()
+        first_order_remainder[i] = (F_delta - F0 - y).norm()
 
-    return first_order_remainder, second_order_remainder
+    return zero_order_remainder, first_order_remainder
 
 
 # %% [markdown]
@@ -1236,9 +1236,9 @@ def perform_Taylor_test(Du0, sigma_n0):
 
 # %%
 print("Elastic phase")
-first_order_remainder_elastic, second_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
+zero_order_remainder_elastic, first_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
 print("Plastic phase")
-first_order_remainder_plastic, second_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
+zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
 
 
 # %%
@@ -1274,13 +1274,13 @@ from mpltools import annotation
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
+axs[0].loglog(h_list, zero_order_remainder_elastic, "o-", label=r"$R_0$")
 axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label=r"$R_1$")
-axs[0].loglog(h_list, second_order_remainder_elastic, "o-", label=r"$R_2$")
 annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[0], poly_kwargs={'facecolor': 'tab:blue'})
 
-axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$R_1$")
+axs[1].loglog(h_list, zero_order_remainder_plastic, "o-", label=r"$R_0$")
 annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[1], poly_kwargs={'facecolor': 'tab:blue'})
-axs[1].loglog(h_list, second_order_remainder_plastic, "o-", label=r"$R_2$")
+axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$R_1$")
 annotation.slope_marker((5e-5, 5e-13), 2, ax=axs[1], poly_kwargs={'facecolor': 'tab:orange'})
 
 for i in range(2):
@@ -1291,11 +1291,11 @@ for i in range(2):
 
 plt.tight_layout()
 
-first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_elastic), 1)[0]
-second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder_elastic), 1)[0]
+first_order_rate = np.polyfit(np.log(h_list), np.log(zero_order_remainder_elastic), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_elastic), 1)[0]
 print(f"Elastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
-first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_plastic), 1)[0]
-second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder_plastic), 1)[0]
+first_order_rate = np.polyfit(np.log(h_list), np.log(zero_order_remainder_plastic), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_plastic), 1)[0]
 print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %% [markdown]
