@@ -999,8 +999,9 @@ for j in range(12):
     for i in range(N_loads):
         ax.plot(j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i], rho_results[i], ".")
 
-title = "Octahedral profile of the Mohr-Coulomb yield criterion with apex smoothing on different stress paths, "
-ax.set_title(title + r"$(\rho, \theta)$")
+# title = "Octahedral profile of the Mohr-Coulomb yield criterion with apex smoothing on different stress paths, "
+# ax.set_title(title + r"$(\rho, \theta)$")
+ax.set_yticklabels([])
 fig.tight_layout()
 
 # %%
@@ -1189,7 +1190,7 @@ Du0 = np.copy(Du.x.array)
 sigma_n0 = np.copy(sigma_n.x.array)
 
 # %%
-h_list = np.logspace(-1.0, -5.0, 6)[::-1]
+h_list = np.logspace(-3.0, -6.0, 5)[::-1]
 
 def perform_Taylor_test(Du0, sigma_n0):
     # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
@@ -1239,20 +1240,50 @@ first_order_remainder_elastic, second_order_remainder_elastic = perform_Taylor_t
 print("Plastic phase")
 first_order_remainder_plastic, second_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
 
+
+# %%
+def slope_marker(ax, data_x, data_y, slope):
+    scale = 0.3
+    x = np.log(data_x)
+    y = np.log(data_y)
+    print(x, y)
+    scale_x = np.abs(x.max() - x.min())*scale
+    scale_y = np.abs(y.max() - y.min())*scale
+    x_mid = (x.min() + x.max()) / 2.0
+    y_mid = (y.min() + y.max()) / 2.0
+
+    x_corner = x_mid + 0.5 * scale_x
+    y_corner = y_mid - 0.5 * scale_y
+
+    x_left = x_corner - scale_x
+    y_up = y_corner + scale_y
+    print([x_corner, x_left, x_mid])
+
+    # x_mid = x_left + scale_x
+    # y_mid = y_up + scale_y
+    ax.plot([x_corner, x_left], [y_corner, y_corner], 'r')
+    ax.plot([x_corner, x_corner], [y_corner, y_up], 'r')
+    ax.loglog(-x_mid, -y_mid, 'o')
+    # ax.plot(x_tri, np.tile(y_tri[0, :], [2, 1]), 'r')      # red horizontal line
+    # ax.plot(np.tile(x_tri[1, :], [2, 1]), y_tri, 'r') 
+
+
+# %%
+from mpltools import annotation
+
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
-axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label="1st order")
-axs[0].loglog(h_list, second_order_remainder_elastic, "o-", label="2nd order")
-axs[0].set_title("Elastic phase")
+axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label=r"$R_1$")
+axs[0].loglog(h_list, second_order_remainder_elastic, "o-", label=r"$R_2$")
+annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[0], poly_kwargs={'facecolor': 'tab:blue'})
 
-axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label="1st order")
-axs[1].loglog(h_list, second_order_remainder_plastic, "o-", label="2nd order")
-axs[1].set_title("Plastic phase")
+axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$R_1$")
+annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[1], poly_kwargs={'facecolor': 'tab:blue'})
+axs[1].loglog(h_list, second_order_remainder_plastic, "o-", label=r"$R_2$")
+annotation.slope_marker((5e-5, 5e-13), 2, ax=axs[1], poly_kwargs={'facecolor': 'tab:orange'})
 
 for i in range(2):
-    axs[i].loglog(h_list, h_list, label=r"$O(h)$")
-    axs[i].loglog(h_list, h_list**2, label=r"$O(h^2)$")
     axs[i].set_xlabel("h")
     axs[i].set_ylabel("Taylor remainder")
     axs[i].legend()
@@ -1262,9 +1293,13 @@ plt.tight_layout()
 
 first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_elastic), 1)[0]
 second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder_elastic), 1)[0]
-
 print(f"Elastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
+first_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_plastic), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list), np.log(second_order_remainder_plastic), 1)[0]
 print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
+
+# %% [markdown]
+#
 
 # %%
 # # NOTE: There is the warning `[WARNING] yaksa: N leaked handle pool objects`
