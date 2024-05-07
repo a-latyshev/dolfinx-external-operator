@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -93,6 +92,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
+from mpltools import annotation  # for slope markers
 from solvers import LinearProblem
 from utilities import find_cell_by_point
 
@@ -335,6 +335,7 @@ def A(theta, angle):
         + np.cos(theta_T)
     )
 
+
 def K(theta, angle):
     def K_false(theta):
         return jnp.cos(theta) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * jnp.sin(theta)
@@ -463,7 +464,7 @@ def r(x_local, deps_local, sigma_n_local):
     res_g = r_g(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
 
-    res = jnp.c_["0,1,-1", res_g, res_f] # concatenates an array and a scalar
+    res = jnp.c_["0,1,-1", res_g, res_f]  # concatenates an array and a scalar
     return res
 
 
@@ -636,6 +637,7 @@ dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
 # %%
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
+
 def C_tang_impl(deps):
     deps_ = deps.reshape((-1, 6))
     sigma_n_ = sigma_n.x.array.reshape((-1, 6))
@@ -687,6 +689,7 @@ sigma.external_function = sigma_external
 
 # %%
 q = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
+
 
 def F_ext(v):
     return ufl.dot(q, v) * dx
@@ -1006,32 +1009,41 @@ fig.tight_layout()
 # \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h^2),
 # $$
 #
-# --- 
+# ---
 #
 # $$
-#     \boldsymbol{u} = \sum_i^n u_i\varphi_i = \boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi} \in V_h \subset V, \\ 
+#     \boldsymbol{u} = \sum_i^n u_i\varphi_i = \boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi} \in V_h \subset V, \\
 #     \boldsymbol{v} = \sum_i^n v_i\varphi_i = \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi} \in V_h \subset V
 # $$
 #
 # ---
 #
 # $$
-#     F_h(\boldsymbol{\mathcal{U}}) = F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) \quad \forall \, \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi} \in V_h
+# F_h(\boldsymbol{\mathcal{U}}) = F(\boldsymbol{\mathcal{U}}^T
+# \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) \quad
+# \forall \, \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi} \in V_h
 # $$
-# Then by setting $\boldsymbol{\mathcal{V}} = (0,...,1_i, ..., 0)^T$, we get 
+# Then by setting $\boldsymbol{\mathcal{V}} = (0,...,1_i, ..., 0)^T$, we get
 #
 # $$
-#     \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) = \boldsymbol{F}(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) : \mathbb{R}^n \to \mathbb{R}^n
+# \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) =
+# \boldsymbol{F}(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi};
+# \boldsymbol{\varPhi}) : \mathbb{R}^n \to \mathbb{R}^n
 # $$
 #
 # then
 # $$
-#     \boldsymbol{J}_h(\boldsymbol{\mathcal{U}}) = \frac{d \boldsymbol{F}_h(\boldsymbol{\mathcal{U}})}{d \boldsymbol{\mathcal{U}}}(\boldsymbol{\mathcal{U}}) : \mathbb{R}^n \to \mathbb{R}^n 
+# \boldsymbol{J}_h(\boldsymbol{\mathcal{U}}) = \frac{d
+# \boldsymbol{F}_h(\boldsymbol{\mathcal{U}})}{d
+# \boldsymbol{\mathcal{U}}}(\boldsymbol{\mathcal{U}}) : \mathbb{R}^n \to
+# \mathbb{R}^n
 # $$
 # By applying the Taylor theorem to $\boldsymbol{F}_h(\boldsymbol{\mathcal{U}})$ we obtain
 #
 # $$
-#     R_1 = \|\boldsymbol{F}_h(\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}}) - \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) - h \boldsymbol{J}_h(\boldsymbol{\mathcal{U}})\boldsymbol{\Delta \mathcal{U}} \|_2
+# R_1 = \|\boldsymbol{F}_h(\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta
+# \mathcal{U}}) - \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) - h
+# \boldsymbol{J}_h(\boldsymbol{\mathcal{U}})\boldsymbol{\Delta \mathcal{U}} \|_2
 # $$
 #
 # but it's not good??
@@ -1042,28 +1054,47 @@ fig.tight_layout()
 # picking independently $\boldsymbol{v} = \varphi_i$ and $\delta u_j \varphi_j$, then
 #
 # $$
-#     J_h(\boldsymbol{\mathcal{U}})\boldsymbol{{\Delta\mathcal{U}}} = J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h \delta u_j \varphi_j, \varphi_i) = h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \varphi_j, \varphi_i)\delta u_j  : \mathbb{R}^n \to \mathbb{R}^n \quad \forall \, i,j
+# J_h(\boldsymbol{\mathcal{U}})\boldsymbol{{\Delta\mathcal{U}}} =
+# J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h \delta u_j \varphi_j,
+# \varphi_i) = h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \varphi_j,
+# \varphi_i)\delta u_j : \mathbb{R}^n \to \mathbb{R}^n \quad \forall \, i,j
 # $$
 #
 # or set $\boldsymbol{\mathcal{V}} = (0,...,1_i, ..., 0)^T$
 #
 # $$
-#     J_h(\boldsymbol{\mathcal{U}})\boldsymbol{{\Delta\mathcal{U}}} = h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T, \boldsymbol{\varPhi}) \boldsymbol{{\Delta\mathcal{U}}}^T : \mathbb{R}^n \to \mathbb{R}^n 
+# J_h(\boldsymbol{\mathcal{U}})\boldsymbol{{\Delta\mathcal{U}}} = h \,
+# J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T,
+# \boldsymbol{\varPhi}) \boldsymbol{{\Delta\mathcal{U}}}^T : \mathbb{R}^n \to
+# \mathbb{R}^n
 # $$
 # ---
 # Another way to perform the Taylor test is stick to the original functionals $V
 # \to \mathbb{R}$
 # $$
-#     R_1 = | F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) -
-#     F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) -  \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h \boldsymbol{\varPhi}^T\boldsymbol{\Delta \mathcal{U}}, \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) | = \\
-#     = | \boldsymbol{\mathcal{V}}^T [F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\varPhi}) - F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) - h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T, \boldsymbol{\varPhi}) \boldsymbol{\Delta \mathcal{U}}] |
+# R_1 = | F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta
+# \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T
+# \boldsymbol{\varPhi}) -
+# F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T
+# \boldsymbol{\varPhi}) - \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h
+# \boldsymbol{\varPhi}^T\boldsymbol{\Delta \mathcal{U}},
+# \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) | = \\
+# [F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta
+# \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\varPhi}) -
+# F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) # - h
+# \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T,
+# \boldsymbol{\varPhi}) \boldsymbol{\Delta \mathcal{U}}]
+# |
 # $$
 # $$
 #     R_1(v) \longrightarrow 0 \text{ at } O(h^2) \quad \forall v \in V
 # $$
 #
 # $$
-#     R_1 = | v_i [F(u + h \, \delta u; \varphi_i) - F(u; \varphi_i) - h \, J(\boldsymbol{u}; \varphi_i, \varphi_j) \boldsymbol{\Delta \mathcal{U}}_j] |, \quad i,j = 1,...,n
+# R_1 = | v_i
+# [F(u + h \, \delta u; \varphi_i) - F(u; \varphi_i) - h \, J(\boldsymbol{u}; \varphi_i, \varphi_j)
+# \boldsymbol{\Delta \mathcal{U}}_j]
+# |, \quad i,j = 1,...,n
 # $$
 #
 # In the following code-blocks you may find the implementation of the Taylor test
@@ -1136,6 +1167,7 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # %%
 h_list = np.logspace(-3.0, -6.0, 5)[::-1]
 
+
 def perform_Taylor_test(Du0, sigma_n0):
     # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
     Du.x.array[:] = Du0
@@ -1174,6 +1206,7 @@ def perform_Taylor_test(Du0, sigma_n0):
 
     return zero_order_remainder, first_order_remainder
 
+
 print("Elastic phase")
 zero_order_remainder_elastic, first_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
 print("Plastic phase")
@@ -1203,21 +1236,19 @@ zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_tes
 #     ax.plot([x_corner, x_corner], [y_corner, y_up], 'r')
 #     ax.loglog(-x_mid, -y_mid, 'o')
 #     # ax.plot(x_tri, np.tile(y_tri[0, :], [2, 1]), 'r')      # red horizontal line
-#     # ax.plot(np.tile(x_tri[1, :], [2, 1]), y_tri, 'r') 
+#     # ax.plot(np.tile(x_tri[1, :], [2, 1]), y_tri, 'r')
 
 # %%
-from mpltools import annotation
-
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
 axs[0].loglog(h_list, zero_order_remainder_elastic, "o-", label=r"$R_0$")
 axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label=r"$R_1$")
-annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[0], poly_kwargs={'facecolor': 'tab:blue'})
+annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[0], poly_kwargs={"facecolor": "tab:blue"})
 
 axs[1].loglog(h_list, zero_order_remainder_plastic, "o-", label=r"$R_0$")
-annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[1], poly_kwargs={'facecolor': 'tab:blue'})
+annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[1], poly_kwargs={"facecolor": "tab:blue"})
 axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$R_1$")
-annotation.slope_marker((5e-5, 5e-13), 2, ax=axs[1], poly_kwargs={'facecolor': 'tab:orange'})
+annotation.slope_marker((5e-5, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
 
 for i in range(2):
     axs[i].set_xlabel("h")
@@ -1250,4 +1281,3 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 # Du.vector.destroy()
 # du.vector.destroy()
 # u.vector.destroy()
-

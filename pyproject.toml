@@ -24,7 +24,8 @@ docs = [
 demos = [
     "numba",
     "jax[cpu]",
-    "pyvista"
+    "pyvista",
+    "mpltools"
 ]
 lint = [
     "ruff"
