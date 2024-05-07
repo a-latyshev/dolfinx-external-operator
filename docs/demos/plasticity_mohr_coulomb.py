@@ -335,17 +335,6 @@ def A(theta, angle):
         + np.cos(theta_T)
     )
 
-
-# def A(theta, angle):
-# return 1./3. * np.cos(theta_T) * (3 + np.tan(theta_T) * np.tan(3*theta_T) +
-# 1./np.sqrt(3) * sign(theta) * (np.tan(3*theta_T) - 3*np.tan(theta_T)) *
-# np.sin(angle))
-
-# def B(theta, angle):
-# return 1./(3.*np.cos(3.*theta_T)) * (sign(theta) * np.sin(theta_T) +
-# 1/np.sqrt(3) * np.sin(angle) * np.cos(theta_T))
-
-
 def K(theta, angle):
     def K_false(theta):
         return jnp.cos(theta) - (1.0 / np.sqrt(3.0)) * np.sin(angle) * jnp.sin(theta)
@@ -356,11 +345,6 @@ def K(theta, angle):
             + B(theta, angle) * jnp.sin(3.0 * theta)
             + C(theta, angle) * jnp.sin(3.0 * theta) * jnp.sin(3.0 * theta)
         )
-
-    # def K_true(theta):
-    #     return (
-    #         A(theta, angle) - B(theta, angle) * jnp.sin(3.0 * theta)
-    #     )
 
     return jax.lax.cond(jnp.abs(theta) > theta_T, K_true, K_false, theta)
 
@@ -394,7 +378,6 @@ def surface(sigma_local, angle):
         )
         - c * np.cos(angle)
     )
-    # return (I1 / 3.0 * np.sin(angle)) + jnp.sqrt(J2(s)) * K(theta_, angle) - c * np.cos(angle)
 
 
 # %% [markdown]
@@ -425,11 +408,6 @@ dgdsigma = jax.jacfwd(g)
 # its jacobian `drdx`.
 
 # %%
-# NOTE: Actually, I put conditionals inside local functions, but we may
-# implement two "branches" of the algo separetly and check the yielding
-# condition in the main Newton loop. It may be more efficient, but idk. Anyway,
-# as it is, it looks fancier.
-
 lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
 mu = E / (2.0 * (1.0 + nu))
 C_elas = np.array(
@@ -475,9 +453,6 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     def r_f_plastic(sigma_local, dlambda):
         return f(sigma_local)
 
-    # JSH: Why is this comparison with eps? eps is essentially 0.0 when doing
-    # <=. AL: In the case of yielding = 1e-15 - 1e-16 (or we can choose the
-    # tolerance), the plastic branch will be chosen, which is more expensive.
     return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
 
@@ -488,7 +463,7 @@ def r(x_local, deps_local, sigma_n_local):
     res_g = r_g(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
 
-    res = jnp.c_["0,1,-1", res_g, res_f]
+    res = jnp.c_["0,1,-1", res_g, res_f] # concatenates an array and a scalar
     return res
 
 
@@ -501,8 +476,6 @@ drdx = jax.jacfwd(r)
 # %%
 Nitermax, tol = 200, 1e-8
 
-# JSH: You need to explain somewhere here how the while_loop interacts with
-# vmap.
 ZERO_SCALAR = np.array([0.0])
 
 
@@ -585,6 +558,18 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 # derivative `dsigma_ddeps` returns both values of the consistent tangent matrix
 # and the stress tensor, so there is no need in a supplementary computation of the
 # stress tensor.
+#
+# ____
+#
+# The following block of code is for JB.
+#
+# $$
+#     \frac{d\boldsymbol{r}}{d\boldsymbol{x}} = \boldsymbol{j},
+# $$
+#
+# $$
+#     \boldsymbol{C}_\text{tang} = \boldsymbol{j}^{-1}[:6,:6] \boldsymbol{C}_\text{elas}
+# $$
 
 
 # %%
@@ -634,13 +619,22 @@ dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
 
 # %% [markdown]
 # #### Defining external operator
+#
 # Once we define the function `dsigma_ddeps`, which evaluates both the
 # external operator and its derivative locally, we can simply vectorize it and
 # define the final implementation of the external operator derivative.
+#
+# ```{note}
+# The function `dsigma_ddeps` containing a `while_loop` is designed to be called
+# at a single Gauss point that's why we need to vectorize it for the all points
+# of our functional space `S`. For this purpose we use the `vmap` function of JAX.
+# It creates another `while_loop`, which terminates only when all mapped loops
+# terminate. Find further details in this
+# [discussion](https://github.com/google/jax/discussions/15954).
+# ```
 
 # %%
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
-
 
 def C_tang_impl(deps):
     deps_ = deps.reshape((-1, 6))
@@ -662,10 +656,6 @@ def C_tang_impl(deps):
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
-    # NOTE: The following code prints some details about the second Newton
-    # solver, solving the constitutive equations. Do we need this or it's better
-    # to have the code as clean as possible?
-
     print("\tInner Newton summary:")
     print(f"\t\tUnique number of iterations: {unique_iters}")
     print(f"\t\tCounts of unique number of iterations: {counts}")
@@ -684,8 +674,6 @@ def C_tang_impl(deps):
 
 # %%
 def sigma_external(derivatives):
-    # if derivatives == (0,):
-    #     return sigma_impl
     if derivatives == (1,):
         return C_tang_impl
     else:
@@ -699,7 +687,6 @@ sigma.external_function = sigma_external
 
 # %%
 q = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
-
 
 def F_ext(v):
     return ufl.dot(q, v) * dx
@@ -732,26 +719,20 @@ J_form = fem.form(J_replaced)
 Du.x.array[:] = 1.0
 sigma_n.x.array[:] = 0.0
 
-timer1 = common.Timer("1st JAX pass")
-timer1.start()
-
+timer = common.Timer("DOLFINx_timer")
+timer.start()
 evaluated_operands = evaluate_operands(F_external_operators)
 _ = evaluate_external_operators(J_external_operators, evaluated_operands)
+timer.stop()
+pass_1 = timer.elapsed()[0]
 
-timer1.stop()
-
-timer2 = common.Timer("2nd JAX pass")
-timer2.start()
-
+timer.start()
 evaluated_operands = evaluate_operands(F_external_operators)
 _ = evaluate_external_operators(J_external_operators, evaluated_operands)
+timer.stop()
+pass_2 = timer.elapsed()[0]
 
-timer2.stop()
-
-# %%
-# TODO: Is there a more elegant way to extract the data?
-# TODO: Maybe we analyze the compilation time in-place?
-common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
+print(f"\nJAX's JIT compilation overhead: {pass_1 - pass_2}")
 
 # %% [markdown]
 # ### Solving the problem
@@ -953,16 +934,15 @@ sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 N_angles = 200
 N_loads = 10
 eps = 1e-7
-angle_values = np.linspace(0 + eps, 2 * np.pi - eps, N_angles)
 R = 0.7
 p = 1.0
 
+angle_values = np.linspace(0 + eps, 2 * np.pi - eps, N_angles)
 dsigma_path = np.zeros((N_angles, 6))
 dsigma_path[:, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
 dsigma_path[:, 1] = np.sqrt(2.0 / 3.0) * R * np.sin(angle_values - np.pi / 6.0)
 dsigma_path[:, 2] = np.sqrt(2.0 / 3.0) * R * np.sin(-angle_values - np.pi / 6.0)
 
-# %%
 angle_results = np.empty((N_loads, N_angles))
 rho_results = np.empty((N_loads, N_angles))
 sigma_results = np.empty((N_loads, N_angles, 6))
@@ -972,6 +952,7 @@ sigma_n_local[:, 1] = p
 sigma_n_local[:, 2] = p
 derviatoric_axis = tr
 
+# %%
 print(f"rho = {R}, p = {p} - projection onto the octahedral plane\n")
 for i in range(N_loads):
     print(f"Loading#{i}")
@@ -999,48 +980,8 @@ for j in range(12):
     for i in range(N_loads):
         ax.plot(j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i], rho_results[i], ".")
 
-# title = "Octahedral profile of the Mohr-Coulomb yield criterion with apex smoothing on different stress paths, "
-# ax.set_title(title + r"$(\rho, \theta)$")
 ax.set_yticklabels([])
 fig.tight_layout()
-
-# %%
-# fig = plt.figure(figsize=(15, 10))
-# # fig.suptitle(r'$\pi$-plane or deviatoric plane or octahedral plane, $\sigma (\rho=\sqrt{2J_2}, \theta$)')
-# ax1 = fig.add_subplot(221, polar=True)
-# ax2 = fig.add_subplot(222, polar=True)
-# ax3 = fig.add_subplot(223, projection="3d")
-# ax4 = fig.add_subplot(224, projection="3d")
-# for j in range(12):
-#     for i in range(N_loads):
-#         ax1.plot(
-#             j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i],
-#             rho_results[i],
-#             ".",
-#             label="Load#" + str(i),
-#         )
-# for i in range(N_loads):
-#     ax2.plot(angle_values, rho_v(dsigma_path), ".", label="Load#" + str(i))
-#     ax3.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
-#     ax4.plot(sigma_results[i, :, 0], sigma_results[i, :, 1], sigma_results[i, :, 2], ".")
-
-# ax1.plot(np.repeat(np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
-# ax1.plot(np.repeat(-np.pi / 6, 10), np.linspace(0, np.max(rho_results), 10), color="black")
-# z_min = np.min(sigma_results[:, :, 2])
-# z_max = np.max(sigma_results[:, :, 2])
-# ax4.plot(np.array([p, p]), np.array([p, p]), np.array([z_min, z_max]), linestyle="-", color="black")
-
-# ax1.set_title(r"Octahedral profile of the yield criterion, $(\rho=\sqrt{2J_2}, \theta)$")
-# ax2.set_title(r"Paths of the loading $\sigma$, $(\rho=\sqrt{2J_2}, \theta)$")
-# ax3.view_init(azim=45)
-
-# for ax in [ax3, ax4]:
-#     ax.set_xlabel(r"$\sigma_{I}$")
-#     ax.set_ylabel(r"$\sigma_{II}$")
-#     ax.set_zlabel(r"$\sigma_{III}$")
-#     ax.set_title(r"In $(\sigma_{I}, \sigma_{II}, \sigma_{III})$ space")
-# plt.legend()
-# fig.tight_layout()
 
 # %% [markdown]
 # ### Taylor test
@@ -1051,16 +992,16 @@ fig.tight_layout()
 #
 # Indeed, by following the Taylor's theorem and perturbating the functional $F: V
 # \to \mathbb{R}$ in the direction $h \, \boldsymbol{δu} \in V$ for $h > 0$, the
-# first and second order Taylor reminders $R_1$ and $R_2$ have the following
+# first and second order Taylor reminders $R_0$ and $R_1$ have the following
 # convergence rates
 #
 # $$
-#     R_1 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
+#     R_0 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
 # F(\boldsymbol{u}; \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h),
 # $$
 #
 # $$
-#     R_2 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
+#     R_1 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
 # F(\boldsymbol{u}; \boldsymbol{v}) - \, J(\boldsymbol{u}; h\boldsymbol{δu},
 # \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h^2),
 # $$
@@ -1090,7 +1031,7 @@ fig.tight_layout()
 # By applying the Taylor theorem to $\boldsymbol{F}_h(\boldsymbol{\mathcal{U}})$ we obtain
 #
 # $$
-#     R_2 = \|\boldsymbol{F}_h(\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}}) - \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) - h \boldsymbol{J}_h(\boldsymbol{\mathcal{U}})\boldsymbol{\Delta \mathcal{U}} \|_2
+#     R_1 = \|\boldsymbol{F}_h(\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}}) - \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) - h \boldsymbol{J}_h(\boldsymbol{\mathcal{U}})\boldsymbol{\Delta \mathcal{U}} \|_2
 # $$
 #
 # but it's not good??
@@ -1113,16 +1054,16 @@ fig.tight_layout()
 # Another way to perform the Taylor test is stick to the original functionals $V
 # \to \mathbb{R}$
 # $$
-#     R_2 = | F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) -
+#     R_1 = | F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) -
 #     F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) -  \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h \boldsymbol{\varPhi}^T\boldsymbol{\Delta \mathcal{U}}, \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) | = \\
 #     = | \boldsymbol{\mathcal{V}}^T [F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\varPhi}) - F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) - h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T, \boldsymbol{\varPhi}) \boldsymbol{\Delta \mathcal{U}}] |
 # $$
 # $$
-#     R_2(v) \longrightarrow 0 \text{ at } O(h^2) \quad \forall v \in V
+#     R_1(v) \longrightarrow 0 \text{ at } O(h^2) \quad \forall v \in V
 # $$
 #
 # $$
-#     R_2 = | \boldsymbol{\mathcal{V}}_i [F(u + h \, \delta u; \varphi_i) - F(u; \varphi_i) - h \, J(\boldsymbol{u}; \varphi_i, \varphi_j) \boldsymbol{\Delta \mathcal{U}}_j] |
+#     R_1 = | v_i [F(u + h \, \delta u; \varphi_i) - F(u; \varphi_i) - h \, J(\boldsymbol{u}; \varphi_i, \varphi_j) \boldsymbol{\Delta \mathcal{U}}_j] |, \quad i,j = 1,...,n
 # $$
 #
 # In the following code-blocks you may find the implementation of the Taylor test
@@ -1145,8 +1086,6 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # initial state close to the one with plastic deformations.
 
 # %%
-# load_steps_1 = np.linspace(3, 14, 15)
-# for i, load in enumerate(load_steps_1[:1]):
 i = 0
 load = 3.0
 q.value = load * np.array([0, 0, -gamma])
@@ -1189,6 +1128,11 @@ sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 Du0 = np.copy(Du.x.array)
 sigma_n0 = np.copy(sigma_n.x.array)
 
+# %% [markdown]
+# If we take into account the initial stress state `sigma_n0` computed in the cell
+# above, we perform the Taylor test for the plastic phase, otherwise we stay in
+# the elastic one.
+
 # %%
 h_list = np.logspace(-3.0, -6.0, 5)[::-1]
 
@@ -1230,48 +1174,40 @@ def perform_Taylor_test(Du0, sigma_n0):
 
     return zero_order_remainder, first_order_remainder
 
-
-# %% [markdown]
-# As we vary
-
-# %%
 print("Elastic phase")
 zero_order_remainder_elastic, first_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
 print("Plastic phase")
 zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
 
-
 # %%
-def slope_marker(ax, data_x, data_y, slope):
-    scale = 0.3
-    x = np.log(data_x)
-    y = np.log(data_y)
-    print(x, y)
-    scale_x = np.abs(x.max() - x.min())*scale
-    scale_y = np.abs(y.max() - y.min())*scale
-    x_mid = (x.min() + x.max()) / 2.0
-    y_mid = (y.min() + y.max()) / 2.0
+# def slope_marker(ax, data_x, data_y, slope):
+#     scale = 0.3
+#     x = np.log(data_x)
+#     y = np.log(data_y)
+#     print(x, y)
+#     scale_x = np.abs(x.max() - x.min())*scale
+#     scale_y = np.abs(y.max() - y.min())*scale
+#     x_mid = (x.min() + x.max()) / 2.0
+#     y_mid = (y.min() + y.max()) / 2.0
 
-    x_corner = x_mid + 0.5 * scale_x
-    y_corner = y_mid - 0.5 * scale_y
+#     x_corner = x_mid + 0.5 * scale_x
+#     y_corner = y_mid - 0.5 * scale_y
 
-    x_left = x_corner - scale_x
-    y_up = y_corner + scale_y
-    print([x_corner, x_left, x_mid])
+#     x_left = x_corner - scale_x
+#     y_up = y_corner + scale_y
+#     print([x_corner, x_left, x_mid])
 
-    # x_mid = x_left + scale_x
-    # y_mid = y_up + scale_y
-    ax.plot([x_corner, x_left], [y_corner, y_corner], 'r')
-    ax.plot([x_corner, x_corner], [y_corner, y_up], 'r')
-    ax.loglog(-x_mid, -y_mid, 'o')
-    # ax.plot(x_tri, np.tile(y_tri[0, :], [2, 1]), 'r')      # red horizontal line
-    # ax.plot(np.tile(x_tri[1, :], [2, 1]), y_tri, 'r') 
-
+#     # x_mid = x_left + scale_x
+#     # y_mid = y_up + scale_y
+#     ax.plot([x_corner, x_left], [y_corner, y_corner], 'r')
+#     ax.plot([x_corner, x_corner], [y_corner, y_up], 'r')
+#     ax.loglog(-x_mid, -y_mid, 'o')
+#     # ax.plot(x_tri, np.tile(y_tri[0, :], [2, 1]), 'r')      # red horizontal line
+#     # ax.plot(np.tile(x_tri[1, :], [2, 1]), y_tri, 'r') 
 
 # %%
 from mpltools import annotation
 
-# %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
 axs[0].loglog(h_list, zero_order_remainder_elastic, "o-", label=r"$R_0$")
@@ -1299,7 +1235,11 @@ second_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_plas
 print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %% [markdown]
-#
+# For the elastic phase (on the left) the zeroth-order Taylor remainder $R_0$
+# achieves the first-order convergence rate the same as for the plastic phase (on
+# the right). The first-order remainder $R_1$ is constant during the elastic
+# response, as the jacobian is constant in this case contrarily to the plastic
+# phase, where $R_1$ has the second-order convergence.
 
 # %%
 # # NOTE: There is the warning `[WARNING] yaksa: N leaked handle pool objects`
@@ -1311,5 +1251,3 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 # du.vector.destroy()
 # u.vector.destroy()
 
-
-# %%
