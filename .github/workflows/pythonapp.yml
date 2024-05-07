@@ -17,7 +17,7 @@ jobs:
       
       - name: Install package
         run: |
-          apt-get update && apt-get install -y libgl1-mesa-glx xvfb
+          apt-get update && apt-get install -y ligbl1 xvfb
           pip install '.[ci]'
 
       - name: ruff check and format
