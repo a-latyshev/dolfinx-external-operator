@@ -6,8 +6,7 @@ on:
   workflow_call:
   push:
     branches:
-      # - "!main"
-      - "!*"
+      - "publishing"
 
 jobs:
   build-docs:
@@ -18,7 +17,8 @@ jobs:
       
       - name: Install package
         run: |
-          pip install '.[ci]'
+          apt-get update && apt-get install -y libxrender1 xvfb
+          pip install --no-build-isolation --break-system-packages --no-cache-dir '.[ci]' 
 
       - name: ruff check and format
         run: |
