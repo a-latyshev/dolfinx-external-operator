@@ -1081,7 +1081,7 @@ fig.tight_layout()
 # \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) | = \\
 # [F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta
 # \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\varPhi}) -
-# F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) # - h
+# F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) - h
 # \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T,
 # \boldsymbol{\varPhi}) \boldsymbol{\Delta \mathcal{U}}]
 # |
