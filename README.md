@@ -4,7 +4,7 @@ Extension of external operator concept of UFL
 
 ## Documentation
 
-[Main webpage](https://a-latyshev.github.io/dolfinx-external-operator/intro.html)
+[Main webpage](https://a-latyshev.github.io/dolfinx-external-operator/)
 
 ## Installation
 From the source directory:
