@@ -6,7 +6,7 @@ on:
   workflow_call:
   push:
     branches:
-      - "!*"
+      - "publishing"
 
 jobs:
   build-docs:
