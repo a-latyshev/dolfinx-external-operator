@@ -765,52 +765,53 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3, load_step
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %%
-# for i, load in enumerate(load_steps):
-#     q.value = load * np.array([0, 0, -gamma])
-#     external_operator_problem.assemble_vector()
+# %% tags=["scroll-output"]
 
-#     residual_0 = external_operator_problem.b.norm()
-#     residual = residual_0
-#     Du.x.array[:] = 0
+for i, load in enumerate(load_steps):
+    q.value = load * np.array([0, 0, -gamma])
+    external_operator_problem.assemble_vector()
 
-#     if MPI.COMM_WORLD.rank == 0:
-#         print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+    residual_0 = external_operator_problem.b.norm()
+    residual = residual_0
+    Du.x.array[:] = 0
 
-#     for iteration in range(0, max_iterations):
-#         if residual / residual_0 < relative_tolerance:
-#             break
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
 
-#         if MPI.COMM_WORLD.rank == 0:
-#             print(f"\tOuter Newton iteration #{iteration}")
-#         external_operator_problem.assemble_matrix()
-#         external_operator_problem.solve(du)
+    for iteration in range(0, max_iterations):
+        if residual / residual_0 < relative_tolerance:
+            break
 
-#         Du.vector.axpy(1.0, du.vector)
-#         Du.x.scatter_forward()
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tOuter Newton iteration #{iteration}")
+        external_operator_problem.assemble_matrix()
+        external_operator_problem.solve(du)
 
-#         evaluated_operands = evaluate_operands(F_external_operators)
-#         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        Du.vector.axpy(1.0, du.vector)
+        Du.x.scatter_forward()
 
-#         # Direct access to the external operator values
-#         sigma.ref_coefficient.x.array[:] = sigma_new
-#         # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
-#         external_operator_problem.assemble_vector()
-#         residual = external_operator_problem.b.norm()
+        # Direct access to the external operator values
+        sigma.ref_coefficient.x.array[:] = sigma_new
+        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
 
-#         if MPI.COMM_WORLD.rank == 0:
-#             print(f"\tResidual: {residual}\n")
+        external_operator_problem.assemble_vector()
+        residual = external_operator_problem.b.norm()
 
-#     u.vector.axpy(1.0, Du.vector)
-#     u.x.scatter_forward()
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tResidual: {residual}\n")
 
-#     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
+    u.vector.axpy(1.0, Du.vector)
+    u.x.scatter_forward()
 
-#     if len(points_on_process) > 0:
-#         results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+    sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
-# print(f"Slope stability factor: {q.value[-1]*H/c}")
+    if len(points_on_process) > 0:
+        results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+
+print(f"Slope stability factor: {q.value[-1]*H/c}")
 
 # %%
 # 20 - critical load # -5.884057971014492
@@ -827,7 +828,7 @@ results = np.zeros((num_increments + 1, 2))
 if len(points_on_process) > 0:
     plt.plot(-results[:, 0], results[:, 1], "o-")
     plt.xlabel("Displacement of the slope at (0, 0, H)")
-    plt.ylabel(r"Soil self weight $\gamma$")
+    plt.ylabel(r"Soil self-weight $\gamma$")
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     # plt.legend()
     plt.show()
