@@ -765,7 +765,8 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3, load_step
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %%
+# %% tags=["scroll-output"]
+
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, 0, -gamma])
     external_operator_problem.assemble_vector()
