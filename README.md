@@ -55,7 +55,7 @@ ruff format .
 
 ## Citation 
 
-If you use `dolfinx-external-operator` in your research, please cite the following publication:
+If you use `dolfinx-external-operator` in your research, please cite the following publication (BibLaTex):
 
 ```
 @inproceedings{ORBi-bd33839e-f32f-4005-b706-a618d5bf1b0d,
@@ -66,5 +66,15 @@ If you use `dolfinx-external-operator` in your research, please cite the followi
 	YEAR = {February 2024},
 	SIZE = {8},
 	LOCATION = {Giens, France},
+}
+```
+
+```
+@software{Latyshev2024dolfinx-external-operator,
+  title = {dolfinx-external-operator: v.0.0.1},
+  author = {Latyshev, Andrey and Hale, Jack},
+  date = {2024},
+  doi = {10.5281/zenodo.10907418},
+  organization = {Zenodo}
 }
 ```
