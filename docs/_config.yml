@@ -7,7 +7,7 @@ copyright: "2023"
 
 execute:
   execute_notebooks: cache
-  timeout: 1800
+  timeout: 3600
 # Information about where the book exists on the web
 repository:
   url: https://github.com/a-latyshev/dolfinx-external-operator/  # Online location of your book
