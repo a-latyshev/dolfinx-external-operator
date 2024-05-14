@@ -1,7 +1,7 @@
 # ---
 # jupyter:
 #   jupytext:
-#     cell_metadata_filter: -all
+#     cell_metadata_filter: tags,-all
 #     custom_cell_magics: kql
 #     text_representation:
 #       extension: .py
@@ -13,17 +13,6 @@
 #     language: python
 #     name: python3
 # ---
-
-# %%
-# JSH: Comments on text.
-# 1. The main point of this tutorial is to show how JAX AD can be used to
-#    take away a lot of the by-hand differentiation. When I read this
-#    intro, it just seems like something I could have done in e.g. MFront.
-# 2. The equations should be put down where you define them in the code.
-
-# AL: comments
-# 1. How to explain the non-associativity for the problem where it is not required??
-# 2. Maybe `FEMExternalOperator` is a good name for the framework?
 
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb with apex-smoothing
@@ -54,7 +43,7 @@
 # gravitational body force $\boldsymbol{q}=[0, 0, -\gamma]^T$ with $\gamma$ being
 # the soil self-weight. The solution of the problem is to find the collapse load
 # $q_\text{lim}$, for which we know an analytical solution in the plane-strain
-# case for the standard Mohr-Coulomb criterion [CITE] (TODO: rewrite later). We
+# case for the standard Mohr-Coulomb criterion. We
 # follow the same Mandel-Voigt notation as in the von Mises plasticity tutorial
 # but in 3D.
 #
@@ -144,10 +133,6 @@ def on_bottom(x):
 
 bottom_dofs = fem.locate_dofs_geometrical(V, on_bottom)
 right_dofs = fem.locate_dofs_geometrical(V, on_right)
-
-# bcs =
-# [fem.dirichletbc(0.0, bottom_dofs, V), fem.dirichletbc(np.array(0.0, dtype=PETSc.ScalarType), right_dofs, V)]
-# # bug???
 
 bcs = [
     fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
@@ -559,61 +544,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 # derivative `dsigma_ddeps` returns both values of the consistent tangent matrix
 # and the stress tensor, so there is no need in a supplementary computation of the
 # stress tensor.
-#
-# ____
-#
-# The following block of code is for JB.
-#
-# $$
-#     \frac{d\boldsymbol{r}}{d\boldsymbol{x}} = \boldsymbol{j},
-# $$
-#
-# $$
-#     \boldsymbol{C}_\text{tang} = \boldsymbol{j}^{-1}[:6,:6] \boldsymbol{C}_\text{elas}
-# $$
 
-
-# %%
-def C_tang(deps_local, sigma_n_local, sigma_local, dlambda_local):
-    x_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
-    j = drdx(x_local, deps_local, sigma_n_local)
-    H = jnp.linalg.inv(j)[:6, :6] @ C_elas
-    return H
-
-    # A = j[:4,:4]
-    # n = j[4,:4] # dfdsigma
-    # m = j[:4,4] # dgdsigma
-    # H = jnp.linalg.inv(A) @ C_elas
-    # term_tmp = n.T @ H @ m
-    # term = jax.lax.cond(term_tmp == 0.0, lambda x : 1., lambda x: x, term_tmp)
-    # return H - jnp.outer((H @ m), (H @ n)) / term, term
-
-
-C_tang_v = jax.jit(jax.vmap(C_tang, in_axes=(0, 0, 0, 0)))
-
-# %%
-# dsigma_ddeps_vec = jax.jit(jax.vmap(sigma_return_mapping, in_axes=(0, 0)))
-
-# def sigma_impl(deps):
-#     deps_ = deps.reshape((-1, 6))
-#     sigma_n_ = sigma_n.x.array.reshape((-1, 6))
-
-#     (sigma_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-#     C_tang_global, niter, yielding, norm_res = state
-
-#     unique_iters, counts = jnp.unique(niter, return_counts=True)
-
-#     # NOTE: The following code prints some details about the second Newton
-#     # solver, solving the constitutive equations. Do we need this or it's better
-#     # to have the code as clean as possible?
-
-#     print("\tInner Newton summary:")
-#     print(f"\t\tUnique number of iterations: {unique_iters}")
-#     print(f"\t\tCounts of unique number of iterations: {counts}")
-#     print(f"\t\tMaximum f: {jnp.max(yielding)}")
-#     print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
-
-#     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
 # %%
 dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
@@ -644,17 +575,6 @@ def C_tang_impl(deps):
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     sigma_global, niter, yielding, norm_res, dlambda = state
-
-    # C_tang_tmp = C_tang_v(deps_, sigma_n_, sigma_global.reshape((-1, 4)), dlambda)
-
-    # maxxx = -1.
-    # i_max = 0
-    # for i in range(len(C_tang_global.reshape(-1, 4, 4))):
-    #     eps = np.abs(np.max(C_tang_tmp[i] - C_tang_global.reshape(-1, 4, 4)[i]))
-    #     if eps > maxxx:
-    #         maxxx = eps
-    #         i_max = i
-    # print(maxxx, '\n' , C_tang_global[i_max], '\n', C_tang_tmp[i_max])
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -830,7 +750,6 @@ if len(points_on_process) > 0:
     plt.xlabel("Displacement of the slope at (0, 0, H)")
     plt.ylabel(r"Soil self-weight $\gamma$")
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
-    # plt.legend()
     plt.show()
 
 # %%
@@ -894,15 +813,13 @@ if not pyvista.OFF_SCREEN:
 #     \begin{pmatrix}
 #         \cos{\theta} \\
 #         -\sin{\frac{\pi}{6} - \theta} \\
-#         -\sin{\frac{\pi}{6} + \theta} \\
+#         -\sin{\frac{\pi}{6} + \theta}
 #     \end{pmatrix}.
 # $$
 #
 # Firstly, we define and vectorize functions `rho`, `angle` and `sigma_tracing`
 # evaluating respectively the coordinates $\rho$ and $\theta$ and the corrected
 # stress tensor for a certain stress state.
-#
-# TODO: Discuss this section with JB.
 
 
 # %%
@@ -1008,94 +925,6 @@ fig.tight_layout()
 #     R_1 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
 # F(\boldsymbol{u}; \boldsymbol{v}) - \, J(\boldsymbol{u}; h\boldsymbol{δu},
 # \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h^2),
-# $$
-#
-# ---
-#
-# $$
-#     \boldsymbol{u} = \sum_i^n u_i\varphi_i = \boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi} \in V_h \subset V, \\
-#     \boldsymbol{v} = \sum_i^n v_i\varphi_i = \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi} \in V_h \subset V
-# $$
-#
-# ---
-#
-# $$
-# F_h(\boldsymbol{\mathcal{U}}) = F(\boldsymbol{\mathcal{U}}^T
-# \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) \quad
-# \forall \, \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi} \in V_h
-# $$
-# Then by setting $\boldsymbol{\mathcal{V}} = (0,...,1_i, ..., 0)^T$, we get
-#
-# $$
-# \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) =
-# \boldsymbol{F}(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi};
-# \boldsymbol{\varPhi}) : \mathbb{R}^n \to \mathbb{R}^n
-# $$
-#
-# then
-# $$
-# \boldsymbol{J}_h(\boldsymbol{\mathcal{U}}) = \frac{d
-# \boldsymbol{F}_h(\boldsymbol{\mathcal{U}})}{d
-# \boldsymbol{\mathcal{U}}}(\boldsymbol{\mathcal{U}}) : \mathbb{R}^n \to
-# \mathbb{R}^n
-# $$
-# By applying the Taylor theorem to $\boldsymbol{F}_h(\boldsymbol{\mathcal{U}})$ we obtain
-#
-# $$
-# R_1 = \|\boldsymbol{F}_h(\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta
-# \mathcal{U}}) - \boldsymbol{F}_h(\boldsymbol{\mathcal{U}}) - h
-# \boldsymbol{J}_h(\boldsymbol{\mathcal{U}})\boldsymbol{\Delta \mathcal{U}} \|_2
-# $$
-#
-# but it's not good??
-#
-# ---
-#
-# if we start with $J(\boldsymbol{u}; h\boldsymbol{\delta u}, \boldsymbol{v})$ and
-# picking independently $\boldsymbol{v} = \varphi_i$ and $\delta u_j \varphi_j$, then
-#
-# $$
-# J_h(\boldsymbol{\mathcal{U}})\boldsymbol{{\Delta\mathcal{U}}} =
-# J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h \delta u_j \varphi_j,
-# \varphi_i) = h \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \varphi_j,
-# \varphi_i)\delta u_j : \mathbb{R}^n \to \mathbb{R}^n \quad \forall \, i,j
-# $$
-#
-# or set $\boldsymbol{\mathcal{V}} = (0,...,1_i, ..., 0)^T$
-#
-# $$
-# J_h(\boldsymbol{\mathcal{U}})\boldsymbol{{\Delta\mathcal{U}}} = h \,
-# J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T,
-# \boldsymbol{\varPhi}) \boldsymbol{{\Delta\mathcal{U}}}^T : \mathbb{R}^n \to
-# \mathbb{R}^n
-# $$
-# ---
-# Another way to perform the Taylor test is stick to the original functionals $V
-# \to \mathbb{R}$
-# $$
-# R_1 = | F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta
-# \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T
-# \boldsymbol{\varPhi}) -
-# F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\mathcal{V}}^T
-# \boldsymbol{\varPhi}) - \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; h
-# \boldsymbol{\varPhi}^T\boldsymbol{\Delta \mathcal{U}},
-# \boldsymbol{\mathcal{V}}^T \boldsymbol{\varPhi}) | = \\
-# [F((\boldsymbol{\mathcal{U}} + h \, \boldsymbol{\Delta
-# \mathcal{U}})^T\boldsymbol{\varPhi}; \boldsymbol{\varPhi}) -
-# F(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}) - h
-# \, J(\boldsymbol{\mathcal{U}}^T \boldsymbol{\varPhi}; \boldsymbol{\varPhi}^T,
-# \boldsymbol{\varPhi}) \boldsymbol{\Delta \mathcal{U}}]
-# |
-# $$
-# $$
-#     R_1(v) \longrightarrow 0 \text{ at } O(h^2) \quad \forall v \in V
-# $$
-#
-# $$
-# R_1 = | v_i
-# [F(u + h \, \delta u; \varphi_i) - F(u; \varphi_i) - h \, J(\boldsymbol{u}; \varphi_i, \varphi_j)
-# \boldsymbol{\Delta \mathcal{U}}_j]
-# |, \quad i,j = 1,...,n
 # $$
 #
 # In the following code-blocks you may find the implementation of the Taylor test
@@ -1214,32 +1043,6 @@ print("Plastic phase")
 zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
 
 # %%
-# def slope_marker(ax, data_x, data_y, slope):
-#     scale = 0.3
-#     x = np.log(data_x)
-#     y = np.log(data_y)
-#     print(x, y)
-#     scale_x = np.abs(x.max() - x.min())*scale
-#     scale_y = np.abs(y.max() - y.min())*scale
-#     x_mid = (x.min() + x.max()) / 2.0
-#     y_mid = (y.min() + y.max()) / 2.0
-
-#     x_corner = x_mid + 0.5 * scale_x
-#     y_corner = y_mid - 0.5 * scale_y
-
-#     x_left = x_corner - scale_x
-#     y_up = y_corner + scale_y
-#     print([x_corner, x_left, x_mid])
-
-#     # x_mid = x_left + scale_x
-#     # y_mid = y_up + scale_y
-#     ax.plot([x_corner, x_left], [y_corner, y_corner], 'r')
-#     ax.plot([x_corner, x_corner], [y_corner, y_up], 'r')
-#     ax.loglog(-x_mid, -y_mid, 'o')
-#     # ax.plot(x_tri, np.tile(y_tri[0, :], [2, 1]), 'r')      # red horizontal line
-#     # ax.plot(np.tile(x_tri[1, :], [2, 1]), y_tri, 'r')
-
-# %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
 axs[0].loglog(h_list, zero_order_remainder_elastic, "o-", label=r"$R_0$")
@@ -1272,13 +1075,3 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 # the right). The first-order remainder $R_1$ is constant during the elastic
 # response, as the jacobian is constant in this case contrarily to the plastic
 # phase, where $R_1$ has the second-order convergence.
-
-# %%
-# # NOTE: There is the warning `[WARNING] yaksa: N leaked handle pool objects`
-# for # the call `.assemble_vector()` and `.vector`. # NOTE: The following
-# lines eleminate the leakes (except the mesh ones). # NOTE: To test this for
-# the newest version of the DOLFINx.
-# external_operator_problem.__del__()
-# Du.vector.destroy()
-# du.vector.destroy()
-# u.vector.destroy()
