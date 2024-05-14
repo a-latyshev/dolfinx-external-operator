@@ -3,7 +3,7 @@
 Authors:
 * Andrey Latyshev (University of Luxembourg, Sorbonne Université,
   andrey.latyshev@uni.lu)
-* Jérémy Bleyer (École des Ponts ParisTech, jeremy.bleyer@enpc.fr)
+* Jérémy Bleyer (École des Ponts ParisTech, Université Gustave Eiffel, jeremy.bleyer@enpc.fr)
 * Jack S. Hale (University of Luxembourg, jack.hale@uni.lu)
 * Corrado Maurini (Sorbonne Université, corrado.maurini@sorbonne-universite.fr)
 
