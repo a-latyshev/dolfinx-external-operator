@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -121,6 +120,7 @@ domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0, 0, 0]), np.array([L, W, H
 # %%
 k_u = 2
 V = fem.functionspace(domain, ("Lagrange", k_u, (3,)))
+
 
 # Boundary conditions
 def on_right(x):
@@ -813,7 +813,7 @@ if not pyvista.OFF_SCREEN:
 #     \begin{pmatrix}
 #         \cos{\theta} \\
 #         -\sin{\frac{\pi}{6} - \theta} \\
-#         -\sin{\frac{\pi}{6} + \theta} 
+#         -\sin{\frac{\pi}{6} + \theta}
 #     \end{pmatrix}.
 # $$
 #
