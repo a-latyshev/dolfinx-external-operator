@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -113,7 +114,7 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 L, W, H = (1.2, 2.0, 1.0)
-Nx, Ny, Nz = (10, 10, 10)
+Nx, Ny, Nz = (10, 2, 10)
 gamma = 1.0
 domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0, 0, 0]), np.array([L, W, H])], [Nx, Ny, Nz])
 
@@ -685,6 +686,10 @@ load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3, load_step
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
+# %%
+total_constitutive_time = 0.0
+total_linear_solver_time = 0.0
+
 # %% tags=["scroll-output"]
 
 for i, load in enumerate(load_steps):
@@ -705,14 +710,19 @@ for i, load in enumerate(load_steps):
         if MPI.COMM_WORLD.rank == 0:
             print(f"\tOuter Newton iteration #{iteration}")
         external_operator_problem.assemble_matrix()
+        timer.start()
         external_operator_problem.solve(du)
+        timer.stop()
+        total_linear_solver_time += timer.elapsed()[0]
 
         Du.vector.axpy(1.0, du.vector)
         Du.x.scatter_forward()
 
+        timer.start()
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
+        timer.stop()
+        total_constitutive_time += timer.elapsed()[0]
         # Direct access to the external operator values
         sigma.ref_coefficient.x.array[:] = sigma_new
         # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
@@ -734,8 +744,17 @@ for i, load in enumerate(load_steps):
 print(f"Slope stability factor: {q.value[-1]*H/c}")
 
 # %%
+print(f"total_constitutive_time: {total_constitutive_time}")
+print(f"total_linear_solver_time: {total_linear_solver_time}")
+print(f"total_constitutive_time/total_linear_solver_time: {total_constitutive_time/total_linear_solver_time}")
+
+# %%
 # 20 - critical load # -5.884057971014492
 # Slope stability factor: -6.521739130434782
+
+# total_constitutive_time: 206.91024010700005
+# total_linear_solver_time: 1060.0564705519994
+# total_constitutive_time/total_linear_solver_time: 0.19518794126057873
 
 
 # %% [markdown]
