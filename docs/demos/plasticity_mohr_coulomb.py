@@ -113,15 +113,15 @@ theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloa
 a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
-L, W, H = (1.2, 2.0, 1.0)
-Nx, Ny, Nz = (10, 2, 10)
+L, H = (1.2, 1.0)
+Nx, Ny = (50, 50)
 gamma = 1.0
-domain = mesh.create_box(MPI.COMM_WORLD, [np.array([0, 0, 0]), np.array([L, W, H])], [Nx, Ny, Nz])
+domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
 # %%
 k_u = 2
-V = fem.functionspace(domain, ("Lagrange", k_u, (3,)))
-
+gdim = domain.topology.dim
+V = fem.functionspace(domain, ("Lagrange", k_u, (gdim,)))
 
 # Boundary conditions
 def on_right(x):
@@ -129,15 +129,15 @@ def on_right(x):
 
 
 def on_bottom(x):
-    return np.isclose(x[2], 0.0)
+    return np.isclose(x[1], 0.0)
 
 
 bottom_dofs = fem.locate_dofs_geometrical(V, on_bottom)
 right_dofs = fem.locate_dofs_geometrical(V, on_right)
 
 bcs = [
-    fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
-    fem.dirichletbc(np.array([0.0, 0.0, 0.0], dtype=PETSc.ScalarType), right_dofs, V),
+    fem.dirichletbc(np.array([0.0, 0.0], dtype=PETSc.ScalarType), bottom_dofs, V),
+    fem.dirichletbc(np.array([0.0, 0.0], dtype=PETSc.ScalarType), right_dofs, V),
 ]
 
 
@@ -147,9 +147,7 @@ def epsilon(v):
         [
             grad_v[0, 0],
             grad_v[1, 1],
-            grad_v[2, 2],
-            np.sqrt(2.0) * 0.5 * (grad_v[1, 2] + grad_v[2, 1]),
-            np.sqrt(2.0) * 0.5 * (grad_v[0, 2] + grad_v[2, 0]),
+            0.0,
             np.sqrt(2.0) * 0.5 * (grad_v[0, 1] + grad_v[1, 0]),
         ]
     )
@@ -163,7 +161,8 @@ dx = ufl.Measure(
     metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
 )
 
-S_element = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=k_stress, value_shape=(6,))
+stress_dim = 2*gdim
+S_element = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=k_stress, value_shape=(stress_dim,))
 S = fem.functionspace(domain, S_element)
 
 
@@ -342,16 +341,14 @@ def a_g(angle):
 
 dev = np.array(
     [
-        [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
-        [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0, 0.0, 0.0],
-        [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        [2.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0, 0.0],
+        [-1.0 / 3.0, 2.0 / 3.0, -1.0 / 3.0, 0.0],
+        [-1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
     ],
     dtype=PETSc.ScalarType,
 )
-tr = np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=PETSc.ScalarType)
+tr = np.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
 
 
 def surface(sigma_local, angle):
@@ -399,17 +396,15 @@ lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
 mu = E / (2.0 * (1.0 + nu))
 C_elas = np.array(
     [
-        [lmbda + 2 * mu, lmbda, lmbda, 0, 0, 0],
-        [lmbda, lmbda + 2 * mu, lmbda, 0, 0, 0],
-        [lmbda, lmbda, lmbda + 2 * mu, 0, 0, 0],
-        [0, 0, 0, 2 * mu, 0, 0],
-        [0, 0, 0, 0, 2 * mu, 0],
-        [0, 0, 0, 0, 0, 2 * mu],
+        [lmbda + 2 * mu, lmbda, lmbda, 0],
+        [lmbda, lmbda + 2 * mu, lmbda, 0],
+        [lmbda, lmbda, lmbda + 2 * mu, 0],
+        [0, 0, 0, 2 * mu],
     ],
     dtype=PETSc.ScalarType,
 )
 S_elas = np.linalg.inv(C_elas)
-ZERO_VECTOR = np.zeros(6, dtype=PETSc.ScalarType)
+ZERO_VECTOR = np.zeros(stress_dim, dtype=PETSc.ScalarType)
 
 
 def deps_p(sigma_local, dlambda, deps_local, sigma_n_local):
@@ -444,7 +439,7 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
 
 
 def r(x_local, deps_local, sigma_n_local):
-    sigma_local = x_local[:6]
+    sigma_local = x_local[:stress_dim]
     dlambda_local = x_local[-1]
 
     res_g = r_g(sigma_local, dlambda_local, deps_local, sigma_n_local)
@@ -520,7 +515,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     norm_res, niter_total, x_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
 
-    sigma_local = x_local[0][:6]
+    sigma_local = x_local[0][:stress_dim]
     dlambda = x_local[0][-1]
     sigma_elas_local = C_elas @ deps_local
     yielding = f(sigma_n_local + sigma_elas_local)
@@ -571,8 +566,8 @@ dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 
 
 def C_tang_impl(deps):
-    deps_ = deps.reshape((-1, 6))
-    sigma_n_ = sigma_n.x.array.reshape((-1, 6))
+    deps_ = deps.reshape((-1, stress_dim))
+    sigma_n_ = sigma_n.x.array.reshape((-1, stress_dim))
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     sigma_global, niter, yielding, norm_res, dlambda = state
@@ -582,7 +577,7 @@ def C_tang_impl(deps):
     print("\tInner Newton summary:")
     print(f"\t\tUnique number of iterations: {unique_iters}")
     print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum F: {jnp.max(yielding)}")
+    print(f"\t\tMaximum f: {jnp.max(yielding)}")
     print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
@@ -609,7 +604,7 @@ sigma.external_function = sigma_external
 # ### Defining the forms
 
 # %%
-q = fem.Constant(domain, default_scalar_type((0, 0, -gamma)))
+q = fem.Constant(domain, default_scalar_type((0, -gamma)))
 
 
 def F_ext(v):
@@ -671,18 +666,16 @@ print(f"\nJAX's JIT compilation overhead: {pass_1 - pass_2}")
 external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
-x_point = np.array([[0, 0, H]])
+x_point = np.array([[0, H, 0]])
 cells, points_on_process = find_cell_by_point(domain, x_point)
 
 # %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
 
-load_steps_1 = np.linspace(3, 14, 15)
-load_steps_2 = np.linspace(14, 20, 15)[1:]
-load_steps_3 = np.linspace(20, 22, 10)[1:]
-load_steps_4 = np.linspace(22, 22.5, 10)[1:]
-load_steps = np.concatenate([load_steps_1, load_steps_2, load_steps_3, load_steps_4])
+load_steps_1 = np.linspace(2, 21, 40)
+load_steps_2 = np.linspace(21, 22.75, 20)[1:]
+load_steps = np.concatenate([load_steps_1, load_steps_2])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
@@ -693,7 +686,7 @@ total_linear_solver_time = 0.0
 # %% tags=["scroll-output"]
 
 for i, load in enumerate(load_steps):
-    q.value = load * np.array([0, 0, -gamma])
+    q.value = load * np.array([0, -gamma])
     external_operator_problem.assemble_vector()
 
     residual_0 = external_operator_problem.b.norm()
@@ -741,7 +734,7 @@ for i, load in enumerate(load_steps):
     if len(points_on_process) > 0:
         results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
 
-print(f"Slope stability factor: {q.value[-1]*H/c}")
+print(f"Slope stability factor: {-q.value[-1]*H/c}")
 
 # %%
 print(f"total_constitutive_time: {total_constitutive_time}")
@@ -766,7 +759,7 @@ print(f"total_constitutive_time/total_linear_solver_time: {total_constitutive_ti
 # %%
 if len(points_on_process) > 0:
     plt.plot(-results[:, 0], results[:, 1], "o-")
-    plt.xlabel("Displacement of the slope at (0, 0, H)")
+    plt.xlabel("Displacement of the slope at (0, H)")
     plt.ylabel(r"Soil self-weight $\gamma$")
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.show()
@@ -776,7 +769,7 @@ print(f"Slope stability factor for 2D plane strain factor [Chen]: {6.69}")
 print(f"Computed slope stability factor: {22.5*H/c}")
 
 # %%
-W = fem.functionspace(domain, ("Lagrange", 1, (3,)))
+W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
 u_tmp = fem.Function(W, name="Displacement")
 u_tmp.interpolate(u)
 
@@ -784,12 +777,14 @@ pyvista.start_xvfb()
 plotter = pyvista.Plotter(window_size=[600, 400])
 topology, cell_types, x = plot.vtk_mesh(domain)
 grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-grid["u"] = u_tmp.x.array.reshape((-1, 3))
+vals = np.zeros((x.shape[0], 3))
+vals[:, :len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
+grid["u"] = vals
 warped = grid.warp_by_vector("u", factor=20)
 plotter.add_text("Displacement field", font_size=11)
-plotter.add_mesh(warped, show_edges=True, show_scalar_bar=True)
-plotter.view_xz()
-plotter.camera.zoom(2)
+plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
+plotter.view_xy()
+# plotter.camera.zoom(2)
 if not pyvista.OFF_SCREEN:
     plotter.show()
 
@@ -878,14 +873,14 @@ R = 0.7
 p = 1.0
 
 angle_values = np.linspace(0 + eps, 2 * np.pi - eps, N_angles)
-dsigma_path = np.zeros((N_angles, 6))
+dsigma_path = np.zeros((N_angles, stress_dim))
 dsigma_path[:, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
 dsigma_path[:, 1] = np.sqrt(2.0 / 3.0) * R * np.sin(angle_values - np.pi / 6.0)
 dsigma_path[:, 2] = np.sqrt(2.0 / 3.0) * R * np.sin(-angle_values - np.pi / 6.0)
 
 angle_results = np.empty((N_loads, N_angles))
 rho_results = np.empty((N_loads, N_angles))
-sigma_results = np.empty((N_loads, N_angles, 6))
+sigma_results = np.empty((N_loads, N_angles, stress_dim))
 sigma_n_local = np.zeros_like(dsigma_path)
 sigma_n_local[:, 0] = p
 sigma_n_local[:, 1] = p
