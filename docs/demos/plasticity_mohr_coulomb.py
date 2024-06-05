@@ -766,7 +766,7 @@ if len(points_on_process) > 0:
 
 # %%
 print(f"Slope stability factor for 2D plane strain factor [Chen]: {6.69}")
-print(f"Computed slope stability factor: {22.5*H/c}")
+print(f"Computed slope stability factor: {22.75*H/c}")
 
 # %%
 W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
@@ -784,7 +784,6 @@ warped = grid.warp_by_vector("u", factor=20)
 plotter.add_text("Displacement field", font_size=11)
 plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
 plotter.view_xy()
-# plotter.camera.zoom(2)
 if not pyvista.OFF_SCREEN:
     plotter.show()
 
@@ -962,8 +961,8 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 # %%
 i = 0
-load = 3.0
-q.value = load * np.array([0, 0, -gamma])
+load = 2.0
+q.value = load * np.array([0, -gamma])
 external_operator_problem.assemble_vector()
 
 residual_0 = external_operator_problem.b.norm()
@@ -1009,7 +1008,7 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # the elastic one.
 
 # %%
-h_list = np.logspace(-3.0, -6.0, 5)[::-1]
+h_list = np.logspace(-2.0, -6.0, 5)[::-1]
 
 
 def perform_Taylor_test(Du0, sigma_n0):
@@ -1066,7 +1065,7 @@ annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[0], poly_kwargs={"facecolor": "t
 axs[1].loglog(h_list, zero_order_remainder_plastic, "o-", label=r"$R_0$")
 annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[1], poly_kwargs={"facecolor": "tab:blue"})
 axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$R_1$")
-annotation.slope_marker((5e-5, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
+annotation.slope_marker((1e-4, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
 
 for i in range(2):
     axs[i].set_xlabel("h")
@@ -1080,7 +1079,7 @@ first_order_rate = np.polyfit(np.log(h_list), np.log(zero_order_remainder_elasti
 second_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_elastic), 1)[0]
 print(f"Elastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 first_order_rate = np.polyfit(np.log(h_list), np.log(zero_order_remainder_plastic), 1)[0]
-second_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_plastic), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list[1:]), np.log(first_order_remainder_plastic[1:]), 1)[0]
 print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %% [markdown]
