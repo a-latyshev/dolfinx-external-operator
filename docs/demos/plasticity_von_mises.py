@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -17,7 +16,7 @@
 
 # %% [markdown]
 # # Plasticity of von Mises
-#  
+#
 # This tutorial aims to demonstrate an efficient implementation of the plasticity
 # model of von Mises using an external operator defining the elastoplastic
 # constitutive relations written with the help of the 3rd-party package `Numba`.
@@ -134,7 +133,8 @@
 #     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) :=
 #     D_{\boldsymbol{u}} [F(\boldsymbol{u};
 #     \boldsymbol{v})]\{\boldsymbol{\hat{u}}\} := \int\limits_\Omega
-#     \left( \boldsymbol{C}_\text{tang}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) \right) \cdot
+# \left( \boldsymbol{C}_\text{tang}(\boldsymbol{\varepsilon}(\boldsymbol{u}))
+# \cdot \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) \right) \cdot
 #     \boldsymbol{\varepsilon(v)} \mathrm{d}\boldsymbol{x}, \quad \forall \boldsymbol{v}
 #     \in V.
 # $$
@@ -292,7 +292,8 @@ sigma_n = fem.Function(S, name="stress_n")
 # of this problem for the legacy FEniCS 2019.
 #
 # Then we iterate over each Gauss node and compute the quantities of interest
-# globally in the `return_mapping` function with the `@numba.njit` decorator. This guarantees that the function will be compiled during its first call and
+# globally in the `return_mapping` function with the `@numba.njit` decorator.
+# This guarantees that the function will be compiled during its first call and
 # ordinary `for`-loops will be efficiently processed.
 
 # %%
@@ -376,7 +377,7 @@ def sigma_external(derivatives):
 sigma.external_function = sigma_external
 
 # %% [markdown]
-# ```{note} 
+# ```{note}
 # The framework allows implementations of external operators and its derivatives
 # to return additional outputs. In our example, alongside with the values of the
 # derivative, the function `C_tang_impl` returns, the values of the stress tensor
