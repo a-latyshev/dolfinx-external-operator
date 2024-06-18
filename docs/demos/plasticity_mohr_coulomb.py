@@ -461,7 +461,7 @@ Nitermax, tol = 200, 1e-8
 ZERO_SCALAR = np.array([0.0])
 
 
-def sigma_return_mapping(deps_local, sigma_n_local):
+def return_mapping(deps_local, sigma_n_local):
     """Performs the return-mapping procedure.
 
     It solves elastoplastic constitutive equations numerically by applying the
@@ -470,7 +470,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
     The function returns `sigma_local` two times to reuse its values after
     differentiation, i.e. as once we apply
-    `jax.jacfwd(sigma_return_mapping, has_aux=True)` the ouput function will
+    `jax.jacfwd(return_mapping, has_aux=True)` the ouput function will
     have an output of
     `(C_tang_local, (sigma_local, niter_total, yielding, norm_res, dlambda))`.
 
@@ -543,7 +543,7 @@ def sigma_return_mapping(deps_local, sigma_n_local):
 
 
 # %%
-dsigma_ddeps = jax.jacfwd(sigma_return_mapping, has_aux=True)
+dsigma_ddeps = jax.jacfwd(return_mapping, has_aux=True)
 
 # %% [markdown]
 # #### Defining external operator
@@ -679,10 +679,6 @@ load_steps = np.concatenate([load_steps_1, load_steps_2])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %%
-total_constitutive_time = 0.0
-total_linear_solver_time = 0.0
-
 # %% tags=["scroll-output"]
 
 for i, load in enumerate(load_steps):
@@ -703,22 +699,15 @@ for i, load in enumerate(load_steps):
         if MPI.COMM_WORLD.rank == 0:
             print(f"\tOuter Newton iteration #{iteration}")
         external_operator_problem.assemble_matrix()
-        timer.start()
         external_operator_problem.solve(du)
-        timer.stop()
-        total_linear_solver_time += timer.elapsed()[0]
 
         Du.vector.axpy(1.0, du.vector)
         Du.x.scatter_forward()
 
-        timer.start()
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        timer.stop()
-        total_constitutive_time += timer.elapsed()[0]
         # Direct access to the external operator values
         sigma.ref_coefficient.x.array[:] = sigma_new
-        # J_external_operators[0].ref_coefficient.x.array[:] = C_tang_new
 
         external_operator_problem.assemble_vector()
         residual = external_operator_problem.b.norm()
@@ -737,17 +726,8 @@ for i, load in enumerate(load_steps):
 print(f"Slope stability factor: {-q.value[-1]*H/c}")
 
 # %%
-print(f"total_constitutive_time: {total_constitutive_time}")
-print(f"total_linear_solver_time: {total_linear_solver_time}")
-print(f"total_constitutive_time/total_linear_solver_time: {total_constitutive_time/total_linear_solver_time}")
-
-# %%
 # 20 - critical load # -5.884057971014492
 # Slope stability factor: -6.521739130434782
-
-# total_constitutive_time: 206.91024010700005
-# total_linear_solver_time: 1060.0564705519994
-# total_constitutive_time/total_linear_solver_time: 0.19518794126057873
 
 
 # %% [markdown]
@@ -851,7 +831,7 @@ def angle(sigma_local):
 
 def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
-    sigma_corrected, state = sigma_return_mapping(deps_elas, sigma_n_local)
+    sigma_corrected, state = return_mapping(deps_elas, sigma_n_local)
     yielding = state[2]
     return sigma_corrected, yielding
 
@@ -886,7 +866,7 @@ sigma_n_local[:, 1] = p
 sigma_n_local[:, 2] = p
 derviatoric_axis = tr
 
-# %%
+# %% tags=["scroll-output"]
 print(f"rho = {R}, p = {p} - projection onto the octahedral plane\n")
 for i in range(N_loads):
     print(f"Loading#{i}")
@@ -903,7 +883,7 @@ for i in range(N_loads):
 # %% [markdown]
 # Finally, the stress paths are represented by a series of circles lying in each other in
 # the same octahedral plane. By applying the return-mapping algorithm defined in
-# the function `sigma_return_mapping`, we perform the correction of the stress
+# the function `return_mapping`, we perform the correction of the stress
 # paths. Once they get close to the elastic limit the traced curves look similar
 # to the Mohr-Coulomb yield surface with apex smoothing which indicates the
 # correct implementation of the constitutive model.
