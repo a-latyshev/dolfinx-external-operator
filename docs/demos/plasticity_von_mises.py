@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -16,10 +17,10 @@
 
 # %% [markdown]
 # # Plasticity of von Mises
-#
+#  
 # This tutorial aims to demonstrate an efficient implementation of the plasticity
 # model of von Mises using an external operator defining the elastoplastic
-# constitutive relations written with the help of the 3rd party package `Numba`.
+# constitutive relations written with the help of the 3rd-party package `Numba`.
 # Here we consider a cylinder expansion problem in the two-dimensional case in a
 # symmetric formulation.
 #
@@ -62,8 +63,8 @@
 # stress $\sigma_\text{eq}$ defined by the following formulas:
 #
 # \begin{align*}
-#     & p = \sqrt{\frac{2}{3} \boldsymbol{e} . \boldsymbol{e}}, \\
-#     & \sigma_\text{eq} = \sqrt{\frac{3}{2}\boldsymbol{s}.\boldsymbol{s}},
+#     & p = \sqrt{\frac{2}{3} \boldsymbol{e} \cdot \boldsymbol{e}}, \\
+#     & \sigma_\text{eq} = \sqrt{\frac{3}{2}\boldsymbol{s} \cdot \boldsymbol{s}},
 # \end{align*}
 #
 # where $\boldsymbol{e} = \mathrm{dev}\boldsymbol{\varepsilon}$ and
@@ -95,8 +96,8 @@
 #
 # $$
 #     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
-#     \boldsymbol{\sigma}(\boldsymbol{u}) . \boldsymbol{\varepsilon(v)}
-#     d\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall
+#     \boldsymbol{\sigma}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot \boldsymbol{\varepsilon(v)}
+#     \mathrm{d}\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall
 #     \boldsymbol{v} \in V.
 # $$ (eq_von_Mises_main)
 #
@@ -105,7 +106,7 @@
 #
 # $$
 #     F_\text{ext}(\boldsymbol{v}) = q
-#     \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} .\boldsymbol{v}
+#     \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} \cdot \boldsymbol{v}
 #     d\boldsymbol{x},
 # $$
 # where the vector $\boldsymbol{n}$ is a normal to the cylinder surface and the
@@ -117,7 +118,7 @@
 # an associative plasticity law.
 #
 # In this tutorial, we treat the stress tensor $\boldsymbol{\sigma}$ as an
-# external operator acting on the displacement field $\boldsymbol{u}$ and
+# external operator acting on the strain tensor $\boldsymbol{\varepsilon}(\boldsymbol{u})$ and
 # represent it through a `FEMExternalOperator` object. By the implementation of
 # this external operator, we mean an implementation of the return-mapping
 # procedure, the most common approach to solve plasticity problems. With the
@@ -127,33 +128,16 @@
 #
 # As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main`
 # we need to compute the Gateaux derivative of $F$ in the direction
-# $\boldsymbol{\hat{u}} \in V$.
+# $\boldsymbol{\hat{u}} \in V$:
 #
 # $$
 #     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) :=
 #     D_{\boldsymbol{u}} F(\boldsymbol{u};
 #     \boldsymbol{v})(\boldsymbol{\hat{u}}) := \int\limits_\Omega
-#     D_{\boldsymbol{u}}
-#     \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) .
-#     \boldsymbol{\varepsilon(v)} d\boldsymbol{x}, \quad \forall \boldsymbol{v}
+#     \left( \boldsymbol{C}_\text{tang}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) \right) \cdot
+#     \boldsymbol{\varepsilon(v)} \mathrm{d}\boldsymbol{x}, \quad \forall \boldsymbol{v}
 #     \in V.
 # $$
-#
-# The derivative $D_{\boldsymbol{u}}
-# \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}})$
-# (TODO: it cannot be the Gateau derivative of sigma, Corrado is right. We need
-# to find a way how to explain this.) is written as following
-#
-# $$
-#     D_{\boldsymbol{u}}
-#     \boldsymbol{\sigma}(\boldsymbol{u})(\boldsymbol{\hat{u}}) =
-#     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d}
-#     \boldsymbol{\varepsilon}}(\boldsymbol{u}) .
-#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) =
-#     \boldsymbol{C}_\text{tang} .
-#     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
-# $$
-# where the trial part ....
 #
 # The advantage of the von Mises model is that the return-mapping procedure may
 # be performed analytically, so the stress tensor and the tangent stiffness
@@ -290,9 +274,9 @@ sigma_n = fem.Function(S, name="stress_n")
 #
 # $$
 #     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d}
-#     \boldsymbol{\varepsilon}}(\boldsymbol{u}) .
+#     \boldsymbol{\varepsilon}}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot
 #     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) =
-#     \boldsymbol{C}_\text{tang} .
+#     \boldsymbol{C}_\text{tang}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot
 #     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
 # $$
 #
@@ -307,13 +291,10 @@ sigma_n = fem.Function(S, name="stress_n")
 # Gausse node. For more details, visit the [original
 # implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
 # of this problem for the legacy FEniCS 2019.
-
-# %%
-# %% [markdown]
+#
 # Then we iterate over each Gauss node and compute the quantities of interest
-# globally in the `return_mapping` function with the `@numba.njit` decorator. The
-# latter guarantees that the function will be compiled during its first call and
-# ordinary `for`-loops will be efficiently processed (?).
+# globally in the `return_mapping` function with the `@numba.njit` decorator. This guarantees that the function will be compiled during its first call and
+# ordinary `for`-loops will be efficiently processed.
 
 # %%
 num_quadrature_points = P_element.dim
@@ -396,11 +377,12 @@ def sigma_external(derivatives):
 sigma.external_function = sigma_external
 
 # %% [markdown]
-# ```{note} The framework allows implementations of external operators and its
-# derivatives to return additional outputs. In our example, the function
-# `C_tang_impl` returns values of the derivative, which will be used by the
-# framework, and values of stress tensor and the cumulative plastic increment.
-# Both additional outputs may be reused by user afterwards in the Newton loop.
+# ```{note} 
+# The framework allows implementations of external operators and its derivatives
+# to return additional outputs. In our example, alongside with the values of the
+# derivative, the function `C_tang_impl` returns, the values of the stress tensor
+# and the cumulative plastic increment. Both additional outputs may be reused by
+# the user afterwards in the Newton loop.
 # ```
 
 # %% [markdown]
@@ -421,11 +403,15 @@ F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
 # %% [markdown]
-# ```{note} We remind that in the code above we replace `FEMExternalOperator`
-# objects by their `fem.Function` representatives, the coefficients which are
-# allocated during the call of the `FEMExternalOperator` constructor. The
-# access to these coefficients may be carried out through the field
-# `ref_coefficient` of an `FEMExternalOperator` object. ```
+# ```{note}
+#  We remind that in the code above we replace `FEMExternalOperator` objects by
+#  their `fem.Function` representatives, the coefficients which are allocated
+#  during the call of the `FEMExternalOperator` constructor. The access to these
+#  coefficients may be carried out through the field `ref_coefficient` of an
+#  `FEMExternalOperator` object. For example, the following code returns the
+#  finite coefficient associated with the tangent matrix
+#  `C_tang = J_external_operators[0].ref_coefficient`
+# ```
 
 # %% [markdown]
 # ### Numba compilation
@@ -438,23 +424,20 @@ J_form = fem.form(J_replaced)
 eps = np.finfo(PETSc.ScalarType).eps
 Du.x.array[:] = eps
 
-timer1 = common.Timer("1st numba pass")
-timer1.start()
+timer = common.Timer("DOLFINx_timer")
+timer.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer1.stop()
+_ = evaluate_external_operators(J_external_operators, evaluated_operands)
+timer.stop()
+pass_1 = timer.elapsed()[0]
 
-timer2 = common.Timer("2nd numba pass")
-timer2.start()
+timer.start()
 evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer2.stop()
+_ = evaluate_external_operators(J_external_operators, evaluated_operands)
+timer.stop()
+pass_2 = timer.elapsed()[0]
 
-timer3 = common.Timer("3nd numba pass")
-timer3.start()
-evaluated_operands = evaluate_operands(F_external_operators)
-((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer3.stop()
+print(f"\nNumba's JIT compilation overhead: {pass_1 - pass_2}")
 
 
 # %% [markdown]
@@ -527,12 +510,11 @@ for i, loading_v in enumerate(loadings):
     # Taking into account the history of loading
     p.vector.axpy(1.0, dp.vector)
     # skip scatter forward, p is not ghosted.
-    # TODO: Why? What is the difference with lines above?
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
     # skip scatter forward, sigma is not ghosted.
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process, cells)[0], loading.value)
+        results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value)
 
 # %% [markdown]
 # ### Post-processing
@@ -546,8 +528,7 @@ if len(points_on_process) > 0:
     plt.legend()
     plt.show()
 
-# %%
-# TODO: Is there a more elegant way to extract the data?
-common.list_timings(MPI.COMM_WORLD, [common.TimingType.wall])
-
-# %%
+# %% [markdown]
+# ```{bibliography}
+# :filter: docname in docnames
+# ```
