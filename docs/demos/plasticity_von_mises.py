@@ -132,8 +132,8 @@
 #
 # $$
 #     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) :=
-#     D_{\boldsymbol{u}} F(\boldsymbol{u};
-#     \boldsymbol{v})(\boldsymbol{\hat{u}}) := \int\limits_\Omega
+#     D_{\boldsymbol{u}} [F(\boldsymbol{u};
+#     \boldsymbol{v})]\{\boldsymbol{\hat{u}}\} := \int\limits_\Omega
 #     \left( \boldsymbol{C}_\text{tang}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) \right) \cdot
 #     \boldsymbol{\varepsilon(v)} \mathrm{d}\boldsymbol{x}, \quad \forall \boldsymbol{v}
 #     \in V.
@@ -254,7 +254,6 @@ n = ufl.FacetNormal(mesh)
 loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
-# TODO: think about the sign later
 F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
 
 # Internal state
@@ -410,13 +409,19 @@ J_form = fem.form(J_replaced)
 #  coefficients may be carried out through the field `ref_coefficient` of an
 #  `FEMExternalOperator` object. For example, the following code returns the
 #  finite coefficient associated with the tangent matrix
-#  `C_tang = J_external_operators[0].ref_coefficient`
+#  `C_tang = J_external_operators[0].ref_coefficient`.
 # ```
 
 # %% [markdown]
-# ### Numba compilation
+# ### Variables initialization and compilation
 #
-# Let's estimate the compilation overhead of Numba.
+# Before assembling the forms, we have to initialize the external operators. In
+# particular, the tangent matrix should be equal to the elastic one during the
+# first loading step, so to initialize the former, we evaluate external operators
+# for a close-to-zero displacement field.
+#
+# At the same time, we estimate the compilation overhead caused by the first call
+# of JIT-ed Numba functions.
 
 # %%
 # We need to initialize `Du` with small values in order to avoid the division by
@@ -521,10 +526,9 @@ for i, loading_v in enumerate(loadings):
 
 # %%
 if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "-o", label="via ExternalOperator")
-    plt.xlabel("Displacement of inner boundary")
+    plt.plot(results[:, 0], results[:, 1], "-o", label="dolfinx-external-operator (Numba)")
+    plt.xlabel(r"Displacement of inner boundary at $(R_i, 0)$")
     plt.ylabel(r"Applied pressure $q/q_{lim}$")
-    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.legend()
     plt.show()
 
