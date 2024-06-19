@@ -237,5 +237,3 @@ def plasticity_von_mises_pure_ufl(verbose=True):
     # time_monitor["total_time"] = end_run_time - start_run_time
     # print(f'rank#{MPI.COMM_WORLD.rank}: Time = {total_time:.3f} (s)')
     return results
-
-plasticity_von_mises_pure_ufl()
