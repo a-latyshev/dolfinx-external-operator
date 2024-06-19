@@ -526,15 +526,17 @@ for i, loading_v in enumerate(loadings):
 # ### Post-processing
 
 # %%
-from plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
+from plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl, plasticity_von_mises_interpolation
 
 # %%
+results_interpolation = plasticity_von_mises_interpolation()
 results_pure_ufl = plasticity_von_mises_pure_ufl()
 
 # %%
 if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "-o", label="dolfinx-external-operator (Numba)")
     plt.plot(results_pure_ufl[:, 0], results_pure_ufl[:, 1], "-o", label="pure UFL")
+    plt.plot(results[:, 0], results[:, 1], "-o", label="dolfinx-external-operator (Numba)")
+    # plt.plot(-results_interpolation[:, 0], results_interpolation[:, 1], "-o", label="interpolation")
     plt.xlabel(r"Displacement of inner boundary at $(R_i, 0)$")
     plt.ylabel(r"Applied pressure $q/q_{lim}$")
     plt.legend()
