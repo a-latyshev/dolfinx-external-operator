@@ -522,6 +522,8 @@ for i, loading_v in enumerate(loadings):
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value/q_lim)
 
+# %%
+
 # %% [markdown]
 # ### Post-processing
 
@@ -531,6 +533,11 @@ from plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl, plastic
 # %%
 results_interpolation = plasticity_von_mises_interpolation()
 results_pure_ufl = plasticity_von_mises_pure_ufl()
+
+# %%
+np.save("results_von_mises.npy", results)
+np.save("results_von_mises_pure_ufl.npy", results_pure_ufl)
+np.save("results_von_mises_interpolation.npy", results_interpolation)
 
 # %%
 if len(points_on_process) > 0:
