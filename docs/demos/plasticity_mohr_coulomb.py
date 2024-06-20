@@ -122,6 +122,7 @@ k_u = 2
 gdim = domain.topology.dim
 V = fem.functionspace(domain, ("Lagrange", k_u, (gdim,)))
 
+
 # Boundary conditions
 def on_right(x):
     return np.isclose(x[0], L)
@@ -160,7 +161,7 @@ dx = ufl.Measure(
     metadata={"quadrature_degree": k_stress, "quadrature_scheme": "default"},
 )
 
-stress_dim = 2*gdim
+stress_dim = 2 * gdim
 S_element = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=k_stress, value_shape=(stress_dim,))
 S = fem.functionspace(domain, S_element)
 
@@ -757,7 +758,7 @@ plotter = pyvista.Plotter(window_size=[600, 400])
 topology, cell_types, x = plot.vtk_mesh(domain)
 grid = pyvista.UnstructuredGrid(topology, cell_types, x)
 vals = np.zeros((x.shape[0], 3))
-vals[:, :len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
+vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
 grid["u"] = vals
 warped = grid.warp_by_vector("u", factor=20)
 plotter.add_text("Displacement field", font_size=11)

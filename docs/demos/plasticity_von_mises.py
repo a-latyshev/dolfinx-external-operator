@@ -166,6 +166,7 @@ from petsc4py import PETSc
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
+from plasticity_von_mises_pure_ufl import plasticity_von_mises_interpolation, plasticity_von_mises_pure_ufl
 from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
@@ -520,24 +521,14 @@ for i, loading_v in enumerate(loadings):
     # skip scatter forward, sigma is not ghosted.
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value/q_lim)
-
-# %%
+        results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value / q_lim)
 
 # %% [markdown]
 # ### Post-processing
 
 # %%
-from plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl, plasticity_von_mises_interpolation
-
-# %%
-results_interpolation = plasticity_von_mises_interpolation()
-results_pure_ufl = plasticity_von_mises_pure_ufl()
-
-# %%
-np.save("results_von_mises.npy", results)
-np.save("results_von_mises_pure_ufl.npy", results_pure_ufl)
-np.save("results_von_mises_interpolation.npy", results_interpolation)
+results_interpolation = plasticity_von_mises_interpolation(verbose=False)
+results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=False)
 
 # %%
 if len(points_on_process) > 0:
