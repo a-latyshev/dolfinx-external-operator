@@ -166,6 +166,7 @@ from petsc4py import PETSc
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
+from plasticity_von_mises_pure_ufl import plasticity_von_mises_interpolation, plasticity_von_mises_pure_ufl
 from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
@@ -520,14 +521,20 @@ for i, loading_v in enumerate(loadings):
     # skip scatter forward, sigma is not ghosted.
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value)
+        results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value / q_lim)
 
 # %% [markdown]
 # ### Post-processing
 
 # %%
+results_interpolation = plasticity_von_mises_interpolation(verbose=False)
+results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=False)
+
+# %%
 if len(points_on_process) > 0:
+    plt.plot(results_pure_ufl[:, 0], results_pure_ufl[:, 1], "-o", label="pure UFL")
     plt.plot(results[:, 0], results[:, 1], "-o", label="dolfinx-external-operator (Numba)")
+    # plt.plot(-results_interpolation[:, 0], results_interpolation[:, 1], "-o", label="interpolation")
     plt.xlabel(r"Displacement of inner boundary at $(R_i, 0)$")
     plt.ylabel(r"Applied pressure $q/q_{lim}$")
     plt.legend()
