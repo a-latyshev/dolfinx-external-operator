@@ -1,9 +1,12 @@
 from mpi4py import MPI
 
 import gmsh
+import numpy as np
 import pyvista
 
+import basix
 import dolfinx.plot as plot
+from dolfinx.fem import Expression, Function
 from dolfinx.geometry import bb_tree, compute_colliding_cells, compute_collisions_points
 from dolfinx.io import gmshio
 
@@ -101,3 +104,17 @@ def plot_scalar_field(field, verbose=False, to_show=True):
     plotter.camera.tight()
     image = plotter.screenshot(None, transparent_background=True, return_img=True)
     return image
+
+
+def interpolate_quadrature(ufl_expr, fem_func: Function):
+    q_dim = fem_func.function_space._ufl_element.degree
+    mesh = fem_func.ufl_function_space().mesh
+
+    quadrature_points, weights = basix.make_quadrature(basix.CellType.triangle, q_dim, basix.QuadratureType.Default)
+    map_c = mesh.topology.index_map(mesh.topology.dim)
+    num_cells = map_c.size_local + map_c.num_ghosts
+    cells = np.arange(0, num_cells, dtype=np.int32)
+
+    expr_expr = Expression(ufl_expr, quadrature_points)
+    expr_eval = expr_expr.eval(mesh, cells)
+    np.copyto(fem_func.x.array, expr_eval.reshape(-1))
