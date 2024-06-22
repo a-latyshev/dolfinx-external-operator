@@ -4,7 +4,7 @@ import numpy as np
 
 import basix
 import ufl
-from dolfinx import fem
+from dolfinx import fem, mesh as _mesh, cpp
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 
@@ -96,7 +96,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
 
 def evaluate_operands(
-    external_operators: List[FEMExternalOperator],
+    external_operators: List[FEMExternalOperator], entity_maps: dict[_mesh.Mesh, np.ndarray] = None
 ) -> Dict[Union[ufl.core.expr.Expr, int], np.ndarray]:
     """Evaluates operands of external operators.
 
@@ -122,10 +122,24 @@ def evaluate_operands(
             try:
                 evaluated_operands[operand]
             except KeyError:
-                # TODO: Next call is potentially expensive in parallel.
+                # Check if we have a sub-mesh with different codim
+                codim = operand.function_space.mesh.topology.dim - mesh.topology.dim
                 expr = fem.Expression(operand, quadrature_points)
-                evaluated_operand = expr.eval(mesh, cells)
-                evaluated_operands[operand] = evaluated_operand
+                if codim == 0:
+                    # TODO: Next call is potentially expensive in parallel.
+                    evaluated_operand = expr.eval(mesh, cells)
+                elif codim == 1:
+                    assert entity_maps is not None
+                    # Invert entity map as it goes from parent to sub not sub to parent
+                    inverted_map = np.empty(len(cells), dtype=np.int32)
+                    indices = np.flatnonzero(entity_maps[mesh]>=0)
+                    inverted_map[entity_maps[mesh][indices]] = indices
+                    integration_entities = cpp.fem.compute_integration_domains(fem.IntegralType.exterior_facet, operand.function_space.mesh.topology,
+                                                                               inverted_map, operand.function_space.mesh.topology.dim-1)
+                    evaluated_operand = expr.eval(operand.function_space.mesh, integration_entities)
+                else:
+                    raise NotImplementedError("Only codim 0 and 1 are supported.")
+            evaluated_operands[operand] = evaluated_operand
 
     return evaluated_operands
 
