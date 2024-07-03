@@ -165,8 +165,8 @@ def plasticity_von_mises_pure_ufl(verbose=True):
 
     Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
     Nincr = 20
-    load_steps = np.linspace(0, 1.1, Nincr + 1)[1:] ** 0.5
-    results = np.zeros((Nincr + 1, 2))
+    load_steps = (np.linspace(0, 1.1, Nincr, endpoint=True) ** 0.5)[1:]
+    results = np.zeros((Nincr, 2))
 
     sig_, dp_ = proj_sig_SNES(Du, sig, p)
 
@@ -436,8 +436,8 @@ def plasticity_von_mises_interpolation(verbose=False):
     q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
     num_increments = 20
     max_iterations, relative_tolerance = 200, 1e-8
-    load_steps = np.linspace(0, 1.1, num_increments + 1)[1:] ** 0.5
-    results = np.zeros((num_increments + 1, 2))
+    load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
+    results = np.zeros((num_increments, 2))
 
     # load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)
     loadings = q_lim * load_steps
