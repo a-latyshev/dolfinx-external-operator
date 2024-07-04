@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -721,7 +722,7 @@ for i, load in enumerate(load_steps):
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process, cells)[0], load)
+        results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
 
 print(f"Slope stability factor: {-q.value[-1]*H/c}")
 
@@ -738,7 +739,7 @@ print(f"Slope stability factor: {-q.value[-1]*H/c}")
 
 # %%
 if len(points_on_process) > 0:
-    plt.plot(-results[:, 0], results[:, 1], "o-")
+    plt.plot(results[:, 0], results[:, 1], "o-")
     plt.xlabel("Displacement of the slope at (0, H)")
     plt.ylabel(r"Soil self-weight $\gamma$")
     plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
