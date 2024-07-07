@@ -1,4 +1,4 @@
-![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)
+![License: LGPLv3](https://img.shields.io/badge/License-LGPL%20v3.0-lightgrey.svg)
 
 # dolfinx-external-operator
 
