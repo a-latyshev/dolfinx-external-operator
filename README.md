@@ -28,7 +28,7 @@ pip install .
 
 ```Shell
 pip install .[docs]
-cd build/
+cd docs/
 jupyter-book build .
 ```
 
