@@ -170,7 +170,7 @@ S = fem.functionspace(domain, S_element)
 Du = fem.Function(V, name="Du")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="du")
-v = ufl.TrialFunction(V)
+# v = ufl.TrialFunction(V)
 u_ = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
@@ -989,8 +989,18 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # the elastic one.
 
 # %%
-h_list = np.logspace(-2.0, -6.0, 5)[::-1]
+R_form = fem.form(ufl.inner(ufl.grad(u_hat), ufl.grad(u_)) * ufl.dx)
+R = fem.petsc.assemble_matrix(R_form, bcs=bcs)
+R.assemble()
+Riesz_solver = PETSc.KSP().create(domain.comm)
+Riesz_solver.setType("preonly")
+Riesz_solver.getPC().setType("lu")
+Riesz_solver.setOperators(R)
 
+RT = fem.Function(V, name="Riesz_representer_of_T") # T - a Taylor remainder
+
+# %%
+h_list = np.logspace(-2.0, -6.0, 5)[::-1]
 
 def perform_Taylor_test(Du0, sigma_n0):
     # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
@@ -1002,8 +1012,9 @@ def perform_Taylor_test(Du0, sigma_n0):
 
     F0 = fem.petsc.assemble_vector(F_form)  # F(Du0)
     F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+    fem.set_bc(F0, bcs)
 
-    J0 = fem.petsc.assemble_matrix(J_form)
+    J0 = fem.petsc.assemble_matrix(J_form, bcs=bcs)
     J0.assemble()  # J(Du0)
     y = J0.createVecLeft()  # y = J0 @ x
 
@@ -1021,12 +1032,21 @@ def perform_Taylor_test(Du0, sigma_n0):
 
         F_delta = fem.petsc.assemble_vector(F_form)  # F(Du0 + h*δu)
         F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        fem.set_bc(F0, bcs)
 
         J0.mult(δu.vector, y)  # y = J(Du0)*δu
         y.scale(h)  # y = h*y
 
-        zero_order_remainder[i] = (F_delta - F0).norm()
-        first_order_remainder[i] = (F_delta - F0 - y).norm()
+        T0 = F_delta - F0
+        T1 = F_delta - F0 - y
+
+        Riesz_solver.solve(T0, RT.vector) # RT = R^{-1} T0
+        RT.x.scatter_forward()
+        zero_order_remainder[i] = np.sqrt(T0.dot(RT.vector)) # sqrt{T0^T R^{-1} T0}
+
+        Riesz_solver.solve(T1, RT.vector) # RT = R^{-1} T1
+        RT.x.scatter_forward()
+        first_order_remainder[i] = np.sqrt(T1.dot(RT.vector)) # sqrt{T1^T R^{-1} T1}
 
     return zero_order_remainder, first_order_remainder
 
@@ -1035,6 +1055,33 @@ print("Elastic phase")
 zero_order_remainder_elastic, first_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
 print("Plastic phase")
 zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
+
+# %%
+fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+axs[0].loglog(h_list, zero_order_remainder_elastic, "o-", label=r"$R_0$")
+axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label=r"$R_1$")
+annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[0], poly_kwargs={"facecolor": "tab:blue"})
+
+axs[1].loglog(h_list, zero_order_remainder_plastic, "o-", label=r"$R_0$")
+annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[1], poly_kwargs={"facecolor": "tab:blue"})
+axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$R_1$")
+annotation.slope_marker((1e-4, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
+
+for i in range(2):
+    axs[i].set_xlabel("h")
+    axs[i].set_ylabel("Taylor remainder")
+    axs[i].legend()
+    axs[i].grid()
+
+plt.tight_layout()
+
+first_order_rate = np.polyfit(np.log(h_list), np.log(zero_order_remainder_elastic), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_elastic), 1)[0]
+print(f"Elastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
+first_order_rate = np.polyfit(np.log(h_list), np.log(zero_order_remainder_plastic), 1)[0]
+second_order_rate = np.polyfit(np.log(h_list[1:]), np.log(first_order_remainder_plastic[1:]), 1)[0]
+print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
