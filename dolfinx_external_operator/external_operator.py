@@ -103,7 +103,7 @@ def evaluate_operands(
 
     Args:
         external_operators: A list with external operators required to be updated.
-
+        entity_maps: A dictionary mapping between parent mesh and sub mesh entities.
     Returns:
         A map between UFL operand and the `ndarray`, the evaluation of the operand.
     """
