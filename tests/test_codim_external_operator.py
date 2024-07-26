@@ -38,7 +38,7 @@ def g_external(derivatives):
 
 def f_impl(uuh_square):
     output = uuh_square * np.sqrt(uuh_square)  # NUMPY
-    return output.reshape(-1)  # The output must be 
+    return output.reshape(-1)  # The output must be returned flattened to one dimension
 
 def dfdu_impl(uuh_square):
     aa = 3 * uuh_square  # NUMPY
