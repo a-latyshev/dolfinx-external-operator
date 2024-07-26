@@ -124,15 +124,17 @@ def evaluate_operands(
                 evaluated_operands[operand]
             except KeyError:
                 # Check if we have a sub-mesh with different codim
-                codim = operand.function_space.mesh.topology.dim - mesh.topology.dim
+                operand_domain = ufl.domain.extract_unique_domain(operand)
+                operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
+                codim = operand_mesh.topology.dim - mesh.topology.dim
                 expr = fem.Expression(operand, quadrature_points)
                 # NOTE: Using expression eval might be expensive
                 if codim == 0:
-                    if operand.function_space.mesh != mesh:
+                    if operand_mesh != mesh:
                         inverted_map = np.empty(len(cells), dtype=np.int32)
                         indices = np.flatnonzero(entity_maps[mesh] >= 0)
                         inverted_map[entity_maps[mesh][indices]] = indices
-                        evaluated_operand = expr.eval(operand.function_space.mesh, inverted_map)
+                        evaluated_operand = expr.eval(operand_mesh, inverted_map)
                     else:
                         evaluated_operand = expr.eval(mesh, cells)
                 elif codim == 1:
@@ -147,7 +149,7 @@ def evaluate_operands(
                         inverted_map,
                         operand.function_space.mesh.topology.dim - 1,
                     )
-                    evaluated_operand = expr.eval(operand.function_space.mesh, integration_entities)
+                    evaluated_operand = expr.eval(operand_mesh, integration_entities)
                 else:
                     raise NotImplementedError("Only codim 0 and 1 are supported.")
             evaluated_operands[operand] = evaluated_operand
