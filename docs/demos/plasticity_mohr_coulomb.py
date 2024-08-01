@@ -636,6 +636,11 @@ J_form = fem.form(J_replaced)
 # call of JIT-ed JAX functions.
 
 # %%
+F_external_operators
+
+# %%
+
+# %%
 Du.x.array[:] = 1.0
 sigma_n.x.array[:] = 0.0
 
@@ -1012,9 +1017,9 @@ def perform_Taylor_test(Du0, sigma_n0):
 
     F0 = fem.petsc.assemble_vector(F_form)  # F(Du0)
     F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-    fem.set_bc(F0, bcs)
+    # fem.set_bc(F0, bcs)
 
-    J0 = fem.petsc.assemble_matrix(J_form, bcs=bcs)
+    J0 = fem.petsc.assemble_matrix(J_form)
     J0.assemble()  # J(Du0)
     y = J0.createVecLeft()  # y = J0 @ x
 
@@ -1032,7 +1037,7 @@ def perform_Taylor_test(Du0, sigma_n0):
 
         F_delta = fem.petsc.assemble_vector(F_form)  # F(Du0 + h*δu)
         F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        fem.set_bc(F0, bcs)
+        # fem.set_bc(F0, bcs)
 
         J0.mult(δu.vector, y)  # y = J(Du0)*δu
         y.scale(h)  # y = h*y
