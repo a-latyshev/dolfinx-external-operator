@@ -2,6 +2,7 @@
 *.h5
 *.xdmf
 *.png
+*.svg
 **/_minted*
 *.log
 *.fls
