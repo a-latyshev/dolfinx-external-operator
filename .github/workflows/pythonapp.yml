@@ -27,6 +27,10 @@ jobs:
           apt-get update && apt-get install -y libxrender1 xvfb
           pip install --no-build-isolation --break-system-packages --no-cache-dir '.[ci]' 
 
+      - name: Run tests
+        run: |
+          python3 -m pytest tests/
+
       - name: ruff check and format
         run: |
           ruff check .
