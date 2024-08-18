@@ -84,7 +84,7 @@ import numpy as np
 import pyvista
 from mpltools import annotation  # for slope markers
 from solvers import LinearProblem
-from utilities import find_cell_by_point
+from utilities import find_cell_by_point, Mohr_Coulomb_yield_criterion
 
 import basix
 import dolfinx.plot as plot
@@ -374,10 +374,8 @@ def surface(sigma_local, angle):
 def f(sigma_local):
     return surface(sigma_local, phi)
 
-
 def g(sigma_local):
     return surface(sigma_local, psi)
-
 
 dgdsigma = jax.jacfwd(g)
 
@@ -457,7 +455,7 @@ drdx = jax.jacfwd(r)
 # return-mapping algorithm numerically via the Newton method.
 
 # %%
-Nitermax, tol = 200, 1e-8
+Nitermax, tol = 200, 1e-10
 
 ZERO_SCALAR = np.array([0.0])
 
@@ -634,11 +632,6 @@ J_form = fem.form(J_replaced)
 #
 # At the same time, we can measure the compilation overhead caused by the first
 # call of JIT-ed JAX functions.
-
-# %%
-F_external_operators
-
-# %%
 
 # %%
 Du.x.array[:] = 1.0
@@ -834,6 +827,7 @@ def angle(sigma_local):
     angle = 1.0 / 3.0 * jnp.arcsin(arg)
     return angle
 
+MC_return_mapping = Mohr_Coulomb_yield_criterion(phi, c, E, nu)
 
 def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
@@ -853,11 +847,11 @@ sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 # %%
 N_angles = 200
 N_loads = 10
-eps = 1e-7
+eps = 0.5
 R = 0.7
-p = 1.0
+p = 0.0
 
-angle_values = np.linspace(0 + eps, 2 * np.pi - eps, N_angles)
+angle_values = np.linspace(0, np.pi/3, N_angles)
 dsigma_path = np.zeros((N_angles, stress_dim))
 dsigma_path[:, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
 dsigma_path[:, 1] = np.sqrt(2.0 / 3.0) * R * np.sin(angle_values - np.pi / 6.0)
