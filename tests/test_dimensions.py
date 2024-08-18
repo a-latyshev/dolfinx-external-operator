@@ -38,6 +38,7 @@ def compute_dimensions(operand, u, test_f):
     shape_operand = operand.ufl_shape
     return shape_dNdu == shape_N + shape_operand
 
+
 def test_dimensions_after_differentiation():
     # F = \int N(operand) : test_f dx
     # dim(tensor) := len(shape(tensor))
