@@ -71,6 +71,9 @@ class FEMExternalOperator(ufl.ExternalOperator):
             self.ref_function_space = fem.functionspace(mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
+
+        # self.ufl_shape = new_shape # TODO: check this line or move above?
+
         # Make the global coefficient associated to the external operator
         self.ref_coefficient = fem.Function(self.ref_function_space)
 
