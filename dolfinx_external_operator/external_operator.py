@@ -4,7 +4,8 @@ import numpy as np
 
 import basix
 import ufl
-from dolfinx import fem
+from dolfinx import cpp, fem
+from dolfinx import mesh as _mesh
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 
@@ -99,13 +100,13 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
 
 def evaluate_operands(
-    external_operators: List[FEMExternalOperator],
+    external_operators: List[FEMExternalOperator], entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None
 ) -> Dict[Union[ufl.core.expr.Expr, int], np.ndarray]:
     """Evaluates operands of external operators.
 
     Args:
         external_operators: A list with external operators required to be updated.
-
+        entity_maps: A dictionary mapping between parent mesh and sub mesh entities.
     Returns:
         A map between UFL operand and the `ndarray`, the evaluation of the operand.
     """
@@ -125,10 +126,36 @@ def evaluate_operands(
             try:
                 evaluated_operands[operand]
             except KeyError:
-                # TODO: Next call is potentially expensive in parallel.
+                # Check if we have a sub-mesh with different codim
+                operand_domain = ufl.domain.extract_unique_domain(operand)
+                operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
+                codim = operand_mesh.topology.dim - mesh.topology.dim
                 expr = fem.Expression(operand, quadrature_points)
-                evaluated_operand = expr.eval(mesh, cells)
-                evaluated_operands[operand] = evaluated_operand
+                # NOTE: Using expression eval might be expensive
+                if codim == 0:
+                    if operand_mesh != mesh:
+                        inverted_map = np.empty(len(cells), dtype=np.int32)
+                        indices = np.flatnonzero(entity_maps[mesh] >= 0)
+                        inverted_map[entity_maps[mesh][indices]] = indices
+                        evaluated_operand = expr.eval(operand_mesh, inverted_map)
+                    else:
+                        evaluated_operand = expr.eval(mesh, cells)
+                elif codim == 1:
+                    assert entity_maps is not None
+                    # Invert entity map as it goes from parent to sub not sub to parent
+                    inverted_map = np.empty(len(cells), dtype=np.int32)
+                    indices = np.flatnonzero(entity_maps[mesh] >= 0)
+                    inverted_map[entity_maps[mesh][indices]] = indices
+                    integration_entities = cpp.fem.compute_integration_domains(
+                        fem.IntegralType.exterior_facet,
+                        operand.function_space.mesh.topology,
+                        inverted_map,
+                        operand.function_space.mesh.topology.dim - 1,
+                    )
+                    evaluated_operand = expr.eval(operand_mesh, integration_entities)
+                else:
+                    raise NotImplementedError("Only codim 0 and 1 are supported.")
+            evaluated_operands[operand] = evaluated_operand
 
     return evaluated_operands
 
@@ -150,7 +177,6 @@ def evaluate_external_operators(
     for external_operator in external_operators:
         ufl_operands_eval = [evaluated_operands[operand] for operand in external_operator.ufl_operands]
         external_operator_eval = external_operator.external_function(external_operator.derivatives)(*ufl_operands_eval)
-
         # NOTE: Maybe to force the user to return always a tuple?
         if type(external_operator_eval) is tuple:
             np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
