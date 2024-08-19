@@ -17,35 +17,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-docs = [
-    "jupyter-book",
-    "jupytext"
-]
-demos = [
-    "numba",
-    "jax[cpu]",
-    "pyvista",
-    "mpltools"
-]
-tests = [
-    "pytest"
-]
-lint = [
-    "ruff"
-]
+docs = ["jupyter-book", "jupytext"]
+demos = ["numba", "jax[cpu]", "pyvista", "mpltools"]
+tests = ["pytest"]
+lint = ["ruff"]
 ci = [
     "dolfinx-external-operator[docs]",
     "dolfinx-external-operator[demos]",
     "dolfinx-external-operator[tests]",
-    "dolfinx-external-operator[lint]"
+    "dolfinx-external-operator[lint]",
 ]
 
 [tool.ruff]
 line-length = 120
 indent-width = 4
 
-[tool.ruff.lint]
-ignore-init-module-imports = true
 
 select = [
     # "B",
@@ -64,9 +50,22 @@ select = [
 ignore = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["basix", "dolfinx", "ffcx", "ufl", "dolfinx_external_operator"]
+known-first-party = [
+    "basix",
+    "dolfinx",
+    "ffcx",
+    "ufl",
+    "dolfinx_external_operator",
+]
 known-third-party = ["gmsh", "numba", "numpy", "pytest", "pyvista"]
-section-order = ["future", "standard-library", "mpi", "third-party", "first-party", "local-folder"]
+section-order = [
+    "future",
+    "standard-library",
+    "mpi",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
 
 [tool.ruff.lint.isort.sections]
 "mpi" = ["mpi4py", "petsc4py"]
