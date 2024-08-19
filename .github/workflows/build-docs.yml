@@ -7,7 +7,10 @@ on:
   push:
     branches:
       - "publishing"
-
+  pull_request:
+    branches:
+      - "main"
+      
 jobs:
   build-docs:
     runs-on: ubuntu-latest
