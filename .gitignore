@@ -16,4 +16,3 @@ build/
 *.synctex.gz
 *.tdo
 *.toc
-docs/conf.py
