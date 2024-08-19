@@ -40,6 +40,7 @@ def f_impl(uuh_square):
     output = uuh_square * np.sqrt(uuh_square)  # NUMPY
     return output.reshape(-1)  # The output must be returned flattened to one dimension
 
+
 def dfdu_impl(uuh_square):
     aa = 3 * uuh_square  # NUMPY
     return aa.reshape(-1)  # The output must be returned flattened to one dimension
@@ -75,7 +76,7 @@ def test_external_operator_codim_1(quadrature_degree):
     Qe = basix.ufl.quadrature_element(submesh.basix_cell(), degree=quadrature_degree, value_shape=())
     Q = dolfinx.fem.functionspace(submesh, Qe)
 
-    g = FEMExternalOperator(u, function_space=Q, external_function=g_external) # g is now Symbolic not numpy involved
+    g = FEMExternalOperator(u, function_space=Q, external_function=g_external)  # g is now Symbolic not numpy involved
 
     ft = dolfinx.mesh.meshtags(mesh, mesh.topology.dim - 1, ext_facets, np.full_like(ext_facets, 1))
     ds = ufl.Measure(
@@ -135,7 +136,9 @@ def test_external_operator_codim_0(quadrature_degree):
     Qe = basix.ufl.quadrature_element(submesh.basix_cell(), degree=quadrature_degree, value_shape=())
     Q = dolfinx.fem.functionspace(submesh, Qe)
 
-    f = FEMExternalOperator(u*u, function_space=Q, external_function=f_external) # g is now Symbolic not numpy involved
+    f = FEMExternalOperator(
+        u * u, function_space=Q, external_function=f_external
+    )  # g is now Symbolic not numpy involved
 
     dx = ufl.Measure(
         "dx", domain=mesh, subdomain_data=ct, subdomain_id=1, metadata={"quadrature_degree": quadrature_degree}
