@@ -7,11 +7,14 @@ on:
   push:
     branches:
       - "publishing"
+  pull_request:
+    branches:
+      - "main"
 
 jobs:
   build-docs:
     runs-on: ubuntu-latest
-    container: dolfinx/dolfinx:nightly
+    container: ghcr.io/fenics/dolfinx/dolfinx:nightly
     
     env:
       PYVISTA_TRAME_SERVER_PROXY_PREFIX: "/proxy/"
@@ -26,6 +29,10 @@ jobs:
         run: |
           apt-get update && apt-get install -y libxrender1 xvfb
           pip install --no-build-isolation --break-system-packages --no-cache-dir '.[ci]' 
+
+      - name: Run tests
+        run: |
+          python3 -m pytest tests/
 
       - name: ruff check and format
         run: |
