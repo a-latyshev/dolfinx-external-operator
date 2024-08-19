@@ -1,9 +1,14 @@
 **/__pycache__
+**/_minted*
+_build
+.DS_Store
+dist
+*.egg-info/
+build/
 *.h5
 *.xdmf
 *.png
 *.svg
-**/_minted*
 *.log
 *.fls
 *.aux
@@ -11,10 +16,4 @@
 *.synctex.gz
 *.tdo
 *.toc
-_build
-.DS_Store
-dist
-*.egg-info/
-build/
-
 docs/conf.py
