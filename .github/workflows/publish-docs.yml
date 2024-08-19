@@ -1,4 +1,4 @@
-name: Publish book
+name: Publish docs
 
 on:
   push:
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:  
-  test-and-build-docs:
+  test-build-and-publish-docs:
     uses: ./.github/workflows/pythonapp.yml
 
   deploy:
