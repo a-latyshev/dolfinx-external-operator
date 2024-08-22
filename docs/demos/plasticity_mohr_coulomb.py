@@ -1011,9 +1011,9 @@ def perform_Taylor_test(Du0, sigma_n0):
 
     F0 = fem.petsc.assemble_vector(F_form)  # F(Du0)
     F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-    # fem.set_bc(F0, bcs)
+    fem.set_bc(F0, bcs)
 
-    J0 = fem.petsc.assemble_matrix(J_form)
+    J0 = fem.petsc.assemble_matrix(J_form, bcs=bcs)
     J0.assemble()  # J(Du0)
     y = J0.createVecLeft()  # y = J0 @ x
 
@@ -1031,7 +1031,7 @@ def perform_Taylor_test(Du0, sigma_n0):
 
         F_delta = fem.petsc.assemble_vector(F_form)  # F(Du0 + h*δu)
         F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        # fem.set_bc(F0, bcs)
+        fem.set_bc(F_delta, bcs)
 
         J0.mult(δu.vector, y)  # y = J(Du0)*δu
         y.scale(h)  # y = h*y
@@ -1054,33 +1054,6 @@ print("Elastic phase")
 zero_order_remainder_elastic, first_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
 print("Plastic phase")
 zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
-
-# %%
-fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-
-axs[0].loglog(h_list, zero_order_remainder_elastic, "o-", label=r"$R_0$")
-axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label=r"$R_1$")
-annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[0], poly_kwargs={"facecolor": "tab:blue"})
-
-axs[1].loglog(h_list, zero_order_remainder_plastic, "o-", label=r"$R_0$")
-annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[1], poly_kwargs={"facecolor": "tab:blue"})
-axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$R_1$")
-annotation.slope_marker((1e-4, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
-
-for i in range(2):
-    axs[i].set_xlabel("h")
-    axs[i].set_ylabel("Taylor remainder")
-    axs[i].legend()
-    axs[i].grid()
-
-plt.tight_layout()
-
-first_order_rate = np.polyfit(np.log(h_list), np.log(zero_order_remainder_elastic), 1)[0]
-second_order_rate = np.polyfit(np.log(h_list), np.log(first_order_remainder_elastic), 1)[0]
-print(f"Elastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
-first_order_rate = np.polyfit(np.log(h_list), np.log(zero_order_remainder_plastic), 1)[0]
-second_order_rate = np.polyfit(np.log(h_list[1:]), np.log(first_order_remainder_plastic[1:]), 1)[0]
-print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
