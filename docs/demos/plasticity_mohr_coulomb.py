@@ -736,12 +736,25 @@ print(f"Slope stability factor: {-q.value[-1]*H/c}")
 # ### Critical load
 
 # %%
+l_a = 6.69
+H = 1.0
+c = 3.45
+gamma_a = l_a / H * c
+
+# %% [markdown]
+#
+
+# %%
 if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "o-")
-    plt.xlabel("Displacement of the slope at (0, H)")
-    plt.ylabel(r"Soil self-weight $\gamma$")
-    plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
-    plt.show()
+    plt.plot(results[:, 0], results[:, 1], "o-",  label="dolfinx-external-operator (JAX)")
+    plt.axhline(y=gamma_a, color='r', linestyle='--', label=r"$\gamma_\text{lim}$")
+    # plt.xlabel("Displacement of the slope at (0, H)")
+    # plt.ylabel(r"Soil self-weight $\gamma$")
+    # plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
+    plt.xlabel(r"Displacement of the slope $u_x$ at $(0, H)$ [mm]")
+    plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
+    plt.grid()
+    plt.legend()
 
 # %%
 print(f"Slope stability factor for 2D plane strain factor [Chen]: {6.69}")
@@ -774,11 +787,11 @@ if not pyvista.OFF_SCREEN:
 # yield surface. We generate several stress paths and check whether they remain
 # within the yield surface. The stress tracing is performed in the
 # [Haigh-Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
-# $(\xi, \rho, \theta)$ which are defined as follows
+# $(\xi, \rho, \theta)$ which are defined as follows:
 #
 # $$
 #     \xi = \frac{1}{\sqrt{3}}I_1, \quad \rho =
-#     \sqrt{2J_2}, \quad \cos(3\theta) = \frac{3\sqrt{3}}{2}
+#     \sqrt{2J_2}, \quad \sin(3\theta) = -\frac{3\sqrt{3}}{2}
 #     \frac{J_3}{J_2^{3/2}},
 # $$
 # where $J_3(\boldsymbol{\sigma}) = \det(\boldsymbol{s})$ is the third invariant
@@ -793,22 +806,21 @@ if not pyvista.OFF_SCREEN:
 #     \begin{pmatrix}
 #         \sigma_{I} \\
 #         \sigma_{II} \\
-#         \sigma_{III} \\
+#         \sigma_{III}
 #     \end{pmatrix}
 #     = p
 #     \begin{pmatrix}
 #         1 \\
 #         1 \\
-#         1 \\
+#         1
 #     \end{pmatrix}
-#     + \sqrt{\frac{2}{3}}\rho
+#     + \frac{\rho}{\sqrt{2}}
 #     \begin{pmatrix}
-#         \cos{\theta} \\
-#         -\sin{\frac{\pi}{6} - \theta} \\
-#         -\sin{\frac{\pi}{6} + \theta}
+#         \cos\theta + \frac{\sin\theta}{\sqrt{3}} \\
+#         -\frac{2\sin\theta}{\sqrt{3}} \\
+#         \frac{\sin\theta}{\sqrt{3}} - \cos\theta
 #     \end{pmatrix}.
 # $$
-#
 # Firstly, we define and vectorize functions `rho`, `angle` and `sigma_tracing`
 # evaluating respectively the coordinates $\rho$ and $\theta$ and the corrected
 # stress tensor for a certain stress state.
@@ -827,10 +839,15 @@ def angle(sigma_local):
     angle = 1.0 / 3.0 * jnp.arcsin(arg)
     return angle
 
+def MC_yield_surface(theta_, p):
+    rho = (np.sqrt(2)*(c * np.cos(phi) + p * np.sin(phi))) / (np.cos(theta_) - np.sin(phi) * np.sin(theta_) / np.sqrt(3)) 
+    return rho
+
 MC_return_mapping = Mohr_Coulomb_yield_criterion(phi, c, E, nu)
 
 def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
+    # sigma_corrected, state = MC_return_mapping(deps_elas, sigma_n_local)
     sigma_corrected, state = return_mapping(deps_elas, sigma_n_local)
     yielding = state[2]
     return sigma_corrected, yielding
@@ -847,15 +864,21 @@ sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 # %%
 N_angles = 200
 N_loads = 10
-eps = 0.5
+eps = 0.00001
 R = 0.7
-p = 0.0
+p = 0.1
+theta_1 = -np.pi/6
+theta_2 = np.pi/6
 
-angle_values = np.linspace(0, np.pi/3, N_angles)
+angle_values = np.linspace(theta_1+eps, theta_2-eps, N_angles)
 dsigma_path = np.zeros((N_angles, stress_dim))
-dsigma_path[:, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
-dsigma_path[:, 1] = np.sqrt(2.0 / 3.0) * R * np.sin(angle_values - np.pi / 6.0)
-dsigma_path[:, 2] = np.sqrt(2.0 / 3.0) * R * np.sin(-angle_values - np.pi / 6.0)
+dsigma_path[:, 0] = (R / np.sqrt(2)) * (np.cos(angle_values) + np.sin(angle_values) / np.sqrt(3))
+dsigma_path[:, 1] = (R / np.sqrt(2)) * (- 2 * np.sin(angle_values) / np.sqrt(3))
+dsigma_path[:, 2] = (R / np.sqrt(2)) * (np.sin(angle_values) / np.sqrt(3) - np.cos(angle_values))
+
+# dsigma_path[:, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
+# dsigma_path[:, 1] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values - 2 * np.pi / 3.0)
+# dsigma_path[:, 2] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values + 2 * np.pi / 3.0)
 
 angle_results = np.empty((N_loads, N_angles))
 rho_results = np.empty((N_loads, N_angles))
@@ -889,10 +912,33 @@ for i in range(N_loads):
 # correct implementation of the constitutive model.
 
 # %%
+angle_values = np.linspace(-np.pi/6, np.pi/6, N_angles)
+MC_surface_rho = MC_yield_surface(angle_values, p)
+
+# %%
+MC_surface = np.array([])
+MC_surface_rho_total = np.array([])
+for j in range(12):
+    tmp = j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values
+    MC_surface = np.concatenate([MC_surface, tmp])
+    MC_surface_rho_total = np.concatenate([MC_surface_rho_total, MC_surface_rho])
+
+# %%
+MC_surface
+
+# %%
 fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
 for j in range(12):
     for i in range(N_loads):
         ax.plot(j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i], rho_results[i], ".")
+        # ax.plot(j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values, MC_surface_rho, "-", 
+        # color="red"
+        # )
+# ax.plot(j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values, MC_surface_rho, "-", 
+# color="red"
+# )
+ax.plot(MC_surface, MC_surface_rho_total, "-", color="black")
+# ax.plot(-angle_values, MC_surface_rho, ".")
 
 ax.set_yticklabels([])
 fig.tight_layout()
