@@ -437,3 +437,8 @@ assert np.allclose(A_manual_matrix.to_dense(), A_matrix.to_dense())
 # Here we considered a trivial example of an external operator. Let's take a look
 # at a more complex case in the context of the same heat equation, where an
 # external operator will have two operands.
+
+# %% [markdown]
+# ```{bibliography}
+# :filter: docname in docnames
+# ```

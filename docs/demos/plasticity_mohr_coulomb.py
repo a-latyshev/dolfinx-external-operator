@@ -1134,3 +1134,8 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 # the right). The first-order remainder $R_1$ is constant during the elastic
 # response, as the jacobian is constant in this case contrarily to the plastic
 # phase, where $R_1$ has the second-order convergence.
+
+# %% [markdown]
+# ```{bibliography}
+# :filter: docname in docnames
+# ```
