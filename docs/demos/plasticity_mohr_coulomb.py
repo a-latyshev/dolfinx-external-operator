@@ -1,23 +1,6 @@
-# -*- coding: utf-8 -*-
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: tags,-all
-#     custom_cell_magics: kql
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.11.2
-#   kernelspec:
-#     display_name: Python 3
-#     language: python
-#     name: python3
-# ---
-
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb with apex-smoothing
-#
+# 
 # This tutorial aims to demonstrate how modern automatic or algorithmic differentiation (AD)
 # techniques may be used to define a complex constitutive model demanding a lot of
 # by-hand differentiation. In particular, we implement the non-associative
@@ -26,17 +9,17 @@
 # relations including the differentiation of certain terms and
 # `FEMExternalOperator` framework to incorporate this model into a weak
 # formulation within UFL.
-#
+# 
 # The tutorial is based on the
 # [limit analysis](https://fenics-optim.readthedocs.io/en/latest/demos/limit_analysis_3D_SDP.html)
 # within semi-definite programming framework, where the plasticity model was
 # replaced by the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of
 # the Mohr-Coulomb elastoplastic model with apex smoothing.
-#
-#
+# 
+# 
 # ## Problem formulation
-#
+# 
 # We solve a slope stability problem of a soil domain $\Omega$ represented by a
 # parallelepiped $[0; L] \times [0; W] \times [0; H]$ with homogeneous Dirichlet
 # boundary conditions for the displacement field $\boldsymbol{u} = \boldsymbol{0}$
@@ -47,12 +30,12 @@
 # case for the standard Mohr-Coulomb criterion. We
 # follow the same Mandel-Voigt notation as in the von Mises plasticity tutorial
 # but in 3D.
-#
+# 
 # If $V$ is a functional space of admissible displacement fields, then we can
 # write out a weak formulation of the problem:
-#
+# 
 # Find $\boldsymbol{u} \in V$ such that
-#
+# 
 # $$
 #     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
 #     \boldsymbol{\sigma}(\boldsymbol{u}) \cdot
@@ -61,15 +44,15 @@
 #     \forall \boldsymbol{v} \in V,
 # $$
 # where $\boldsymbol{\sigma}$ is an external operator representing the stress tensor.
-#
+# 
 # ```{note}
 # Although the tutorial shows the implementation of the Mohr-Coulomb model, it
 # is quite general to be adapted to a wide rage of plasticity models that may
 # be defined through a yield surface and a plastic potential.
 # ```
-#
+# 
 # ## Implementation
-#
+# 
 # ### Preamble
 
 # %%
@@ -176,15 +159,14 @@ u_ = ufl.TestFunction(V)
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
 
-
 # %% [markdown]
 # ### Defining plasticity model and external operator
-#
+# 
 # The constitutive model of the soil is described by a non-associative plasticity
 # law without hardening that is defined by the Mohr-Coulomb yield surface $f$ and
 # the plastic potential $g$. Both quantities may be expressed through the
 # following function $h$
-#
+# 
 # \begin{align*}
 #     & h(\boldsymbol{\sigma}, \alpha) =
 #     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
@@ -200,12 +182,12 @@ sigma_n = fem.Function(S, name="sigma_n")
 # deviatoric part of the stress tensor. The expression of the coefficient
 # $K(\alpha)$ may be found in the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of this plastic model.
-#
+# 
 # During the plastic loading the stress-strain state of the solid must satisfy
 # the following system of nonlinear equations
-#
+# 
 # $$
-#
+# 
 #     \begin{cases}
 #         \boldsymbol{r}_{g}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
 #         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
@@ -214,23 +196,23 @@ sigma_n = fem.Function(S, name="sigma_n")
 #         \boldsymbol{0}, \\
 #          r_f(\boldsymbol{\sigma}_{n+1}) = f(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
-#
+# 
 # $$ (eq_MC_1)
-#
+# 
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{g}^T,
 # r_f]^T$ and its argument vector $\boldsymbol{x} =
 # [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$ we solve the following nonlinear
 # equation:
-#
+# 
 # $$
 #     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
 # $$
-#
+# 
 # To solve this equation we apply the Newton method and introduce the Jacobian of
 # the residual vector $\boldsymbol{j} = \frac{\mathrm{d} \boldsymbol{r}}{\mathrm{d}
 # \boldsymbol{x}}$. Thus we solve the following linear system at each quadrature
 # point for the plastic phase
-#
+# 
 # $$
 #     \begin{cases}
 #         \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
@@ -238,36 +220,35 @@ sigma_n = fem.Function(S, name="sigma_n")
 #         \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y}.
 #     \end{cases}
 # $$
-#
+# 
 # During the elastic loading, we consider a trivial system of equations
-#
+# 
 # $$
 #     \begin{cases}
 #         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
 #         \boldsymbol{C} \cdot \Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
 #     \end{cases}
 # $$ (eq_MC_2)
-#
+# 
 # The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
 # return-mapping procedure and the solution defines the return-mapping
 # correction of the stress tensor. By implementation of the external operator
 # $\boldsymbol{\sigma}$ we mean the implementation of this *algorithmic* procedure.
-#
+# 
 # The automatic differentiation tools of the JAX library are applied to calculate
 # the derivatives $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}, \frac{\mathrm{d}
 # \boldsymbol{r}}{\mathrm{d} \boldsymbol{x}}$ as well as the stress tensor
 # derivative or the consistent tangent stiffness matrix $\boldsymbol{C}_\text{tang} =
 # \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
-#
+# 
 # #### Defining yield surface and plastic potential
-#
+# 
 # First of all, we define supplementary functions that help us to express the
 # yield surface $f$ and the plastic potential $g$. In the following definitions,
 # we use built-in functions of the JAX package, in particular, the conditional
 # primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool
 # and just-in-time compilation. For more details, please, visit the JAX
 # [documentation](https://jax.readthedocs.io/en/latest/).
-
 
 # %%
 def J3(s):
@@ -364,11 +345,9 @@ def surface(sigma_local, angle):
         - c * np.cos(angle)
     )
 
-
 # %% [markdown]
 # By picking up an appropriate angle we define the yield surface $f$ and the
 # plastic potential $g$.
-
 
 # %%
 def f(sigma_local):
@@ -381,12 +360,12 @@ dgdsigma = jax.jacfwd(g)
 
 # %% [markdown]
 # #### Solving constitutive equations
-#
+# 
 # In this section, we define the constitutive model by solving the systems
 # {eq}`eq_MC_1`--{eq}`eq_MC_2`. They must be solved at each Gauss point, so we
 # apply the Newton method, implement the whole algorithm locally and then
 # vectorize the final result using `jax.vmap`.
-#
+# 
 # In the following cell, we define locally the residual $\boldsymbol{r}$ and
 # its jacobian `drdx`.
 
@@ -521,10 +500,9 @@ def return_mapping(deps_local, sigma_n_local):
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
 
-
 # %% [markdown]
 # #### Consistent tangent stiffness matrix
-#
+# 
 # Not only is the automatic differentiation able to compute the derivative of a
 # mathematical expression but also a numerical algorithm. For instance, AD can
 # calculate the derivative of the function performing return-mapping with respect
@@ -532,7 +510,7 @@ def return_mapping(deps_local, sigma_n_local):
 # consistent tangent matrix $\boldsymbol{C}_\text{tang}$, this feature becomes
 # very useful, as there is no need to write an additional program computing the
 # stress derivative.
-#
+# 
 # JAX's AD tool permits taking the derivative of the function `return_mapping`,
 # which is factually the while loop. The derivative is taken with respect to the
 # first output and the remaining outputs are used as auxiliary data. Thus, the
@@ -540,17 +518,16 @@ def return_mapping(deps_local, sigma_n_local):
 # and the stress tensor, so there is no need in a supplementary computation of the
 # stress tensor.
 
-
 # %%
 dsigma_ddeps = jax.jacfwd(return_mapping, has_aux=True)
 
 # %% [markdown]
 # #### Defining external operator
-#
+# 
 # Once we define the function `dsigma_ddeps`, which evaluates both the
 # external operator and its derivative locally, we can simply vectorize it and
 # define the final implementation of the external operator derivative.
-#
+# 
 # ```{note}
 # The function `dsigma_ddeps` containing a `while_loop` is designed to be called
 # at a single Gauss point that's why we need to vectorize it for the all points
@@ -581,13 +558,11 @@ def C_tang_impl(deps):
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
-
 # %% [markdown]
 # Similarly to the von Mises example, we do not implement explicitly the
 # evaluation of the external operator. Instead, we obtain its values during the
 # evaluation of its derivative and then update the values of the operator in the
 # main Newton loop.
-
 
 # %%
 def sigma_external(derivatives):
@@ -623,13 +598,13 @@ J_form = fem.form(J_replaced)
 
 # %% [markdown]
 # ### Variables initialization and compilation
-#
+# 
 # Before solving the problem we have to initialize values of the consistent
 # tangent matrix, as it requires for the system assembling. During the first load
 # step, we expect an elastic response only, so it's enough two to solve the
 # constitutive equations for any small displacements at each Gauss point. This
 # results in initializing the consistent tangent matrix with elastic moduli.
-#
+# 
 # At the same time, we can measure the compilation overhead caused by the first
 # call of JIT-ed JAX functions.
 
@@ -654,7 +629,7 @@ print(f"\nJAX's JIT compilation overhead: {pass_1 - pass_2}")
 
 # %% [markdown]
 # ### Solving the problem
-#
+# 
 # Summing up, we apply the Newton method to solve the main weak problem. On each
 # iteration of the main Newton loop, we solve elastoplastic constitutive equations
 # by using the second, inner, Newton method at each Gauss point. Thanks to the
@@ -678,7 +653,7 @@ load_steps = np.concatenate([load_steps_1, load_steps_2])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %% tags=["scroll-output"]
+# %%
 
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
@@ -724,30 +699,39 @@ for i, load in enumerate(load_steps):
 
 print(f"Slope stability factor: {-q.value[-1]*H/c}")
 
-# %%
-# 20 - critical load # -5.884057971014492
-# Slope stability factor: -6.521739130434782
-
-
 # %% [markdown]
 # ## Verification
 
 # %% [markdown]
 # ### Critical load
-
-# %%
-l_a = 6.69
-H = 1.0
-c = 3.45
-gamma_a = l_a / H * c
-
-# %% [markdown]
-#
+# 
+# According to {cite:t}`chenLimitAnalysisSoil1990`, we can derive analytically the
+# slope stability factor $l_\text{lim}$ for the standard Mohr-Coulomb plasticity
+# model (*without* apex smoothing) under plane strain assumption for associative plastic flow:
+# 
+# $$ 
+#     l_\text{lim} = \gamma_\text{lim} H/c, 
+# $$ 
+# 
+# where $\gamma_\text{lim}$ is an associated value of the soil self-weight. In
+# particular, for the rectangular slope with the friction angle $\phi$ equal to
+# $30^\circ$, $l_\text{lim} = 6.69$ {cite}`chenLimitAnalysisSoil1990`. Thus, by
+# computing $\gamma_\text{lim}$ from the formula above, we can progressively
+# increase the second component of the gravitational body force
+# $\boldsymbol{q}=[0, -\gamma]^T$, up to the critical value
+# $\gamma_\text{lim}^\text{num}$, when the perfect plasticity plateau is reached
+# on the loading-displacement curve at the $(0, H)$ point and then compare
+# $\gamma_\text{lim}^\text{num}$ against analytical $\gamma_\text{lim}$.
+# 
+# By demonstrating the loading-displacement curve on the figure below we approve
+# that the yield strength limit reached for $\gamma_\text{lim}^\text{num}$ is close to $\gamma_\text{lim}$.
 
 # %%
 if len(points_on_process) > 0:
-    plt.plot(results[:, 0], results[:, 1], "o-",  label="dolfinx-external-operator (JAX)")
-    plt.axhline(y=gamma_a, color='r', linestyle='--', label=r"$\gamma_\text{lim}$")
+    l_lim = 6.69
+    gamma_lim = l_lim / H * c
+    plt.plot(results[:, 0], results[:, 1], "o-",  label=r"$\gamma$")
+    plt.axhline(y=gamma_lim, color='r', linestyle='--', label=r"$\gamma_\text{lim}$")
     # plt.xlabel("Displacement of the slope at (0, H)")
     # plt.ylabel(r"Soil self-weight $\gamma$")
     # plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
@@ -756,9 +740,8 @@ if len(points_on_process) > 0:
     plt.grid()
     plt.legend()
 
-# %%
-print(f"Slope stability factor for 2D plane strain factor [Chen]: {6.69}")
-print(f"Computed slope stability factor: {22.75*H/c}")
+# %% [markdown]
+# The slope profile reaching its stability limit:
 
 # %%
 W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
@@ -773,22 +756,21 @@ vals = np.zeros((x.shape[0], 3))
 vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
 grid["u"] = vals
 warped = grid.warp_by_vector("u", factor=20)
-plotter.add_text("Displacement field", font_size=11)
+plotter.add_text("Magnitude of displacement field", font_size=11)
 plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
 plotter.view_xy()
 if not pyvista.OFF_SCREEN:
     plotter.show()
 
-
 # %% [markdown]
 # ### Yield surface
-#
+# 
 # We verify that the constitutive model is correctly implemented by tracing the
 # yield surface. We generate several stress paths and check whether they remain
-# within the yield surface. The stress tracing is performed in the
+# within the Mohr-Coulomb yield surface. The stress tracing is performed in the
 # [Haigh-Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
 # $(\xi, \rho, \theta)$ which are defined as follows:
-#
+# 
 # $$
 #     \xi = \frac{1}{\sqrt{3}}I_1, \quad \rho =
 #     \sqrt{2J_2}, \quad \sin(3\theta) = -\frac{3\sqrt{3}}{2}
@@ -798,10 +780,10 @@ if not pyvista.OFF_SCREEN:
 # of the deviatoric part of the stress tensor, $\xi$ is the deviatoric coordinate,
 # $\rho$ is the radial coordinate and the angle $\theta \in
 # [-\frac{\pi}{6}, \frac{\pi}{6}]$ is called Lode or stress angle.
-#
-# By introducing the hydrostatic variable $p = \xi/\sqrt{3}$ The principal
-# stresses can be written in Haigh-Westergaard coordinates
-#
+# 
+# By introducing the hydrostatic variable $p = \xi/\sqrt{3}$, the principal
+# stresses can be written in Haigh-Westergaard coordinates as follows
+# 
 # $$
 #     \begin{pmatrix}
 #         \sigma_{I} \\
@@ -819,18 +801,30 @@ if not pyvista.OFF_SCREEN:
 #         \cos\theta + \frac{\sin\theta}{\sqrt{3}} \\
 #         -\frac{2\sin\theta}{\sqrt{3}} \\
 #         \frac{\sin\theta}{\sqrt{3}} - \cos\theta
-#     \end{pmatrix}.
+#     \end{pmatrix},
+# $$ 
+# 
+# from where $\sigma_{I} \geq \sigma_{II} \geq \sigma_{III}$. Then, by knowing
+# the expression of the [standrad
+# Mohr-Coulomb](https://en.wikipedia.org/wiki/Mohr%E2%80%93Coulomb_theory) yield
+# surface in principle stress, we can obtain an analogue expression in
+# Haigh-Westergaard coordinates, which leads us to the following equation:
+# 
+# 
 # $$
-# Firstly, we define and vectorize functions `rho`, `angle` and `sigma_tracing`
-# evaluating respectively the coordinates $\rho$ and $\theta$ and the corrected
-# stress tensor for a certain stress state.
-
+#     \frac{\rho}{\sqrt{6}}(\sqrt{3}\cos\theta + \sin\phi
+#     \sin\theta) - p\sin\phi - c\cos\phi= 0.
+# $$ (eq:standard_MC)
+# 
+# Now we define and vectorize functions `rho`, `angle` and `sigma_tracing`
+# evaluating respectively the coordinates $\rho$, $\theta$ and the corrected (or "returned")
+# stress tensor for a certain stress state. `sigma_tracing` calls the function
+# `return_mapping`, where the constitutive model was defined via JAX previously.
 
 # %%
 def rho(sigma_local):
     s = dev @ sigma_local
     return jnp.sqrt(2.0 * J2(s))
-
 
 def angle(sigma_local):
     s = dev @ sigma_local
@@ -840,29 +834,27 @@ def angle(sigma_local):
     return angle
 
 def MC_yield_surface(theta_, p):
+    """Restores the coordinate `rho` satisfying the standard Mohr-Coulomb yield criterion."""
     rho = (np.sqrt(2)*(c * np.cos(phi) + p * np.sin(phi))) / (np.cos(theta_) - np.sin(phi) * np.sin(theta_) / np.sqrt(3)) 
     return rho
 
-MC_return_mapping = Mohr_Coulomb_yield_criterion(phi, c, E, nu)
-
 def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
-    # sigma_corrected, state = MC_return_mapping(deps_elas, sigma_n_local)
     sigma_corrected, state = return_mapping(deps_elas, sigma_n_local)
     yielding = state[2]
     return sigma_corrected, yielding
-
 
 angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
 rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
 sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 
 # %% [markdown]
-# Secondly, we generate a loading path by evaluating principal stresses through
-# Haigh-Westergaard coordinates, where $\rho$ and $\xi$ are fixed ones.
+# Secondly, we generate the loading path by evaluating principal stresses in
+# Haigh-Westergaard coordinates for the Lode angle $\theta$ being varied from
+# $-\frac{\pi}{6}$ to $\frac{\pi}{6}$ with fixed $\rho$ and $p$.
 
 # %%
-N_angles = 200
+N_angles = 100
 N_loads = 10
 eps = 0.00001
 R = 0.7
@@ -876,10 +868,6 @@ dsigma_path[:, 0] = (R / np.sqrt(2)) * (np.cos(angle_values) + np.sin(angle_valu
 dsigma_path[:, 1] = (R / np.sqrt(2)) * (- 2 * np.sin(angle_values) / np.sqrt(3))
 dsigma_path[:, 2] = (R / np.sqrt(2)) * (np.sin(angle_values) / np.sqrt(3) - np.cos(angle_values))
 
-# dsigma_path[:, 0] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values)
-# dsigma_path[:, 1] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values - 2 * np.pi / 3.0)
-# dsigma_path[:, 2] = np.sqrt(2.0 / 3.0) * R * np.cos(angle_values + 2 * np.pi / 3.0)
-
 angle_results = np.empty((N_loads, N_angles))
 rho_results = np.empty((N_loads, N_angles))
 sigma_results = np.empty((N_loads, N_angles, stress_dim))
@@ -889,13 +877,17 @@ sigma_n_local[:, 1] = p
 sigma_n_local[:, 2] = p
 derviatoric_axis = tr
 
-# %% tags=["scroll-output"]
-print(f"rho = {R}, p = {p} - projection onto the octahedral plane\n")
+# %% [markdown]
+# For each stress path, we call the function `sigma_tracing_vec` to get the
+# corrected stress state and then we project it onto the deviatoric plane $(\rho,
+# \theta)$ defined by $p = 0.1$.
+
+# %%
 for i in range(N_loads):
-    print(f"Loading#{i}")
+    print(f"Stress path#{i}")
     dsigma, yielding = sigma_tracing_vec(dsigma_path, sigma_n_local)
     dp = dsigma @ tr / 3.0 - p
-    dsigma -= np.outer(dp, derviatoric_axis)  # projection on the same octahedral plane
+    dsigma -= np.outer(dp, derviatoric_axis)  # projection on the same deviatoric plane
 
     sigma_results[i, :] = dsigma
     angle_results[i, :] = angle_v(dsigma)
@@ -904,70 +896,122 @@ for i in range(N_loads):
     sigma_n_local[:] = dsigma
 
 # %% [markdown]
-# Finally, the stress paths are represented by a series of circles lying in each other in
-# the same octahedral plane. By applying the return-mapping algorithm defined in
-# the function `return_mapping`, we perform the correction of the stress
-# paths. Once they get close to the elastic limit the traced curves look similar
-# to the Mohr-Coulomb yield surface with apex smoothing which indicates the
-# correct implementation of the constitutive model.
+# In addition, we restore the standard Mohr-Coulomb yield surface defined in {eq}`eq:standard_MC`.
 
 # %%
-angle_values = np.linspace(-np.pi/6, np.pi/6, N_angles)
 MC_surface_rho = MC_yield_surface(angle_values, p)
 
-# %%
-MC_surface = np.array([])
+angles_total = np.array([])
 MC_surface_rho_total = np.array([])
 for j in range(12):
-    tmp = j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values
-    MC_surface = np.concatenate([MC_surface, tmp])
+    angles = j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values
+    angles_total = np.concatenate([angles_total, angles])
     MC_surface_rho_total = np.concatenate([MC_surface_rho_total, MC_surface_rho])
 
-# %%
-MC_surface
+# %% [markdown]
+# Finally, the stress paths are represented by a series of circles lying in each
+# other in the same deviatoric plane $(\rho, \theta)$. By applying the
+# return-mapping algorithm, we obtain the corrected stress paths (colored curves).
+# Once they get close to the elastic limit the traced curves start aligning with
+# the standard Mohr-Coulomb yield surface (the black thin contour) with
+# slightly smoothed apexes, which indicates the correct implementation of the
+# constitutive model.
 
 # %%
 fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
 for j in range(12):
     for i in range(N_loads):
         ax.plot(j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i], rho_results[i], ".")
-        # ax.plot(j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values, MC_surface_rho, "-", 
-        # color="red"
-        # )
-# ax.plot(j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values, MC_surface_rho, "-", 
-# color="red"
-# )
-ax.plot(MC_surface, MC_surface_rho_total, "-", color="black")
-# ax.plot(-angle_values, MC_surface_rho, ".")
+
+ax.plot(angles_total, MC_surface_rho_total, "-", color="black")
 
 ax.set_yticklabels([])
 fig.tight_layout()
 
 # %% [markdown]
 # ### Taylor test
-#
-# The derivatives, on which the form $F$ and its jacobian $J$ are based, are
-# automatically derived using the JAX AD tools. In this regards, we perform the
-# Taylor test to ensure that these derivatives are computed correctly.
-#
-# Indeed, by following the Taylor's theorem and perturbating the functional $F: V
-# \to \mathbb{R}$ in the direction $h \, \boldsymbol{δu} \in V$ for $h > 0$, the
-# first and second order Taylor reminders $R_0$ and $R_1$ have the following
-# convergence rates
-#
+# 
+# Here, we perform a Taylor test to check that the form $F$ and its Jacobian $J$
+# are consistent zeroth- and first-order approximations of the residual $F$. In
+# particular, the test verifies that the program `dsigma_ddeps_vec`
+# obtained by the JAX's AD returns correct values of the external operator
+# $\boldsymbol{\sigma}$ and its derivative $\boldsymbol{C}_\text{tang}$, which
+# define $F$ and $J$ respectively.
+# 
+# To perform the test, we introduce the
+# operators $\mathcal{F}: V \rightarrow V^\prime$ and $\mathcal{J}: V \rightarrow \mathcal{L}(V,
+# V^\prime)$ defined as follows:
 # $$
-#     R_0 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
-# F(\boldsymbol{u}; \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h),
+#     \langle \mathcal{F}(\boldsymbol{u}), \boldsymbol{v} \rangle := F(\boldsymbol{u}; \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V,
 # $$
-#
 # $$
-#     R_1 = | F(\boldsymbol{u} + h \, \boldsymbol{δu}; \boldsymbol{v}) -
-# F(\boldsymbol{u}; \boldsymbol{v}) - \, J(\boldsymbol{u}; h\boldsymbol{δu},
-# \boldsymbol{v}) | \longrightarrow 0 \text{ at } O(h^2),
+#     \langle (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}), \boldsymbol{v} \rangle := J(\boldsymbol{u}; k\boldsymbol{\delta u}, \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V, 
 # $$
-#
-# In the following code-blocks you may find the implementation of the Taylor test
-# justifying the first and second convergence rates.
+# where $V^\prime$ is a dual space of $V$, $\langle \cdot, \cdot \rangle$ is the
+# $V^\prime \times V$ duality pairing and $\mathcal{L}(V, V^\prime)$ is a space of
+# bounded linear operators from $V$ to its dual.
+# 
+# Then, by following the Taylor's theorem on Banach spaces and perturbating the
+# functional $\mathcal{F}$ in the direction $k \, \boldsymbol{δu} \in V$ for $k >
+# 0$, the zeroth and first order Taylor reminders $r_k^0$ and $r_k^1$ have the
+# following *mesh-independent* convergence rates in the dual space $V^\prime$:
+# 
+# $$
+#     \| r_k^0 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \, \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) \|_{V^\prime} \longrightarrow 0 \text{ at } O(k),
+# $$ (eq:r0)
+# 
+# $$
+#     \| r_k^1 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \, \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) - \, (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}) \|_{V^\prime} \longrightarrow 0 \text{ at } O(k^2).
+# $$ (eq:r1)
+# 
+# In order to compute the norm of an element $f \in V^\prime$ from the dual space
+# $V^\prime$, we apply the Riesz representation theorem, which states that there
+# is a linear isometric isomorphism $\mathcal{R} : V^\prime \to V$, which
+# associates a linear functional $f$ with a unique element $\mathcal{R} f =
+# \boldsymbol{u} \in V$. In practice, within a finite subspace $V_h \subset V$, the
+# Riesz map $\mathcal{R}$ is represented by the matrix $\mathsf{L}^{-1}$, the
+# inverse of the Laplacian operator {cite}`kirbyFunctional2010`:
+# $$
+#     \mathsf{L}_{ij} = \int\limits_\Omega \nabla\varphi_i \cdot \nabla\varphi_j \mathrm{d} x , \quad i,j = 1, \dots, n,
+# $$
+# where $\{\varphi_i\}_{i=1}^{\dim V_h}$ is a set of basis function of the space
+# $V_h$.
+# 
+# If the vectors $\mathsf{r}_k^i \in \mathbb{R}^{\dim V_h}, \, i \in \{0,1\}$
+# represent the Taylor remainders from {eq}`eq:r0`--{eq}`eq:r1`, then the dual norms
+# are computed through the following formula {cite}`kirbyFunctional2010`:
+# 
+# $$
+#     \| r_k^i \|^2_{V^\prime_h} = (\mathsf{r}_k^i)^T \mathsf{L}^{-1} \mathsf{r}_k^i, \quad i \in \{0,1\}.
+# $$ (eq:r_norms)
+# 
+# In practice, the vectors $\mathsf{r}_k^i$ are defined through the residual
+# vector $\mathsf{F}$ and the Jacobian matrix $\mathsf{J}$:
+# $$
+#     \mathsf{r}_k^0 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) - \mathsf{F}(\mathsf{u}) \in \mathbb{R}^n,
+# $$ (eq:vec_r0)
+# $$
+#     \mathsf{r}_k^1 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) - \mathsf{F}(\mathsf{u}) - \, \mathsf{J}(\mathsf{u}) \cdot k\mathsf{\delta u} \in \mathbb{R}^n,
+# $$ (eq:vec_r1)
+# where $\mathsf{u} \in \mathbb{R}^{\dim V_h}$ and $\mathsf{\delta u} \in
+# \mathbb{R}^{\dim V_h}$ represent dispacement fields $\boldsymbol{u} \in V_h$ and
+# $\boldsymbol{\delta u} \in V_h$.
+# 
+# Now we can proceed with the Taylor test implementation. Let us first start with
+# defining the Laplace operator.
+
+# %%
+L_form = fem.form(ufl.inner(ufl.grad(u_hat), ufl.grad(u_)) * ufl.dx)
+L = fem.petsc.assemble_matrix(L_form, bcs=bcs)
+L.assemble()
+Riesz_solver = PETSc.KSP().create(domain.comm)
+Riesz_solver.setType("preonly")
+Riesz_solver.getPC().setType("lu")
+Riesz_solver.setOperators(L)
+y = fem.Function(V, name="Riesz_representer_of_r") # r - a Taylor remainder
+
+# %% [markdown]
+# Now we initialize main variables of the plasticity problem.
 
 # %%
 # Reset main variables to zero including the external operators values
@@ -983,7 +1027,8 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # As the derivatives of the constitutive model are different for elastic and
 # plastic phases, we must consider two initial states for the Taylor test. For
 # this reason, we solve the problem once for a certain loading value to get the
-# initial state close to the one with plastic deformations.
+# initial state close to the one with plastic deformations but still remain in the
+# elastic phase.
 
 # %%
 i = 0
@@ -1032,23 +1077,16 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # If we take into account the initial stress state `sigma_n0` computed in the cell
 # above, we perform the Taylor test for the plastic phase, otherwise we stay in
 # the elastic one.
+# 
+# Finally, we define the function `perform_Taylor_test`, which returns the norms
+# of the Taylor reminders in dual space {eq}`eq:r_norms`--{eq}`eq:vec_r1`.
 
 # %%
-R_form = fem.form(ufl.inner(ufl.grad(u_hat), ufl.grad(u_)) * ufl.dx)
-R = fem.petsc.assemble_matrix(R_form, bcs=bcs)
-R.assemble()
-Riesz_solver = PETSc.KSP().create(domain.comm)
-Riesz_solver.setType("preonly")
-Riesz_solver.getPC().setType("lu")
-Riesz_solver.setOperators(R)
-
-RT = fem.Function(V, name="Riesz_representer_of_T") # T - a Taylor remainder
-
-# %%
-h_list = np.logspace(-2.0, -6.0, 5)[::-1]
+k_list = np.logspace(-2.0, -6.0, 5)[::-1]
 
 def perform_Taylor_test(Du0, sigma_n0):
-    # F(Du0 + h*δu) - F(Du0) - h*J(Du0)*δu
+    # r0 = F(Du0 + k*δu) - F(Du0)
+    # r1 = F(Du0 + k*δu) - F(Du0) - k*J(Du0)*δu
     Du.x.array[:] = Du0
     sigma_n.x.array[:] = sigma_n0
     evaluated_operands = evaluate_operands(F_external_operators)
@@ -1061,16 +1099,16 @@ def perform_Taylor_test(Du0, sigma_n0):
 
     J0 = fem.petsc.assemble_matrix(J_form, bcs=bcs)
     J0.assemble()  # J(Du0)
-    y = J0.createVecLeft()  # y = J0 @ x
+    Ju = J0.createVecLeft()  # Ju = J0 @ u
 
     δu = fem.Function(V)
     δu.x.array[:] = Du0  # δu == Du0
 
-    zero_order_remainder = np.zeros_like(h_list)
-    first_order_remainder = np.zeros_like(h_list)
+    zero_order_remainder = np.zeros_like(k_list)
+    first_order_remainder = np.zeros_like(k_list)
 
-    for i, h in enumerate(h_list):
-        Du.x.array[:] = Du0 + h * δu.x.array
+    for i, k in enumerate(k_list):
+        Du.x.array[:] = Du0 + k * δu.x.array
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         sigma.ref_coefficient.x.array[:] = sigma_new
@@ -1079,19 +1117,19 @@ def perform_Taylor_test(Du0, sigma_n0):
         F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(F_delta, bcs)
 
-        J0.mult(δu.vector, y)  # y = J(Du0)*δu
-        y.scale(h)  # y = h*y
+        J0.mult(δu.vector, Ju)  # Ju = J(Du0)*δu
+        Ju.scale(k)  # y = k*J(Du0)*δu 
 
-        T0 = F_delta - F0
-        T1 = F_delta - F0 - y
+        r0 = F_delta - F0
+        r1 = F_delta - F0 - Ju
 
-        Riesz_solver.solve(T0, RT.vector) # RT = R^{-1} T0
-        RT.x.scatter_forward()
-        zero_order_remainder[i] = np.sqrt(T0.dot(RT.vector)) # sqrt{T0^T R^{-1} T0}
+        Riesz_solver.solve(r0, y.vector) # y = L^{-1} r0
+        y.x.scatter_forward()
+        zero_order_remainder[i] = np.sqrt(r0.dot(y.vector)) # sqrt{r0^T L^{-1} r0}
 
-        Riesz_solver.solve(T1, RT.vector) # RT = R^{-1} T1
-        RT.x.scatter_forward()
-        first_order_remainder[i] = np.sqrt(T1.dot(RT.vector)) # sqrt{T1^T R^{-1} T1}
+        Riesz_solver.solve(r1, y.vector) # y = L^{-1} r1
+        y.x.scatter_forward()
+        first_order_remainder[i] = np.sqrt(r1.dot(y.vector)) # sqrt{r1^T L^{-1} r1}
 
     return zero_order_remainder, first_order_remainder
 
@@ -1104,17 +1142,19 @@ zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_tes
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
-axs[0].loglog(h_list, zero_order_remainder_elastic, "o-", label=r"$R_0$")
-axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label=r"$R_1$")
-annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[0], poly_kwargs={"facecolor": "tab:blue"})
+axs[0].loglog(h_list, zero_order_remainder_elastic, "o-", label=r"$r_k^0$")
+axs[0].loglog(h_list, first_order_remainder_elastic, "o-", label=r"$r_k^1$")
+annotation.slope_marker((2e-4, 5e-5), 1, ax=axs[0], poly_kwargs={"facecolor": "tab:blue"})
+axs[0].text(0.5, -0.2, "(a) Elastic phase", transform=axs[0].transAxes, ha="center", va="top")
 
-axs[1].loglog(h_list, zero_order_remainder_plastic, "o-", label=r"$R_0$")
-annotation.slope_marker((5e-5, 5e-6), 1, ax=axs[1], poly_kwargs={"facecolor": "tab:blue"})
-axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$R_1$")
-annotation.slope_marker((1e-4, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
+axs[1].loglog(h_list, zero_order_remainder_plastic, "o-", label=r"$r_k^0$")
+annotation.slope_marker((2e-4, 5e-5), 1, ax=axs[1], poly_kwargs={"facecolor": "tab:blue"})
+axs[1].loglog(h_list, first_order_remainder_plastic, "o-", label=r"$r_k^1$")
+annotation.slope_marker((2e-4, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
+axs[1].text(0.5, -0.2, "(b) Plastic phase", transform=axs[1].transAxes, ha="center", va="top")
 
 for i in range(2):
-    axs[i].set_xlabel("h")
+    axs[i].set_xlabel("k")
     axs[i].set_ylabel("Taylor remainder")
     axs[i].legend()
     axs[i].grid()
@@ -1129,13 +1169,18 @@ second_order_rate = np.polyfit(np.log(h_list[1:]), np.log(first_order_remainder_
 print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %% [markdown]
-# For the elastic phase (on the left) the zeroth-order Taylor remainder $R_0$
-# achieves the first-order convergence rate the same as for the plastic phase (on
-# the right). The first-order remainder $R_1$ is constant during the elastic
-# response, as the jacobian is constant in this case contrarily to the plastic
-# phase, where $R_1$ has the second-order convergence.
+# Taylor test for the form $F$ for the (a) elastic and (b) plastic
+# phases. For the elastic phase (a) the zeroth-order Taylor remainder $r_k^0$
+# achieves the first-order convergence rate, whereas the first-order remainder
+# $r_k^1$ is computed at the level of machine precision due to the constant
+# Jacobian. Similarly to the elastic flow, the zeroth-order Taylor remainder
+# $r_k^0$ of the plastic phase (b) reaches the first-order convergence, whereas
+# the first-order remainder $r_k^1$ achieves the second-order convergence rate,
+# as expected.
 
 # %% [markdown]
 # ```{bibliography}
 # :filter: docname in docnames
 # ```
+
+
