@@ -34,7 +34,7 @@
 #
 # ## Recall
 #
-# The concept of external operators was originally introduced in {cite}`bouziani_escaping_2021`. According to
+# The concept of external operators was originally introduced in {cite}`bouzianiEscaping2021`. According to
 # this work, if $W, V$ and $X$ are some functional spaces then the external
 # operator $N$ maps an *operand* $u \in W$ as follows
 #

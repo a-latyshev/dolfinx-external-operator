@@ -28,7 +28,7 @@ constitutive model of the plasticity problem is solved via the `JAX` package, a
 robust AD software.
 
 The framework is based on the UFL extension proposed by
-{cite:t}`bouziani_escaping_2021`, where the concept of the *external operator*
+{cite:t}`bouzianiEscaping2021`, where the concept of the *external operator*
 was originally introduced.
 
 ## Section table of contents
