@@ -34,17 +34,21 @@ jobs:
           ruff check .
           ruff format --check .
 
-      - name: Run tests
+      - name: Run tests (serial)
         run: |
           python3 -m pytest test/
 
-      - name: Run tests (MPI, np = 3)
+      - name: Run tests (MPI, np=3)
         run: |
           mpirun -n 3 python3 -m pytest test/
       
-      - name: Run demos
+      - name: Run demos (serial)
         run: |
           python3 -m pytest demo/
+
+      - name: Run demos (MPI, np=3)
+        run: |
+          python -m pytest -m mpi --num-proc=3 demo/
 
       - name: Build book
         run: jupyter book build doc/
