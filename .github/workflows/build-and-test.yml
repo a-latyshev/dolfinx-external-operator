@@ -25,14 +25,14 @@ jobs:
         run: |
           apt-get update && apt-get install -y libxrender1 xvfb
       
+      - name: Install
+        run: |
+          python3 -m pip install '.[ci]'
+
       - name: ruff check and check format
         run: |
           ruff check .
           ruff format --check .
-
-      - name: Install
-        run: |
-          python3 -m pip install '.[ci]' 
 
       - name: Run tests
         run: |
