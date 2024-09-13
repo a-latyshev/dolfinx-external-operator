@@ -124,8 +124,8 @@ Research Fund (FNR), grant reference PRIDE/21/16747448/MATHCODA.
 ### Building Documentation
 
 ```Shell
-pip install '.[docs]'
-cd docs/
+pip install '.[doc]'
+cd doc/
 jupyter-book build .
 ```
 
@@ -153,6 +153,6 @@ ruff format .
 ### Running tests
 
 ```Shell
-pip install '.[tests]'
+pip install '.[test]'
 py.test -v tests/
 ```
