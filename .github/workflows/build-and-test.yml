@@ -44,7 +44,7 @@ jobs:
       
       - name: Run demos
         run: |
-          python3 -m pytest demo/test.py
+          python3 -m pytest demo/
 
       - name: Build book
         run: jupyter book build doc/
