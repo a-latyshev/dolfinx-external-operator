@@ -30,7 +30,8 @@ jobs:
           ruff check .
           ruff format --check .
 
-      - name: Install 
+      - name: Install
+        run: |
           python3 -m pip install '.[ci]' 
 
       - name: Run tests

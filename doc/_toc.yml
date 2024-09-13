@@ -3,9 +3,9 @@ root: index
 parts:
   - caption: "Demos"
     chapters:
-      - file: "demos/demo_nonlinear_heat_equation_part1.py"
+      - file: "demo/demo_nonlinear_heat_equation_part1.py"
         sections:
-          - file: "demos/demo_nonlinear_heat_equation_part2.py"
-          - file: "demos/demo_nonlinear_heat_equation_part3.py"
-      - file: "demos/demo_plasticity_von_mises.py"
-      - file: "demos/demo_plasticity_mohr_coulomb.py"
+          - file: "demo/demo_nonlinear_heat_equation_part2.py"
+          - file: "demo/demo_nonlinear_heat_equation_part3.py"
+      - file: "demo/demo_plasticity_von_mises.py"
+      - file: "demo/demo_plasticity_mohr_coulomb.py"

@@ -6,7 +6,7 @@
 author = 'Andrey Latyshev, Jack S. Hale'
 bibtex_bibfiles = ['references.bib']
 comments_config = {'hypothesis': False, 'utterances': False}
-copyright = '2023'
+copyright = '2024'
 exclude_patterns = ['**.ipynb_checkpoints', '.DS_Store', 'Thumbs.db', '_build']
 extensions = ['sphinx_togglebutton', 'sphinx_copybutton', 'myst_nb', 'jupyter_book', 'sphinx_thebe', 'sphinx_comments', 'sphinx_external_toc', 'sphinx.ext.intersphinx', 'sphinx_design', 'sphinx_book_theme', 'sphinx.ext.autodoc', 'sphinx.ext.napoleon', 'sphinx.ext.viewcode', 'sphinxcontrib.bibtex', 'sphinx_jupyterbook_latex']
 external_toc_exclude_missing = False
@@ -17,7 +17,7 @@ html_logo = ''
 html_sourcelink_suffix = ''
 html_theme = 'sphinx_book_theme'
 html_theme_options = {'navigation_with_keys': False}
-html_title = 'External operators with FEniCSx'
+html_title = 'External operators with DOLFINx'
 latex_engine = 'pdflatex'
 myst_enable_extensions = ['amsmath', 'dollarmath', 'linkify', 'html_image']
 myst_url_schemes = ['mailto', 'http', 'https']
