@@ -124,7 +124,7 @@ Research Fund (FNR), grant reference PRIDE/21/16747448/MATHCODA.
 ### Building Documentation
 
 ```Shell
-pip install `.[docs]`
+pip install '.[docs]'
 cd docs/
 jupyter-book build .
 ```
@@ -145,7 +145,7 @@ sphinx-autobuild . _build/html -b html
 To lint and format
 
 ```Shell
-pip install .[lint]
+pip install '.[lint]'
 ruff check .
 ruff format .
 ```
@@ -153,6 +153,6 @@ ruff format .
 ### Running tests
 
 ```Shell
-pip install .[tests]
+pip install '.[tests]'
 py.test -v tests/
 ```
