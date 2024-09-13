@@ -1,4 +1,4 @@
-name: Build, test and publish
+name: Build test and publish
 
 on:
   push:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:  
   build-and-test:
-    uses: .github/workflows/build-and-test.yml
+    uses: ./.github/workflows/build-and-test.yml
 
   deploy:
     runs-on: ubuntu-latest
