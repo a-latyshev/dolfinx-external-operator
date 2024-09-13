@@ -1,4 +1,4 @@
-name: Publish docs
+name: Build, test and publish
 
 on:
   push:
@@ -17,19 +17,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:  
-  build-docs:
-    uses: ./.github/workflows/build-docs.yml
+  build-and-test:
+    uses: ./.github/workflows/build-and-test.yml
 
   deploy:
     runs-on: ubuntu-latest
-    needs: [build-docs]
+    needs: [build-and-test]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Pages
         uses: actions/configure-pages@v5
         

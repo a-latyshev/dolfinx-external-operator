@@ -1,18 +1,14 @@
 # Simple workflow for deploying static content to GitHub Pages
-name: Build docs
+name: Build and test
 
 on:
-  workflow_dispatch:
   workflow_call:
-  push:
-    branches:
-      - "publishing"
   pull_request:
     branches:
       - "main"
       
 jobs:
-  build-docs:
+  build-and-test:
     runs-on: ubuntu-latest
     container: ghcr.io/fenics/dolfinx/dolfinx:nightly
     
@@ -25,19 +21,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Install package
+      - name: Install dependencies
         run: |
           apt-get update && apt-get install -y libxrender1 xvfb
-          python3 -m pip install --no-build-isolation --no-cache-dir '.[ci]' 
-
-      - name: Run tests
-        run: |
-          python3 -m pytest tests/
-
+      
       - name: ruff check and format
         run: |
           ruff check .
           ruff format --check .
+
+      - name: Install 
+          python3 -m pip install '.[ci]' 
+
+      - name: Run tests
+        run: |
+          python3 -m pytest tests/
 
       - name: Build book
         run: jupyter book build docs/
