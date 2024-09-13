@@ -25,7 +25,7 @@ jobs:
         run: |
           apt-get update && apt-get install -y libxrender1 xvfb
       
-      - name: ruff check and format
+      - name: ruff check and check format
         run: |
           ruff check .
           ruff format --check .
@@ -39,11 +39,11 @@ jobs:
 
       - name: Run tests (MPI, np = 3)
         run: |
-          python3 -m pytest tests/
+          mpirun -n 3 python3 -m pytest tests/
       
       - name: Run demos
         run: |
-          python3 -m pytest docs/demos
+          python3 -m pytest docs/demos/test.py
 
       - name: Build book
         run: jupyter book build docs/
