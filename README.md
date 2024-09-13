@@ -24,19 +24,11 @@ When using a library that supports program level automatic differentiation
 in local first and second-order solvers. Just-in-time compilation, batching and
 accelerators (GPUs, TPUs) are also supported.
 
-## Documentation
-
-The [documentation](https://a-latyshev.github.io/dolfinx-external-operator/)
-contains various examples focusing on complex constitutive behaviour in solid
-mechanics, including:
-
-* von Mises plasticity using [Numba](https://numba.pydata.org/),
-* Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest).
-
 ## Installation
 
-`dolfinx-external-operator` is a pure Python module that depends on DOLFINx
-Python and UFL.
+`dolfinx-external-operator` is a pure Python package that depends on the
+DOLFINx Python interface and UFL. Version numbers match with compatible
+releases of DOLFINx.
 
 The latest release version can be installed with:
 
@@ -51,6 +43,15 @@ git clone https://github.com/a-latyshev/dolfinx-external-operator.git
 cd dolfinx-external-operator
 pip install -e .
 ```
+
+## Documentation
+
+The [documentation](https://a-latyshev.github.io/dolfinx-external-operator/)
+contains various examples focusing on complex constitutive behaviour in solid
+mechanics, including:
+
+* von Mises plasticity using [Numba](https://numba.pydata.org/),
+* Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest).
 
 ## Citations 
 
@@ -132,10 +133,19 @@ jupyter-book config sphinx .
 sphinx-autobuild . _build/html -b html
 ```
 
-To check and fix formatting
+### Linting
+
+To lint and format
 
 ```Shell
 pip install `.[lint]`
 ruff check .
 ruff format .
+```
+
+### Running tests
+
+```Shell
+pip install `.[tests]`
+py.test -v tests/
 ```
