@@ -13,9 +13,7 @@ jobs:
     container: ghcr.io/fenics/dolfinx/dolfinx:nightly
     
     env:
-      PYVISTA_TRAME_SERVER_PROXY_PREFIX: "/proxy/"
-      PYVISTA_TRAME_SERVER_PROXY_ENABLED: "True"
-      PYVISTA_OFF_SCREEN: false
+      PYVISTA_OFF_SCREEN: true
       PYVISTA_JUPYTER_BACKEND: "html"
     
     steps:
