@@ -80,6 +80,21 @@ the following references:
 }
 ```
 
+## Contributors
+
+* Andrey Latyshev (University of Luxembourg, Sorbonne Université,
+  andrey.latyshev@uni.lu)
+* Jérémy Bleyer (École des Ponts ParisTech, Université Gustave Eiffel, jeremy.bleyer@enpc.fr)
+* Jack S. Hale (University of Luxembourg, jack.hale@uni.lu)
+* Corrado Maurini (Sorbonne Université, corrado.maurini@sorbonne-universite.fr)
+
+If you wish to be added as a contributor please ask via email.
+
+## Acknowledgments
+
+This research was funded in whole, or in part, by the Luxembourg National
+Research Fund (FNR), grant reference PRIDE/21/16747448/MATHCODA.
+
 ## Developer notes
 
 ### Building Documentation
