@@ -37,6 +37,14 @@ jobs:
         run: |
           python3 -m pytest tests/
 
+      - name: Run tests (MPI, np = 3)
+        run: |
+          python3 -m pytest tests/
+      
+      - name: Run demos
+        run: |
+          python3 -m pytest docs/demos
+
       - name: Build book
         run: jupyter book build docs/
       

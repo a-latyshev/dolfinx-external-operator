@@ -44,6 +44,13 @@ cd dolfinx-external-operator
 pip install -e .
 ```
 
+The demos require pyvista and VTK for visualisation. VTK wheels are not
+currently built on Linux arm64, which leads to a failing `import vtk`. VTK can
+be installed from a third-party wheel on Linux arm64 using
+```Shell
+pip install https://github.com/finsberg/vtk-aarch64/releases/download/vtk-9.3.0-cp312/vtk-9.3.0.dev0-cp312-cp312-linux_aarch64.whl 
+```
+
 ## Documentation
 
 The [documentation](https://a-latyshev.github.io/dolfinx-external-operator/)
@@ -117,7 +124,7 @@ Research Fund (FNR), grant reference PRIDE/21/16747448/MATHCODA.
 ### Building Documentation
 
 ```Shell
-pip install .[docs]
+pip install `.[docs]`
 cd docs/
 jupyter-book build .
 ```
@@ -138,7 +145,7 @@ sphinx-autobuild . _build/html -b html
 To lint and format
 
 ```Shell
-pip install `.[lint]`
+pip install .[lint]
 ruff check .
 ruff format .
 ```
@@ -146,6 +153,6 @@ ruff format .
 ### Running tests
 
 ```Shell
-pip install `.[tests]`
+pip install .[tests]
 py.test -v tests/
 ```
