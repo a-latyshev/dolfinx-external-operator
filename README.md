@@ -59,14 +59,14 @@ the following references:
 
 ```
 @inproceedings{latyshev_2024_external_paper,
-	author = {Latyshev, Andrey and Bleyer, Jérémy and Hale, Jack and Maurini, Corrado},
-	title = {A framework for expressing general constitutive models in FEniCSx},
-    booktitle = {16ème Colloque National en Calcul de Structures},
-	year = {2024},
-    month = {May},
-    publisher = {CNRS, CSMA, ENS Paris-Saclay, CentraleSupélec},
-	address = {Giens, France},
-    url = {https://hal.science/hal-04610881}
+  author = {Latyshev, Andrey and Bleyer, Jérémy and Hale, Jack and Maurini, Corrado},
+  title = {A framework for expressing general constitutive models in FEniCSx},
+  booktitle = {16ème Colloque National en Calcul de Structures},
+  year = {2024},
+  month = {May},
+  publisher = {CNRS, CSMA, ENS Paris-Saclay, CentraleSupélec},
+  address = {Giens, France},
+  url = {https://hal.science/hal-04610881}
 }
 ```
 
