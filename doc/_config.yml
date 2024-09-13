@@ -1,0 +1,64 @@
+# Book settings
+# Learn more at https://jupyterbook.org/customize/config.html
+
+title: "External operators within FEniCSx/DOLFINx"
+author: Andrey Latyshev, Jack S. Hale
+copyright: "2024"
+
+execute:
+  execute_notebooks: cache
+  timeout: 3600
+# Information about where the book exists on the web
+repository:
+  url: https://github.com/a-latyshev/dolfinx-external-operator/  # Online location of your book
+  branch: main # Which branch of the repository should be used when creating links (optional)
+
+launch_buttons:
+  notebook_interface: "jupyterlab" # The interface interactive links will activate ["classic", "jupyterlab"]
+  binderhub_url: "https://mybinder.org"
+
+bibtex_bibfiles:
+  - references.bib
+
+parse:
+  myst_enable_extensions:
+    - amsmath
+    - dollarmath
+    - linkify
+    - html_image
+
+sphinx:
+  extra_extensions:
+    - "sphinx.ext.autodoc"
+    - "sphinx.ext.napoleon"
+    - "sphinx.ext.viewcode"
+
+  config:
+    bibtex_reference_style: author_year
+    html_last_updated_fmt: "%b %d, %Y"
+    nb_custom_formats:
+      .py:
+        - jupytext.reads
+        - fmt: py
+    html_theme_options:
+      # navigation_with_keys: false
+      # pygment_light_style: "friendly"
+      show_navbar_depth: 1
+      home_page_in_toc: true
+      show_toc_level: 2
+      repository_url: https://github.com/a-latyshev/dolfinx-external-operator/
+      use_edit_page_button: true
+      use_repository_button: true
+      use_issues_button: true
+      use_download_button: true
+
+
+html:
+  favicon: "favicon.ico"
+#   use_issues_button: true
+#   use_repository_button: true
+#   use_edit_page_button: true
+#   favicon: "favicon.ico"
+#   show_navbar_depth: 1
+#   home_page_in_toc: true
+#   home_page_in_navbar: true
