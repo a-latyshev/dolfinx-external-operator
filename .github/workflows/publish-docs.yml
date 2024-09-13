@@ -35,12 +35,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: webpage
-          path: "./docs/public"
+          path: "./doc/public"
         
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "./docs/public"
+          path: "./doc/public"
 
       - name: Deploy to GitHub Pages
         id: deployment
