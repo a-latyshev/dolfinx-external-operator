@@ -32,8 +32,7 @@ ci = [
 line-length = 120
 indent-width = 4
 
-
-select = [
+lint.select = [
     # "B",
     # "D", # pydocstyle
     "E",   # pycodestyle
@@ -47,7 +46,7 @@ select = [
     # "SIM",
     # "PL",
 ]
-ignore = []
+lint.ignore = []
 
 [tool.ruff.lint.isort]
 known-first-party = [

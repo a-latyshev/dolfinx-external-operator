@@ -1,5 +1,7 @@
 import gc
+
 from mpi4py import MPI
+
 
 def pytest_runtest_teardown(item):
     """Collect garbage after every test to force calling

@@ -19,6 +19,7 @@ demo_files = list(path.glob("**/demo_*.py"))
 for f in demo_files:
     demos.append((f.parent, f.name))
 
+
 @pytest.mark.serial
 @pytest.mark.parametrize("path,name", demos)
 def test_demos(path, name):
