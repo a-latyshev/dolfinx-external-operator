@@ -18,12 +18,12 @@
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb with apex-smoothing
 #
-# This tutorial aims to demonstrate how modern automatic or algorithmic differentiation (AD)
-# techniques may be used to define a complex constitutive model demanding a lot of
-# by-hand differentiation. In particular, we implement the non-associative
-# plasticity model of Mohr-Coulomb with apex-smoothing applied to a slope
-# stability problem for soil. We use the JAX package to define constitutive
-# relations including the differentiation of certain terms and
+# This tutorial aims to demonstrate how modern automatic algorithmic
+# differentiation (AD) techniques may be used to define a complex constitutive
+# model demanding a lot of by-hand differentiation. In particular, we implement
+# the non-associative plasticity model of Mohr-Coulomb with apex-smoothing applied
+# to a slope stability problem for soil. We use the JAX package to define
+# constitutive relations including the differentiation of certain terms and
 # `FEMExternalOperator` framework to incorporate this model into a weak
 # formulation within UFL.
 #
@@ -38,15 +38,15 @@
 # ## Problem formulation
 #
 # We solve a slope stability problem of a soil domain $\Omega$ represented by a
-# parallelepiped $[0; L] \times [0; W] \times [0; H]$ with homogeneous Dirichlet
-# boundary conditions for the displacement field $\boldsymbol{u} = \boldsymbol{0}$
-# on the right side $x = L$ and the bottom one $z = 0$. The loading consists of a
-# gravitational body force $\boldsymbol{q}=[0, 0, -\gamma]^T$ with $\gamma$ being
-# the soil self-weight. The solution of the problem is to find the collapse load
-# $q_\text{lim}$, for which we know an analytical solution in the plane-strain
-# case for the standard Mohr-Coulomb criterion. We
-# follow the same Mandel-Voigt notation as in the von Mises plasticity tutorial
-# but in 3D.
+# rectangle $[0; L] \times [0; W]$ with homogeneous Dirichlet boundary conditions
+# for the displacement field $\boldsymbol{u} = \boldsymbol{0}$ on the right side
+# $x = L$ and the bottom one $z = 0$. The loading consists of a gravitational body
+# force $\boldsymbol{q}=[0, -\gamma]^T$ with $\gamma$ being the soil self-weight.
+# The solution of the problem is to find the collapse load $q_\text{lim}$, for
+# which we know an analytical solution in the case of the standard Mohr-Coulomb
+# model without smoothing under plane strain assumption for associative plastic
+# {cite}`chenLimitAnalysisSoil1990`. Here we follow the same Mandel-Voigt notation
+# as in the [von Mises plasticity tutorial](https://a-latyshev.github.io/dolfinx-external-operator/demos/plasticity_von_mises.html).
 #
 # If $V$ is a functional space of admissible displacement fields, then we can
 # write out a weak formulation of the problem:
@@ -56,8 +56,8 @@
 # $$
 #     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
 #     \boldsymbol{\sigma}(\boldsymbol{u}) \cdot
-#     \boldsymbol{\varepsilon}(\boldsymbol{v}) \mathrm{d}\boldsymbol{x} +
-#     \int\limits_\Omega \boldsymbol{q} \cdot \boldsymbol{v} = \boldsymbol{0}, \quad
+#     \boldsymbol{\varepsilon}(\boldsymbol{v}) \, \mathrm{d}\boldsymbol{x} +
+#     \int\limits_\Omega \boldsymbol{q} \cdot \boldsymbol{v} \, \mathrm{d}\boldsymbol{x} = \boldsymbol{0}, \quad
 #     \forall \boldsymbol{v} \in V,
 # $$
 # where $\boldsymbol{\sigma}$ is an external operator representing the stress tensor.
@@ -215,26 +215,28 @@ sigma_n = fem.Function(S, name="sigma_n")
 #     \end{cases}
 #
 # $$ (eq_MC_1)
+# where $\Delta$ is associated with increments of a quantity between the next
+# loading step $n + 1$ and the current loading step $n$.
 #
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{g}^T,
-# r_f]^T$ and its argument vector $\boldsymbol{x} =
-# [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$ we solve the following nonlinear
-# equation:
+# r_f]^T$ and its argument vector $\boldsymbol{y}_{n+1} =
+# [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$, we obtain the following
+# nonlinear constitutive equation:
 #
 # $$
-#     \boldsymbol{r}(\boldsymbol{x}_{n+1}) = \boldsymbol{0}
+#     \boldsymbol{r}(\boldsymbol{y}_{n+1}) = \boldsymbol{0}.
 # $$
 #
-# To solve this equation we apply the Newton method and introduce the Jacobian of
-# the residual vector $\boldsymbol{j} = \frac{\mathrm{d} \boldsymbol{r}}{\mathrm{d}
-# \boldsymbol{x}}$. Thus we solve the following linear system at each quadrature
-# point for the plastic phase
+# To solve this equation we apply the Newton method and introduce the local
+# Jacobian of the residual vector $\boldsymbol{j} := \frac{\mathrm{d}
+# \boldsymbol{r}}{\mathrm{d} \boldsymbol{y}}$. Thus we solve the following linear
+# system at each quadrature point for the plastic phase
 #
 # $$
 #     \begin{cases}
-#         \boldsymbol{j}(\boldsymbol{x}_{n})\boldsymbol{y} = -
-#         \boldsymbol{r}(\boldsymbol{x}_{n}), \\
-#         \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{y}.
+#         \boldsymbol{j}(\boldsymbol{y}_{n})\boldsymbol{t} = -
+#         \boldsymbol{r}(\boldsymbol{y}_{n}), \\
+#         \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{t}.
 #     \end{cases}
 # $$
 #
@@ -253,10 +255,13 @@ sigma_n = fem.Function(S, name="sigma_n")
 # $\boldsymbol{\sigma}$ we mean the implementation of this *algorithmic* procedure.
 #
 # The automatic differentiation tools of the JAX library are applied to calculate
-# the derivatives $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}, \frac{\mathrm{d}
-# \boldsymbol{r}}{\mathrm{d} \boldsymbol{x}}$ as well as the stress tensor
-# derivative or the consistent tangent stiffness matrix $\boldsymbol{C}_\text{tang} =
-# \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$.
+# the three derivatives of different complexitices:
+# 1. $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}$ - derivative
+#    of the plastic potential $g$,
+# 2. $j = \frac{\mathrm{d} \boldsymbol{r}}{\mathrm{d} \boldsymbol{y}}$ -
+#    derivative of the local residual $\boldsymbol{r}$,
+# 3. $\boldsymbol{C}_\text{tang} = \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$ - stress tensor
+# derivative or consistent tangent moduli.
 #
 # #### Defining yield surface and plastic potential
 #
@@ -384,7 +389,7 @@ dgdsigma = jax.jacfwd(g)
 # vectorize the final result using `jax.vmap`.
 #
 # In the following cell, we define locally the residual $\boldsymbol{r}$ and
-# its jacobian `drdx`.
+# its jacobian `drdy`.
 
 # %%
 lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
@@ -524,14 +529,14 @@ def return_mapping(deps_local, sigma_n_local):
 # mathematical expression but also a numerical algorithm. For instance, AD can
 # calculate the derivative of the function performing return-mapping with respect
 # to its output, the stress tensor $\boldsymbol{\sigma}$. In the context of the
-# consistent tangent matrix $\boldsymbol{C}_\text{tang}$, this feature becomes
+# consistent tangent moduli $\boldsymbol{C}_\text{tang}$, this feature becomes
 # very useful, as there is no need to write an additional program computing the
 # stress derivative.
 #
 # JAX's AD tool permits taking the derivative of the function `return_mapping`,
 # which is factually the while loop. The derivative is taken with respect to the
 # first output and the remaining outputs are used as auxiliary data. Thus, the
-# derivative `dsigma_ddeps` returns both values of the consistent tangent matrix
+# derivative `dsigma_ddeps` returns both values of the consistent tangent moduli
 # and the stress tensor, so there is no need in a supplementary computation of the
 # stress tensor.
 
@@ -616,11 +621,11 @@ J_form = fem.form(J_replaced)
 # %% [markdown]
 # ### Variables initialization and compilation
 #
-# Before solving the problem we have to initialize values of the consistent
-# tangent matrix, as it requires for the system assembling. During the first load
-# step, we expect an elastic response only, so it's enough two to solve the
-# constitutive equations for any small displacements at each Gauss point. This
-# results in initializing the consistent tangent matrix with elastic moduli.
+# Before solving the problem we have to initialize values of the stiffness matrix,
+# as it requires for the system assembling. During the first loading step, we
+# expect an elastic response only, so it's enough two to solve the constitutive
+# equations for any small displacements at each Gauss point. This results in
+# initializing the consistent tangent moduli with elastic ones.
 #
 # At the same time, we can measure the compilation overhead caused by the first
 # call of JIT-ed JAX functions.
@@ -649,7 +654,7 @@ print(f"\nJAX's JIT compilation overhead: {pass_1 - pass_2}")
 #
 # Summing up, we apply the Newton method to solve the main weak problem. On each
 # iteration of the main Newton loop, we solve elastoplastic constitutive equations
-# by using the second, inner, Newton method at each Gauss point. Thanks to the
+# by using the second (inner) Newton method at each Gauss point. Thanks to the
 # framework and the JAX library, the final interface is general enough to be
 # applied to other plasticity models.
 
