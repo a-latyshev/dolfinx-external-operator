@@ -438,9 +438,9 @@ def r_f(sigma_local, dlambda, deps_local, sigma_n_local):
     return jax.lax.cond(yielding <= 0.0, r_f_elastic, r_f_plastic, sigma_local, dlambda)
 
 
-def r(x_local, deps_local, sigma_n_local):
-    sigma_local = x_local[:stress_dim]
-    dlambda_local = x_local[-1]
+def r(y_local, deps_local, sigma_n_local):
+    sigma_local = y_local[:stress_dim]
+    dlambda_local = y_local[-1]
 
     res_g = r_g(sigma_local, dlambda_local, deps_local, sigma_n_local)
     res_f = r_f(sigma_local, dlambda_local, deps_local, sigma_n_local)
@@ -449,7 +449,7 @@ def r(x_local, deps_local, sigma_n_local):
     return res
 
 
-drdx = jax.jacfwd(r)
+drdy = jax.jacfwd(r)
 
 # %% [markdown]
 # Then we define the function `return_mapping` that implements the
@@ -485,9 +485,9 @@ def return_mapping(deps_local, sigma_n_local):
 
     dlambda = ZERO_SCALAR
     sigma_local = sigma_n_local
-    x_local = jnp.concatenate([sigma_local, dlambda])
+    y_local = jnp.concatenate([sigma_local, dlambda])
 
-    res = r(x_local, deps_local, sigma_n_local)
+    res = r(y_local, deps_local, sigma_n_local)
     norm_res0 = jnp.linalg.norm(res)
 
     def cond_fun(state):
@@ -497,26 +497,26 @@ def return_mapping(deps_local, sigma_n_local):
     def body_fun(state):
         norm_res, niter, history = state
 
-        x_local, deps_local, sigma_n_local, res = history
+        y_local, deps_local, sigma_n_local, res = history
 
-        j = drdx(x_local, deps_local, sigma_n_local)
+        j = drdy(y_local, deps_local, sigma_n_local)
         j_inv_vp = jnp.linalg.solve(j, -res)
-        x_local = x_local + j_inv_vp
+        y_local = y_local + j_inv_vp
 
-        res = r(x_local, deps_local, sigma_n_local)
+        res = r(y_local, deps_local, sigma_n_local)
         norm_res = jnp.linalg.norm(res)
-        history = x_local, deps_local, sigma_n_local, res
+        history = y_local, deps_local, sigma_n_local, res
 
         niter += 1
 
         return (norm_res, niter, history)
 
-    history = (x_local, deps_local, sigma_n_local, res)
+    history = (y_local, deps_local, sigma_n_local, res)
 
-    norm_res, niter_total, x_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
+    norm_res, niter_total, y_local = jax.lax.while_loop(cond_fun, body_fun, (norm_res0, niter, history))
 
-    sigma_local = x_local[0][:stress_dim]
-    dlambda = x_local[0][-1]
+    sigma_local = y_local[0][:stress_dim]
+    dlambda = y_local[0][-1]
     sigma_elas_local = C_elas @ deps_local
     yielding = f(sigma_n_local + sigma_elas_local)
 
