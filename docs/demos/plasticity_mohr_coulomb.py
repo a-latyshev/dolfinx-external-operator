@@ -83,6 +83,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
 from mpltools import annotation  # for slope markers
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 from solvers import LinearProblem
 from utilities import find_cell_by_point
 
@@ -803,8 +805,8 @@ if not pyvista.OFF_SCREEN:
 # $\rho$ is the radial coordinate and the angle $\theta \in
 # [-\frac{\pi}{6}, \frac{\pi}{6}]$ is called Lode or stress angle.
 #
-# By introducing the hydrostatic variable $p = \xi/\sqrt{3}$, the principal
-# stresses can be written in Haigh-Westergaard coordinates as follows
+# To generate the stress paths we use the principal
+# stresses formula written in Haigh-Westergaard coordinates as follows
 #
 # $$
 #     \begin{pmatrix}
@@ -826,10 +828,92 @@ if not pyvista.OFF_SCREEN:
 #     \end{pmatrix},
 # $$ 
 #
-# from where $\sigma_{I} \geq \sigma_{II} \geq \sigma_{III}$. Then, by knowing
-# the expression of the [standrad
+# where $p = \xi/\sqrt{3}$ is a hydrostatic variable, $\sigma_{I} \geq \sigma_{II}
+# \geq \sigma_{III}$.
+#
+# Now we generate the loading path by evaluating principal stresses in
+# Haigh-Westergaard coordinates for the Lode angle $\theta$ being varied from
+# $-\frac{\pi}{6}$ to $\frac{\pi}{6}$ with fixed $\rho$ and $p$.
+
+# %%
+N_angles = 100
+N_loads = 9 # number of loadings or paths
+eps = 0.00001
+R = 0.7 # fix the values of rho
+p = 0.1 # fix the deviatoric stress
+theta_1 = -np.pi/6
+theta_2 = np.pi/6
+
+theta_values = np.linspace(theta_1+eps, theta_2-eps, N_angles)
+theta_returned = np.empty((N_loads, N_angles))
+rho_returned = np.empty((N_loads, N_angles))
+sigma_returned = np.empty((N_loads, N_angles, stress_dim))
+
+# fix an increment of the stress path
+dsigma_path = np.zeros((N_angles, stress_dim))
+dsigma_path[:, 0] = (R / np.sqrt(2)) * (np.cos(theta_values) + np.sin(theta_values) / np.sqrt(3))
+dsigma_path[:, 1] = (R / np.sqrt(2)) * (- 2 * np.sin(theta_values) / np.sqrt(3))
+dsigma_path[:, 2] = (R / np.sqrt(2)) * (np.sin(theta_values) / np.sqrt(3) - np.cos(theta_values))
+
+sigma_n_local = np.zeros_like(dsigma_path)
+sigma_n_local[:, 0] = p
+sigma_n_local[:, 1] = p
+sigma_n_local[:, 2] = p
+derviatoric_axis = tr
+
+
+# %% [markdown]
+# Then, we define and vectorize functions `rho`, `angle` and `sigma_tracing`
+# evaluating respectively the coordinates $\rho$, $\theta$ and the corrected (or
+# "returned") stress tensor for a certain stress state. `sigma_tracing` calls the
+# function `return_mapping`, where the constitutive model was defined via JAX
+# previously.
+
+# %%
+def rho(sigma_local):
+    s = dev @ sigma_local
+    return jnp.sqrt(2.0 * J2(s))
+
+def theta(sigma_local):
+    s = dev @ sigma_local
+    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2(s) * J2(s) * J2(s)))
+    arg = jnp.clip(arg, -1.0, 1.0)
+    angle = 1.0 / 3.0 * jnp.arcsin(arg)
+    return angle
+    
+def sigma_tracing(sigma_local, sigma_n_local):
+    deps_elas = S_elas @ sigma_local
+    sigma_corrected, state = return_mapping(deps_elas, sigma_n_local)
+    yielding = state[2]
+    return sigma_corrected, yielding
+
+theta_v = jax.jit(jax.vmap(angle, in_axes=(0)))
+rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
+sigma_tracing_v = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
+
+# %% [markdown]
+# For each stress path, we call the function `sigma_tracing_v` to get the
+# corrected stress state and then we project it onto the deviatoric plane $(\rho,
+# \theta)$ with a fixed value of $p$.
+
+# %%
+for i in range(N_loads):
+    print(f"Loading path#{i}")
+    dsigma, yielding = sigma_tracing_v(dsigma_path, sigma_n_local)
+    dp = dsigma @ tr / 3.0 - p
+    dsigma -= np.outer(dp, derviatoric_axis)  # projection on the same deviatoric plane
+
+    sigma_returned[i, :] = dsigma
+    theta_returned[i, :] = theta_v(dsigma)
+    rho_returned[i, :] = rho_v(dsigma)
+    print(f"max f: {jnp.max(yielding)}\n")
+    sigma_n_local[:] = dsigma
+
+
+# %% [markdown]
+# Then, by knowing the expression of the [standrad
 # Mohr-Coulomb](https://en.wikipedia.org/wiki/Mohr%E2%80%93Coulomb_theory) yield
-# surface in principle stress, we can obtain an analogue expression in
+# surface in principle stresses, we can obtain an analogue expression in
 # Haigh-Westergaard coordinates, which leads us to the following equation:
 #
 #
@@ -838,127 +922,57 @@ if not pyvista.OFF_SCREEN:
 #     \sin\theta) - p\sin\phi - c\cos\phi= 0.
 # $$ (eq:standard_MC)
 #
-# Now we define and vectorize functions `rho`, `angle` and `sigma_tracing`
-# evaluating respectively the coordinates $\rho$, $\theta$ and the corrected (or "returned")
-# stress tensor for a certain stress state. `sigma_tracing` calls the function
-# `return_mapping`, where the constitutive model was defined via JAX previously.
+# Thus, we restore the standard Mohr-Coulomb yield surface:
 
 # %%
-def rho(sigma_local):
-    s = dev @ sigma_local
-    return jnp.sqrt(2.0 * J2(s))
-
-def angle(sigma_local):
-    s = dev @ sigma_local
-    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2(s) * J2(s) * J2(s)))
-    arg = jnp.clip(arg, -1.0, 1.0)
-    angle = 1.0 / 3.0 * jnp.arcsin(arg)
-    return angle
-
 def MC_yield_surface(theta_, p):
-    """Restores the coordinate `rho` satisfying the standard Mohr-Coulomb yield criterion."""
+    """Restores the coordinate `rho` satisfying the standard Mohr-Coulomb yield
+    criterion."""
     rho = (np.sqrt(2)*(c * np.cos(phi) + p * np.sin(phi))) / (np.cos(theta_) - np.sin(phi) * np.sin(theta_) / np.sqrt(3)) 
     return rho
 
-def sigma_tracing(sigma_local, sigma_n_local):
-    deps_elas = S_elas @ sigma_local
-    sigma_corrected, state = return_mapping(deps_elas, sigma_n_local)
-    yielding = state[2]
-    return sigma_corrected, yielding
-
-angle_v = jax.jit(jax.vmap(angle, in_axes=(0)))
-rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
-sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
+rho_standard_MC = MC_yield_surface(theta_values, p)
 
 # %% [markdown]
-# Secondly, we generate the loading path by evaluating principal stresses in
-# Haigh-Westergaard coordinates for the Lode angle $\theta$ being varied from
-# $-\frac{\pi}{6}$ to $\frac{\pi}{6}$ with fixed $\rho$ and $p$.
+# Finally, we plot the yield surface:
 
 # %%
-N_angles = 50
-N_loads = 9
-eps = 0.00001
-R = 0.7
-p = 0.1
-theta_1 = -np.pi/6
-theta_2 = np.pi/6
+colormap = cm.plasma
+colors = colormap(np.linspace(0.0, 1.0, N_loads))
 
-angle_values = np.linspace(theta_1+eps, theta_2-eps, N_angles)
-dsigma_path = np.zeros((N_angles, stress_dim))
-dsigma_path[:, 0] = (R / np.sqrt(2)) * (np.cos(angle_values) + np.sin(angle_values) / np.sqrt(3))
-dsigma_path[:, 1] = (R / np.sqrt(2)) * (- 2 * np.sin(angle_values) / np.sqrt(3))
-dsigma_path[:, 2] = (R / np.sqrt(2)) * (np.sin(angle_values) / np.sqrt(3) - np.cos(angle_values))
+fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
+# Mohr-Coulomb yield surface with apex smoothing
+for i, color in enumerate(colors):
+    rho_total = np.array([])
+    theta_total = np.array([])
+    for j in range(12):
+        angles = j * np.pi / 3 - j % 2 * theta_returned[i] + (1 - j % 2) * theta_returned[i]
+        theta_total = np.concatenate([theta_total, angles])
+        rho_total = np.concatenate([rho_total, rho_returned[i]])
 
-angle_results = np.empty((N_loads, N_angles))
-rho_results = np.empty((N_loads, N_angles))
-sigma_results = np.empty((N_loads, N_angles, stress_dim))
-sigma_n_local = np.zeros_like(dsigma_path)
-sigma_n_local[:, 0] = p
-sigma_n_local[:, 1] = p
-sigma_n_local[:, 2] = p
-derviatoric_axis = tr
+    ax.plot(theta_total, rho_total, ".", color=color)
 
-# %% [markdown]
-# For each stress path, we call the function `sigma_tracing_vec` to get the
-# corrected stress state and then we project it onto the deviatoric plane $(\rho,
-# \theta)$ defined by $p = 0.1$.
-
-# %%
-for i in range(N_loads):
-    print(f"Stress path#{i}")
-    dsigma, yielding = sigma_tracing_vec(dsigma_path, sigma_n_local)
-    dp = dsigma @ tr / 3.0 - p
-    dsigma -= np.outer(dp, derviatoric_axis)  # projection on the same deviatoric plane
-
-    sigma_results[i, :] = dsigma
-    angle_results[i, :] = angle_v(dsigma)
-    rho_results[i, :] = rho_v(dsigma)
-    print(f"max f: {jnp.max(yielding)}\n")
-    sigma_n_local[:] = dsigma
-
-# %% [markdown]
-# In addition, we restore the standard Mohr-Coulomb yield surface defined in {eq}`eq:standard_MC`.
-
-# %%
-rho_standard_MC = MC_yield_surface(angle_values, p)
-
-angles_standard_MC_total = np.array([])
+# standard Mohr-Coulomb yield surface
+theta_standard_MC_total = np.array([])
 rho_standard_MC_total = np.array([])
 for j in range(12):
-    angles = j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values
-    angles_standard_MC_total = np.concatenate([angles_standard_MC_total, angles])
+    angles = j * np.pi / 3 - j % 2 * theta_values + (1 - j % 2) * theta_values
+    theta_standard_MC_total = np.concatenate([theta_standard_MC_total, angles])
     rho_standard_MC_total = np.concatenate([rho_standard_MC_total, rho_standard_MC])
+ax.plot(theta_standard_MC_total, rho_standard_MC_total, "-", color="black")
+ax.set_yticklabels([])
+
+norm = mcolors.Normalize(vmin=0.1, vmax=0.7*9)
+sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
+sm.set_array([])
+cbar = fig.colorbar(sm, ax=ax, orientation='vertical')
+cbar.set_label(r'Magnitude of the stress path deviator, $\rho$ [MPa]')
 
 # %% [markdown]
-# Finally, the stress paths are represented by a series of circles lying in each
-# other in the same deviatoric plane $(\rho, \theta)$. By applying the
-# return-mapping algorithm, we obtain the corrected stress paths (colored curves).
-# Once they get close to the elastic limit the traced curves start aligning with
-# the standard Mohr-Coulomb yield surface (the black thin contour) with
-# slightly smoothed apexes, which indicates the correct implementation of the
-# constitutive model.
-
-# %%
-np.save("angle_results.npy", angle_results)
-np.save("rho_results.npy", rho_results)
-
-# %%
-fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
-for i in range(N_loads):
-    rho_total = np.array([])
-    angles_total = np.array([])
-    for j in range(12):
-        angles = j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i]
-        angles_total = np.concatenate([angles_total, angles])
-        rho_total = np.concatenate([rho_total, rho_results[i]])
-
-    ax.plot(angles_total, rho_total, ".")
-
-ax.plot(angles_standard_MC_total, rho_standard_MC_total, "-", color="black")
-
-ax.set_yticklabels([])
-fig.tight_layout()
+# Each colour represents one loading path. The circles are associated with the
+# loading during the elastic phase. Once the loading reaches the elastic limit,
+# the circles start outlining the yield surface, which in the limit lay along the
+# standard Mohr-Coulomb one without smoothing (black contour).
 
 # %% [markdown]
 # ### Taylor test
