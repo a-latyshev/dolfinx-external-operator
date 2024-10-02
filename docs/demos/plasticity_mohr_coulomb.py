@@ -871,8 +871,8 @@ sigma_tracing_vec = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 # $-\frac{\pi}{6}$ to $\frac{\pi}{6}$ with fixed $\rho$ and $p$.
 
 # %%
-N_angles = 100
-N_loads = 10
+N_angles = 50
+N_loads = 9
 eps = 0.00001
 R = 0.7
 p = 0.1
@@ -916,14 +916,14 @@ for i in range(N_loads):
 # In addition, we restore the standard Mohr-Coulomb yield surface defined in {eq}`eq:standard_MC`.
 
 # %%
-MC_surface_rho = MC_yield_surface(angle_values, p)
+rho_standard_MC = MC_yield_surface(angle_values, p)
 
-angles_total = np.array([])
-MC_surface_rho_total = np.array([])
+angles_standard_MC_total = np.array([])
+rho_standard_MC_total = np.array([])
 for j in range(12):
     angles = j * np.pi / 3 - j % 2 * angle_values + (1 - j % 2) * angle_values
-    angles_total = np.concatenate([angles_total, angles])
-    MC_surface_rho_total = np.concatenate([MC_surface_rho_total, MC_surface_rho])
+    angles_standard_MC_total = np.concatenate([angles_standard_MC_total, angles])
+    rho_standard_MC_total = np.concatenate([rho_standard_MC_total, rho_standard_MC])
 
 # %% [markdown]
 # Finally, the stress paths are represented by a series of circles lying in each
@@ -935,12 +935,22 @@ for j in range(12):
 # constitutive model.
 
 # %%
-fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
-for j in range(12):
-    for i in range(N_loads):
-        ax.plot(j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i], rho_results[i], ".")
+np.save("angle_results.npy", angle_results)
+np.save("rho_results.npy", rho_results)
 
-ax.plot(angles_total, MC_surface_rho_total, "-", color="black")
+# %%
+fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
+for i in range(N_loads):
+    rho_total = np.array([])
+    angles_total = np.array([])
+    for j in range(12):
+        angles = j * np.pi / 3 - j % 2 * angle_results[i] + (1 - j % 2) * angle_results[i]
+        angles_total = np.concatenate([angles_total, angles])
+        rho_total = np.concatenate([rho_total, rho_results[i]])
+
+    ax.plot(angles_total, rho_total, ".")
+
+ax.plot(angles_standard_MC_total, rho_standard_MC_total, "-", color="black")
 
 ax.set_yticklabels([])
 fig.tight_layout()
