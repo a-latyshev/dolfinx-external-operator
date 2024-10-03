@@ -1,0 +1,11 @@
+format: jb-book
+root: index
+parts:
+  - caption: "Demos"
+    chapters:
+      - file: "demo/demo_nonlinear_heat_equation_part1.py"
+        sections:
+          - file: "demo/demo_nonlinear_heat_equation_part2.py"
+          - file: "demo/demo_nonlinear_heat_equation_part3.py"
+      - file: "demo/demo_plasticity_von_mises.py"
+      - file: "demo/demo_plasticity_mohr_coulomb.py"

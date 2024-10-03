@@ -1,0 +1,60 @@
+# Simple workflow for deploying static content to GitHub Pages
+name: Build and test
+
+on:
+  workflow_call:
+  pull_request:
+    branches:
+      - "main"
+      
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container: ghcr.io/fenics/dolfinx/dolfinx:nightly
+    
+    env:
+      PYVISTA_OFF_SCREEN: true
+      PYVISTA_JUPYTER_BACKEND: "html"
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          apt update && apt install -y libxrender1 xvfb
+      
+      - name: Install
+        run: |
+          python3 -m pip install '.[ci]'
+
+      - name: ruff check and check format
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Run tests (serial)
+        run: |
+          python3 -m pytest test/
+
+      - name: Run tests (MPI, np=3)
+        run: |
+          mpirun -n 3 python3 -m pytest test/
+      
+      - name: Run demos (serial)
+        run: |
+          python3 -m pytest demo/
+
+      - name: Run demos (MPI, np=3)
+        run: |
+          python -m pytest -m mpi --num-proc=3 demo/
+
+      - name: Build book
+        working-directory: doc/
+        run: jupyter-book build .
+      
+      - name: Upload documentation as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webpage
+          path: doc/_build/html
+          if-no-files-found: error

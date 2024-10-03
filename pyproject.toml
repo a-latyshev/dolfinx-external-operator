@@ -17,14 +17,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-docs = ["jupyter-book", "jupytext"]
-demos = ["numba", "jax[cpu]", "pyvista", "mpltools"]
-tests = ["pytest"]
+doc = ["jupyter-book", "jupytext"]
+demo = ["numba", "jax[cpu]", "pyvista", "mpltools"]
+test = ["pytest"]
 lint = ["ruff"]
 ci = [
-    "dolfinx-external-operator[docs]",
-    "dolfinx-external-operator[demos]",
-    "dolfinx-external-operator[tests]",
+    "dolfinx-external-operator[doc]",
+    "dolfinx-external-operator[demo]",
+    "dolfinx-external-operator[test]",
     "dolfinx-external-operator[lint]",
 ]
 
@@ -32,8 +32,7 @@ ci = [
 line-length = 120
 indent-width = 4
 
-
-select = [
+lint.select = [
     # "B",
     # "D", # pydocstyle
     "E",   # pycodestyle
@@ -47,7 +46,7 @@ select = [
     # "SIM",
     # "PL",
 ]
-ignore = []
+lint.ignore = []
 
 [tool.ruff.lint.isort]
 known-first-party = [
