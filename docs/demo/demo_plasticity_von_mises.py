@@ -166,7 +166,7 @@ from petsc4py import PETSc
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
-from plasticity_von_mises_pure_ufl import plasticity_von_mises_interpolation, plasticity_von_mises_pure_ufl
+from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
 from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
@@ -489,7 +489,7 @@ for i, loading_v in enumerate(loadings):
         external_operator_problem.solve(du)
         du.x.scatter_forward()
 
-        Du.vector.axpy(-1.0, du.vector)
+        Du.x.petsc_vec.axpy(-1.0, du.x.petsc_vec)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
@@ -511,11 +511,11 @@ for i, loading_v in enumerate(loadings):
         if MPI.COMM_WORLD.rank == 0:
             print(f"    it# {iteration} residual: {residual}")
 
-    u.vector.axpy(1.0, Du.vector)
+    u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
     # Taking into account the history of loading
-    p.vector.axpy(1.0, dp.vector)
+    p.x.petsc_vec.axpy(1.0, dp.x.petsc_vec)
     # skip scatter forward, p is not ghosted.
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
     # skip scatter forward, sigma is not ghosted.
@@ -527,7 +527,6 @@ for i, loading_v in enumerate(loadings):
 # ### Post-processing
 
 # %%
-results_interpolation = plasticity_von_mises_interpolation(verbose=False)
 results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=False)
 
 # %%

@@ -5,10 +5,11 @@ import jax
 import jax.numpy as jnp
 import gmsh
 import numpy as np
-import pyvista
 
+# import pyvista
 import basix
-import dolfinx.plot as plot
+
+# import dolfinx.plot as plot
 from dolfinx.fem import Expression, Function
 from dolfinx.geometry import bb_tree, compute_colliding_cells, compute_collisions_points
 from dolfinx.io import gmshio
@@ -87,26 +88,26 @@ def find_cell_by_point(mesh, point):
     return cells, points_on_proc
 
 
-def plot_scalar_field(field, verbose=False, to_show=True):
-    """
-    Plot a scalar field with pyvista
-    """
-    field_name = field.name
-    domain = field.function_space.mesh
-    plotter = pyvista.Plotter(title=field_name, window_size=[200, 300])
-    topology, cell_types, x = plot.vtk_mesh(domain)
-    grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-    grid.point_data[field_name] = field.x.array
-    grid.set_active_scalars(field_name)
-    if verbose:
-        plotter.add_text(field_name, font_size=11)
-    plotter.add_mesh(grid, show_edges=False, show_scalar_bar=verbose)
-    plotter.view_xy()
-    if not pyvista.OFF_SCREEN and to_show:
-        plotter.show()
-    plotter.camera.tight()
-    image = plotter.screenshot(None, transparent_background=True, return_img=True)
-    return image
+# def plot_scalar_field(field, verbose=False, to_show=True):
+#     """
+#     Plot a scalar field with pyvista
+#     """
+#     field_name = field.name
+#     domain = field.function_space.mesh
+#     plotter = pyvista.Plotter(title=field_name, window_size=[200, 300])
+#     topology, cell_types, x = plot.vtk_mesh(domain)
+#     grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+#     grid.point_data[field_name] = field.x.array
+#     grid.set_active_scalars(field_name)
+#     if verbose:
+#         plotter.add_text(field_name, font_size=11)
+#     plotter.add_mesh(grid, show_edges=False, show_scalar_bar=verbose)
+#     plotter.view_xy()
+#     if not pyvista.OFF_SCREEN and to_show:
+#         plotter.show()
+#     plotter.camera.tight()
+#     image = plotter.screenshot(None, transparent_background=True, return_img=True)
+#     return image
 
 
 def interpolate_quadrature(ufl_expr, fem_func: Function):
