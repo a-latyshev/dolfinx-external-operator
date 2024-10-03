@@ -59,7 +59,7 @@ class LinearProblem:
         Args:
             du: A global vector to be used as a container for the solution of the linear system
         """
-        self.solver.solve(self.b, du.vector)
+        self.solver.solve(self.b, du.x.petsc_vec)
 
     def __del__(self):
         self.solver.destroy()

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -80,7 +81,7 @@ import jax.lax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import pyvista
+# import pyvista
 from mpltools import annotation  # for slope markers
 from solvers import LinearProblem
 from utilities import find_cell_by_point
@@ -701,7 +702,7 @@ for i, load in enumerate(load_steps):
         external_operator_problem.assemble_matrix()
         external_operator_problem.solve(du)
 
-        Du.vector.axpy(1.0, du.vector)
+        Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
@@ -715,7 +716,7 @@ for i, load in enumerate(load_steps):
         if MPI.COMM_WORLD.rank == 0:
             print(f"\tResidual: {residual}\n")
 
-    u.vector.axpy(1.0, Du.vector)
+    u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
@@ -749,23 +750,24 @@ print(f"Slope stability factor for 2D plane strain factor [Chen]: {6.69}")
 print(f"Computed slope stability factor: {22.75*H/c}")
 
 # %%
-W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
-u_tmp = fem.Function(W, name="Displacement")
-u_tmp.interpolate(u)
+# TODO: require pyvista support
+# W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
+# u_tmp = fem.Function(W, name="Displacement")
+# u_tmp.interpolate(u)
 
-pyvista.start_xvfb()
-plotter = pyvista.Plotter(window_size=[600, 400])
-topology, cell_types, x = plot.vtk_mesh(domain)
-grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-vals = np.zeros((x.shape[0], 3))
-vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
-grid["u"] = vals
-warped = grid.warp_by_vector("u", factor=20)
-plotter.add_text("Displacement field", font_size=11)
-plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
-plotter.view_xy()
-if not pyvista.OFF_SCREEN:
-    plotter.show()
+# pyvista.start_xvfb()
+# plotter = pyvista.Plotter(window_size=[600, 400])
+# topology, cell_types, x = plot.vtk_mesh(domain)
+# grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+# vals = np.zeros((x.shape[0], 3))
+# vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
+# grid["u"] = vals
+# warped = grid.warp_by_vector("u", factor=20)
+# plotter.add_text("Displacement field", font_size=11)
+# plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
+# plotter.view_xy()
+# if not pyvista.OFF_SCREEN:
+#     plotter.show()
 
 
 # %% [markdown]
@@ -961,7 +963,7 @@ for iteration in range(0, max_iterations):
     external_operator_problem.assemble_matrix()
     external_operator_problem.solve(du)
 
-    Du.vector.axpy(1.0, du.vector)
+    Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
     Du.x.scatter_forward()
 
     evaluated_operands = evaluate_operands(F_external_operators)
@@ -1021,7 +1023,7 @@ def perform_Taylor_test(Du0, sigma_n0):
         F_delta = fem.petsc.assemble_vector(F_form)  # F(Du0 + h*δu)
         F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
-        J0.mult(δu.vector, y)  # y = J(Du0)*δu
+        J0.mult(δu.x.petsc_vec, y)  # y = J(Du0)*δu
         y.scale(h)  # y = h*y
 
         zero_order_remainder[i] = (F_delta - F0).norm()
