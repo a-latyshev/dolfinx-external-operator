@@ -201,7 +201,7 @@ def plasticity_von_mises_pure_ufl(verbose=True):
             # end = MPI.Wtime()
             # time_monitor["solve_lin_problem"] += end - start
 
-            Du.vector.axpy(1, du.vector)  # Du = Du + 1*du
+            Du.x.petsc_vec.axpy(1, du.x.petsc_vec)  # Du = Du + 1*du
             Du.x.scatter_forward()
 
             my_problem.assemble_vector()
@@ -218,7 +218,7 @@ def plasticity_von_mises_pure_ufl(verbose=True):
         interpolate_quadrature(sig_, sig)
         interpolate_quadrature(dp_, dp)
 
-        u.vector.axpy(1, Du.vector)  # u = u + 1*Du
+        u.x.petsc_vec.axpy(1, Du.x.petsc_vec)  # u = u + 1*Du
         u.x.scatter_forward()
 
         # p.vector.axpy(1, dp.vector)
