@@ -677,7 +677,7 @@ load_steps = np.concatenate([load_steps_1, load_steps_2])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %%
+# %% tags=["scroll-output"]
 
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
@@ -756,9 +756,6 @@ if len(points_on_process) > 0:
     gamma_lim = l_lim / H * c
     plt.plot(results[:, 0], results[:, 1], "o-",  label=r"$\gamma$")
     plt.axhline(y=gamma_lim, color='r', linestyle='--', label=r"$\gamma_\text{lim}$")
-    # plt.xlabel("Displacement of the slope at (0, H)")
-    # plt.ylabel(r"Soil self-weight $\gamma$")
-    # plt.savefig(f"displacement_rank{MPI.COMM_WORLD.rank:d}.png")
     plt.xlabel(r"Displacement of the slope $u_x$ at $(0, H)$ [mm]")
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
     plt.grid()
@@ -836,7 +833,7 @@ if not pyvista.OFF_SCREEN:
 # $-\frac{\pi}{6}$ to $\frac{\pi}{6}$ with fixed $\rho$ and $p$.
 
 # %%
-N_angles = 100
+N_angles = 50
 N_loads = 9 # number of loadings or paths
 eps = 0.00001
 R = 0.7 # fix the values of rho
@@ -887,7 +884,7 @@ def sigma_tracing(sigma_local, sigma_n_local):
     yielding = state[2]
     return sigma_corrected, yielding
 
-theta_v = jax.jit(jax.vmap(angle, in_axes=(0)))
+theta_v = jax.jit(jax.vmap(theta, in_axes=(0)))
 rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
 sigma_tracing_v = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 
@@ -896,7 +893,7 @@ sigma_tracing_v = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 # corrected stress state and then we project it onto the deviatoric plane $(\rho,
 # \theta)$ with a fixed value of $p$.
 
-# %%
+# %% tags=["scroll-output"]
 for i in range(N_loads):
     print(f"Loading path#{i}")
     dsigma, yielding = sigma_tracing_v(dsigma_path, sigma_n_local)
@@ -1132,7 +1129,7 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # Finally, we define the function `perform_Taylor_test`, which returns the norms
 # of the Taylor reminders in dual space {eq}`eq:r_norms`--{eq}`eq:vec_r1`.
 
-# %%
+# %% tags=["scroll-output"]
 k_list = np.logspace(-2.0, -6.0, 5)[::-1]
 
 def perform_Taylor_test(Du0, sigma_n0):
