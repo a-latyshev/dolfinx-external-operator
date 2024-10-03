@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -81,13 +80,15 @@ import jax.lax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+
 # import pyvista
 from mpltools import annotation  # for slope markers
 from solvers import LinearProblem
 from utilities import find_cell_by_point
 
 import basix
-import dolfinx.plot as plot
+
+# import dolfinx.plot as plot
 import ufl
 from dolfinx import common, default_scalar_type, fem, mesh
 from dolfinx_external_operator import (

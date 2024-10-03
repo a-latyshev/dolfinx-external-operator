@@ -166,7 +166,7 @@ from petsc4py import PETSc
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
-from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_interpolation, plasticity_von_mises_pure_ufl
+from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
 from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 

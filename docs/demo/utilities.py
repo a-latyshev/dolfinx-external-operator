@@ -2,10 +2,11 @@ from mpi4py import MPI
 
 import gmsh
 import numpy as np
-# import pyvista
 
+# import pyvista
 import basix
-import dolfinx.plot as plot
+
+# import dolfinx.plot as plot
 from dolfinx.fem import Expression, Function
 from dolfinx.geometry import bb_tree, compute_colliding_cells, compute_collisions_points
 from dolfinx.io import gmshio
