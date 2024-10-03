@@ -145,7 +145,7 @@ def evaluate_operands(
                     inverted_map[entity_maps[mesh][indices]] = indices
                     integration_entities = cpp.fem.compute_integration_domains(
                         fem.IntegralType.exterior_facet,
-                        operand.function_space.mesh.topology,
+                        operand.function_space.mesh.topology._cpp_object,
                         inverted_map,
                         operand.function_space.mesh.topology.dim - 1,
                     )
