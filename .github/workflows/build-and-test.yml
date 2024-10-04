@@ -42,7 +42,7 @@ jobs:
       
       - name: Run demos (serial)
         run: |
-          python3 -m pytest demo/
+          python3 -m pytest docs/demo/
 
       # - name: Run demos (MPI, np=3)
       #   run: |

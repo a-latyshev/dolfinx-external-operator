@@ -34,7 +34,7 @@
 #
 # ## Recall
 #
-# The concept of external operators was originally introduced in {cite}`bouziani_escaping_2021`. According to
+# The concept of external operators was originally introduced in {cite}`bouzianiEscaping2021`. According to
 # this work, if $W, V$ and $X$ are some functional spaces then the external
 # operator $N$ maps an *operand* $u \in W$ as follows
 #
@@ -437,3 +437,8 @@ assert np.allclose(A_manual_matrix.to_dense(), A_matrix.to_dense())
 # Here we considered a trivial example of an external operator. Let's take a look
 # at a more complex case in the context of the same heat equation, where an
 # external operator will have two operands.
+
+# %% [markdown]
+# ```{bibliography}
+# :filter: docname in docnames
+# ```
