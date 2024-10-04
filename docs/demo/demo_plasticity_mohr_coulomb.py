@@ -2,7 +2,7 @@
 # ---
 # jupyter:
 #   jupytext:
-#     cell_metadata_filter: -all
+#     cell_metadata_filter: tags,-all
 #     custom_cell_magics: kql
 #     text_representation:
 #       extension: .py
@@ -1168,19 +1168,19 @@ def perform_Taylor_test(Du0, sigma_n0):
         F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(F_delta, bcs)
 
-        J0.mult(δu.x.petsc_vec, y)  # y = J(Du0)*δu
-        y.scale(h)  # y = h*y
+        J0.mult(δu.x.petsc_vec, Ju)  # Ju = J(Du0)*δu
+        Ju.scale(k)  # Ju = k*Ju
 
         r0 = F_delta - F0
         r1 = F_delta - F0 - Ju
 
-        Riesz_solver.solve(r0, y.vector) # y = L^{-1} r0
+        Riesz_solver.solve(r0, y.x.petsc_vec) # y = L^{-1} r0
         y.x.scatter_forward()
-        zero_order_remainder[i] = np.sqrt(r0.dot(y.vector)) # sqrt{r0^T L^{-1} r0}
+        zero_order_remainder[i] = np.sqrt(r0.dot(y.x.petsc_vec)) # sqrt{r0^T L^{-1} r0}
 
-        Riesz_solver.solve(r1, y.vector) # y = L^{-1} r1
+        Riesz_solver.solve(r1, y.x.petsc_vec) # y = L^{-1} r1
         y.x.scatter_forward()
-        first_order_remainder[i] = np.sqrt(r1.dot(y.vector)) # sqrt{r1^T L^{-1} r1}
+        first_order_remainder[i] = np.sqrt(r1.dot(y.x.petsc_vec)) # sqrt{r1^T L^{-1} r1}
 
     return zero_order_remainder, first_order_remainder
 
