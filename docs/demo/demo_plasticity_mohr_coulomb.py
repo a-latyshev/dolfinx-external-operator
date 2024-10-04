@@ -10,7 +10,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
 #   kernelspec:
-#     display_name: Python 3
+#     display_name: dolfinx-env
 #     language: python
 #     name: python3
 # ---
@@ -22,10 +22,11 @@
 # differentiation (AD) techniques may be used to define a complex constitutive
 # model demanding a lot of by-hand differentiation. In particular, we implement
 # the non-associative plasticity model of Mohr-Coulomb with apex-smoothing applied
-# to a slope stability problem for soil. We use the JAX package to define
-# constitutive relations including the differentiation of certain terms and
-# `FEMExternalOperator` framework to incorporate this model into a weak
-# formulation within UFL.
+# to a slope stability problem for soil. We use the
+# [JAX](https://jax.readthedocs.io/en/latest/) package to define constitutive
+# relations including the differentiation of certain terms and
+# `FEMExternalOperator` class to incorporate this model into a weak formulation
+# within [UFL](https://github.com/fenics/ufl).
 #
 # The tutorial is based on the
 # [limit analysis](https://fenics-optim.readthedocs.io/en/latest/demos/limit_analysis_3D_SDP.html)
@@ -44,9 +45,9 @@
 # force $\boldsymbol{q}=[0, -\gamma]^T$ with $\gamma$ being the soil self-weight.
 # The solution of the problem is to find the collapse load $q_\text{lim}$, for
 # which we know an analytical solution in the case of the standard Mohr-Coulomb
-# model without smoothing under plane strain assumption for associative plastic
+# model without smoothing under plane strain assumption for associative plastic law
 # {cite}`chenLimitAnalysisSoil1990`. Here we follow the same Mandel-Voigt notation
-# as in the [von Mises plasticity tutorial](https://a-latyshev.github.io/dolfinx-external-operator/demos/plasticity_von_mises.html).
+# as in the [von Mises plasticity tutorial](demo_plasticity_von_mises.py).
 #
 # If $V$ is a functional space of admissible displacement fields, then we can
 # write out a weak formulation of the problem:
@@ -82,7 +83,6 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-# import pyvista
 from mpltools import annotation  # for slope markers
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -91,7 +91,6 @@ from utilities import find_cell_by_point
 
 import basix
 
-# import dolfinx.plot as plot
 import ufl
 from dolfinx import common, default_scalar_type, fem, mesh
 from dolfinx_external_operator import (
@@ -175,7 +174,7 @@ Du = fem.Function(V, name="Du")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="du")
 # v = ufl.TrialFunction(V)
-u_ = ufl.TestFunction(V)
+v = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
@@ -254,12 +253,13 @@ sigma_n = fem.Function(S, name="sigma_n")
 # $$ (eq_MC_2)
 #
 # The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
-# return-mapping procedure and the solution defines the return-mapping
+# *return-mapping procedure* and the solution defines the return-mapping
 # correction of the stress tensor. By implementation of the external operator
-# $\boldsymbol{\sigma}$ we mean the implementation of this *algorithmic* procedure.
+# $\boldsymbol{\sigma}$ we mean the implementation of this *algorithmic*
+# procedure.
 #
 # The automatic differentiation tools of the JAX library are applied to calculate
-# the three derivatives of different complexitices:
+# the three distinct derivatives:
 # 1. $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}$ - derivative
 #    of the plastic potential $g$,
 # 2. $j = \frac{\mathrm{d} \boldsymbol{r}}{\mathrm{d} \boldsymbol{y}}$ -
@@ -393,7 +393,7 @@ dgdsigma = jax.jacfwd(g)
 # vectorize the final result using `jax.vmap`.
 #
 # In the following cell, we define locally the residual $\boldsymbol{r}$ and
-# its jacobian `drdy`.
+# its Jacobian `drdy`.
 
 # %%
 lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
@@ -612,7 +612,7 @@ def F_ext(v):
 
 
 u_hat = ufl.TrialFunction(V)
-F = ufl.inner(epsilon(u_), sigma) * dx - F_ext(u_)
+F = ufl.inner(epsilon(v), sigma) * dx - F_ext(v)
 J = ufl.derivative(F, Du, u_hat)
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
@@ -627,9 +627,9 @@ J_form = fem.form(J_replaced)
 #
 # Before solving the problem we have to initialize values of the stiffness matrix,
 # as it requires for the system assembling. During the first loading step, we
-# expect an elastic response only, so it's enough two to solve the constitutive
-# equations for any small displacements at each Gauss point. This results in
-# initializing the consistent tangent moduli with elastic ones.
+# expect an elastic response only, so it's enough to solve the constitutive
+# equations for a relatively small displacement field at each Gauss point. This
+# results in initializing the consistent tangent moduli with elastic ones.
 #
 # At the same time, we can measure the compilation overhead caused by the first
 # call of JIT-ed JAX functions.
@@ -733,7 +733,7 @@ print(f"Slope stability factor: {-q.value[-1]*H/c}")
 #
 # According to {cite:t}`chenLimitAnalysisSoil1990`, we can derive analytically the
 # slope stability factor $l_\text{lim}$ for the standard Mohr-Coulomb plasticity
-# model (*without* apex smoothing) under plane strain assumption for associative plastic flow:
+# model (*without* apex smoothing) under plane strain assumption for associative plastic flow
 #
 # $$ 
 #     l_\text{lim} = \gamma_\text{lim} H/c, 
@@ -768,6 +768,9 @@ if len(points_on_process) > 0:
 
 # %%
 # TODO: require pyvista support
+# import pyvista
+# import dolfinx.plot as plot
+
 # W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
 # u_tmp = fem.Function(W, name="Displacement")
 # u_tmp.interpolate(u)
@@ -793,7 +796,7 @@ if len(points_on_process) > 0:
 # yield surface. We generate several stress paths and check whether they remain
 # within the Mohr-Coulomb yield surface. The stress tracing is performed in the
 # [Haigh-Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
-# $(\xi, \rho, \theta)$ which are defined as follows:
+# $(\xi, \rho, \theta)$ which are defined as follows
 #
 # $$
 #     \xi = \frac{1}{\sqrt{3}}I_1, \quad \rho =
@@ -828,8 +831,8 @@ if len(points_on_process) > 0:
 #     \end{pmatrix},
 # $$ 
 #
-# where $p = \xi/\sqrt{3}$ is a hydrostatic variable, $\sigma_{I} \geq \sigma_{II}
-# \geq \sigma_{III}$.
+# where $p = \xi/\sqrt{3}$ is a hydrostatic variable and $\sigma_{I} \geq
+# \sigma_{II} \geq \sigma_{III}$.
 #
 # Now we generate the loading path by evaluating principal stresses in
 # Haigh-Westergaard coordinates for the Lode angle $\theta$ being varied from
@@ -840,7 +843,7 @@ N_angles = 50
 N_loads = 9 # number of loadings or paths
 eps = 0.00001
 R = 0.7 # fix the values of rho
-p = 0.1 # fix the deviatoric stress
+p = 0.1 # fix the deviatoric coordinate
 theta_1 = -np.pi/6
 theta_2 = np.pi/6
 
@@ -863,7 +866,7 @@ derviatoric_axis = tr
 
 
 # %% [markdown]
-# Then, we define and vectorize functions `rho`, `angle` and `sigma_tracing`
+# Then, we define and vectorize functions `rho`, `theta` and `sigma_tracing`
 # evaluating respectively the coordinates $\rho$, $\theta$ and the corrected (or
 # "returned") stress tensor for a certain stress state. `sigma_tracing` calls the
 # function `return_mapping`, where the constitutive model was defined via JAX
@@ -1017,7 +1020,7 @@ cbar.set_label(r'Magnitude of the stress path deviator, $\rho$ [MPa]')
 # associates a linear functional $f$ with a unique element $\mathcal{R} f =
 # \boldsymbol{u} \in V$. In practice, within a finite subspace $V_h \subset V$, the
 # Riesz map $\mathcal{R}$ is represented by the matrix $\mathsf{L}^{-1}$, the
-# inverse of the Laplacian operator {cite}`kirbyFunctional2010`:
+# inverse of the Laplacian operator {cite}`kirbyFunctional2010`
 #
 # $$
 #     \mathsf{L}_{ij} = \int\limits_\Omega \nabla\varphi_i \cdot \nabla\varphi_j \mathrm{d} x , \quad i,j = 1, \dots, n,
@@ -1026,16 +1029,18 @@ cbar.set_label(r'Magnitude of the stress path deviator, $\rho$ [MPa]')
 # where $\{\varphi_i\}_{i=1}^{\dim V_h}$ is a set of basis function of the space
 # $V_h$.
 #
-# If the vectors $\mathsf{r}_k^i \in \mathbb{R}^{\dim V_h}, \, i \in \{0,1\}$
-# represent the Taylor remainders from {eq}`eq:r0`--{eq}`eq:r1`, then the dual norms
-# are computed through the following formula {cite}`kirbyFunctional2010`:
+# If the Euclidean vectors $\mathsf{r}_k^i \in \mathbb{R}^{\dim V_h}, \, i \in
+# \{0,1\}$ represent the Taylor remainders from {eq}`eq:r0`--{eq}`eq:r1` in the
+# finite space, then the dual norms are computed through the following formula
+# {cite}`kirbyFunctional2010`
 #
 # $$
 #     \| r_k^i \|^2_{V^\prime_h} = (\mathsf{r}_k^i)^T \mathsf{L}^{-1} \mathsf{r}_k^i, \quad i \in \{0,1\}.
 # $$ (eq:r_norms)
 #
 # In practice, the vectors $\mathsf{r}_k^i$ are defined through the residual
-# vector $\mathsf{F}$ and the Jacobian matrix $\mathsf{J}$:
+# vector $\mathsf{F} \in \mathbb{R}^{\dim V_h}$ and the Jacobian matrix
+# $\mathsf{J} \in \mathbb{R}^{\dim V_h\times\dim V_h}$
 #
 # $$
 #     \mathsf{r}_k^0 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) - \mathsf{F}(\mathsf{u}) \in \mathbb{R}^n,
@@ -1052,7 +1057,7 @@ cbar.set_label(r'Magnitude of the stress path deviator, $\rho$ [MPa]')
 # defining the Laplace operator.
 
 # %%
-L_form = fem.form(ufl.inner(ufl.grad(u_hat), ufl.grad(u_)) * ufl.dx)
+L_form = fem.form(ufl.inner(ufl.grad(u_hat), ufl.grad(v)) * ufl.dx)
 L = fem.petsc.assemble_matrix(L_form, bcs=bcs)
 L.assemble()
 Riesz_solver = PETSc.KSP().create(domain.comm)
@@ -1193,20 +1198,20 @@ zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_tes
 # %%
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
-axs[0].loglog(k_list, zero_order_remainder_elastic, "o-", label=r"$r_k^0$")
-axs[0].loglog(k_list, first_order_remainder_elastic, "o-", label=r"$r_k^1$")
+axs[0].loglog(k_list, zero_order_remainder_elastic, "o-", label=r"$\|r_k^0\|_{V^\prime}$")
+axs[0].loglog(k_list, first_order_remainder_elastic, "o-", label=r"$\|r_k^1\|_{V^\prime}$")
 annotation.slope_marker((2e-4, 5e-5), 1, ax=axs[0], poly_kwargs={"facecolor": "tab:blue"})
 axs[0].text(0.5, -0.2, "(a) Elastic phase", transform=axs[0].transAxes, ha="center", va="top")
 
-axs[1].loglog(k_list, zero_order_remainder_plastic, "o-", label=r"$r_k^0$")
+axs[1].loglog(k_list, zero_order_remainder_plastic, "o-", label=r"$\|r_k^0\|_{V^\prime}$")
 annotation.slope_marker((2e-4, 5e-5), 1, ax=axs[1], poly_kwargs={"facecolor": "tab:blue"})
-axs[1].loglog(k_list, first_order_remainder_plastic, "o-", label=r"$r_k^1$")
+axs[1].loglog(k_list, first_order_remainder_plastic, "o-", label=r"$\|r_k^1\|_{V^\prime}$")
 annotation.slope_marker((2e-4, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
 axs[1].text(0.5, -0.2, "(b) Plastic phase", transform=axs[1].transAxes, ha="center", va="top")
 
 for i in range(2):
     axs[i].set_xlabel("k")
-    axs[i].set_ylabel("Taylor remainder")
+    axs[i].set_ylabel("Taylor remainder norm")
     axs[i].legend()
     axs[i].grid()
 
@@ -1220,16 +1225,15 @@ second_order_rate = np.polyfit(np.log(k_list[1:]), np.log(first_order_remainder_
 print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
 
 # %% [markdown]
-# Taylor test for the form $F$ for the (a) elastic and (b) plastic
-# phases. For the elastic phase (a) the zeroth-order Taylor remainder $r_k^0$
-# achieves the first-order convergence rate, whereas the first-order remainder
-# $r_k^1$ is computed at the level of machine precision due to the constant
-# Jacobian. Similarly to the elastic flow, the zeroth-order Taylor remainder
-# $r_k^0$ of the plastic phase (b) reaches the first-order convergence, whereas
-# the first-order remainder $r_k^1$ achieves the second-order convergence rate,
-# as expected.
+# For the elastic phase (a) the zeroth-order Taylor remainder $r_k^0$ achieves the
+# first-order convergence rate, whereas the first-order remainder $r_k^1$ is
+# computed at the level of machine precision due to the constant Jacobian.
+# Similarly to the elastic flow, the zeroth-order Taylor remainder $r_k^0$ of the
+# plastic phase (b) reaches the first-order convergence, whereas the first-order
+# remainder $r_k^1$ achieves the second-order convergence rate, as expected.
 
 # %% [markdown]
+# ## References
 # ```{bibliography}
 # :filter: docname in docnames
 # ```
