@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
 #   kernelspec:
-#     display_name: Python 3
+#     display_name: dolfinx-env
 #     language: python
 #     name: python3
 # ---
@@ -96,7 +96,7 @@
 # $$
 #     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
 #     \boldsymbol{\sigma}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot \boldsymbol{\varepsilon(v)}
-#     \mathrm{d}\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall
+#     \,\mathrm{d}\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall
 #     \boldsymbol{v} \in V.
 # $$ (eq_von_Mises_main)
 #
@@ -106,7 +106,7 @@
 # $$
 #     F_\text{ext}(\boldsymbol{v}) = q
 #     \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} \cdot \boldsymbol{v}
-#     d\boldsymbol{x},
+#     \,\mathrm{d}\boldsymbol{x},
 # $$
 # where the vector $\boldsymbol{n}$ is a normal to the cylinder surface and the
 # loading parameter $q$ is progressively increased from 0 to $q_\text{lim} =
@@ -117,13 +117,13 @@
 # an associative plasticity law.
 #
 # In this tutorial, we treat the stress tensor $\boldsymbol{\sigma}$ as an
-# external operator acting on the strain tensor $\boldsymbol{\varepsilon}(\boldsymbol{u})$ and
-# represent it through a `FEMExternalOperator` object. By the implementation of
-# this external operator, we mean an implementation of the return-mapping
-# procedure, the most common approach to solve plasticity problems. With the
-# help of this procedure, we compute both values of the stress tensor
-# $\boldsymbol{\sigma}$ and its derivative, so-called the tangent stiffness
-# matrix $\boldsymbol{C}_\text{tang}$.
+# external operator acting on the strain tensor
+# $\boldsymbol{\varepsilon}(\boldsymbol{u})$ and represent it through a
+# `FEMExternalOperator` object. By the implementation of this external operator,
+# we mean an implementation of the return-mapping procedure, the most common
+# approach to solve plasticity problems. With the help of this procedure, we
+# compute both values of the stress tensor $\boldsymbol{\sigma}$ and its
+# derivative, so-called the tangent moduli $\boldsymbol{C}_\text{tang}$.
 #
 # As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main`
 # we need to compute the Gateaux derivative of $F$ in the direction
@@ -135,25 +135,14 @@
 #     \boldsymbol{v})]\{\boldsymbol{\hat{u}}\} := \int\limits_\Omega
 # \left( \boldsymbol{C}_\text{tang}(\boldsymbol{\varepsilon}(\boldsymbol{u}))
 # \cdot \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}) \right) \cdot
-#     \boldsymbol{\varepsilon(v)} \mathrm{d}\boldsymbol{x}, \quad \forall \boldsymbol{v}
+#     \boldsymbol{\varepsilon(v)} \,\mathrm{d}\boldsymbol{x}, \quad \forall \boldsymbol{v}
 #     \in V.
 # $$
 #
-# The advantage of the von Mises model is that the return-mapping procedure may
-# be performed analytically, so the stress tensor and the tangent stiffness
-# matrix may be expressed explicitly using any package. In our case, we the
-# Numba library to define the behaviour of the external operator and its
-# derivative.
-#
-# <!--
-# In the above nonlinear problem {eq}`eq_von_Mises_main` the elastoplastic constitutive
-# relation $\boldsymbol{\sigma}(\boldsymbol{u})$ is restored by applying the
-# return-mapping procedure. The main bottleneck of this procedure is a computation
-# of derivatives of quantities of interest including one of the stress tensor,
-# so-called the tangent stiffness matrix $\boldsymbol{C}_\text{tang}$ required for
-# the Newton method to solve the nonlinear equation {eq}`eq_von_Mises_main`. The advantage
-# of the von Mises model is that the return-mapping procedure may be performed
-# analytically, so the derivatives may be expressed explicitly. -->
+# The advantage of the von Mises model is that the return-mapping procedure may be
+# performed analytically, so the stress tensor and the tangent moduli may be
+# expressed explicitly using any package. In our case, we the Numba library to
+# define the behaviour of the external operator and its derivative.
 #
 # ## Implementation
 #
@@ -285,10 +274,10 @@ sigma_n = fem.Function(S, name="stress_n")
 # $\frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}$
 # must be implemented by the user. In this tutorial, we implement the derivative using the Numba package.
 #
-# First of all, we implement the return-mapping procedure locally in the
-# function `_kernel`. It computes the values of the stress tensor, the tangent
-# stiffness matrix and the increment of cumulative plastic strain at a single
-# Gausse node. For more details, visit the [original
+# First of all, we implement the return-mapping procedure locally in the function
+# `_kernel`. It computes the values of the stress tensor, the tangent moduli and
+# the increment of cumulative plastic strain at a single Gausse node. For more
+# details, visit the [original
 # implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
 # of this problem for the legacy FEniCS 2019.
 #
@@ -340,7 +329,7 @@ def return_mapping(deps_, sigma_n_, p_):
 
 # %% [markdown]
 # Now nothing stops us from defining the implementation of the external operator
-# derivative (the stiffness tangent tensor $\boldsymbol{C}_\text{tang}$) in the
+# derivative (the tangent tensor $\boldsymbol{C}_\text{tang}$) in the
 # function `C_tang_impl`. It returns global values of the derivative, stress
 # tensor and the cumulative plastic increment.
 
@@ -464,7 +453,7 @@ external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_process = find_cell_by_point(mesh, x_point)
 
-# %%
+# %% tags=["scroll-output"]
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 num_increments = 20
 max_iterations, relative_tolerance = 200, 1e-8
@@ -516,30 +505,42 @@ for i, loading_v in enumerate(loadings):
 
     # Taking into account the history of loading
     p.x.petsc_vec.axpy(1.0, dp.x.petsc_vec)
-    # skip scatter forward, p is not ghosted.
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
-    # skip scatter forward, sigma is not ghosted.
 
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value / q_lim)
 
 # %% [markdown]
-# ### Post-processing
+# ### Verification
+#
+# In order to verify the correctness of obtained results, we perform their
+# comparison against a "pure UFl" implementation. Thanks to simplicity of the von
+# Mises model we can express stress tensor and tangent moduli analytically within
+# the variational setting and so in UFL. Such a performant implementation is
+# presented by the function `plasticity_von_mises_pure_ufl`.
 
 # %%
 results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=False)
 
+# %% [markdown]
+# Here below we plot the displacement of the inner boundary of the cylinder
+# $u_x(R_i, 0)$ with respect to the applied pressure in the von Mises model with
+# isotropic hardening. The plastic deformations are reached at the pressure
+# $q_{\lim}$ equal to the analytical collapse load for perfect plasticity.
+
 # %%
 if len(points_on_process) > 0:
-    plt.plot(results_pure_ufl[:, 0], results_pure_ufl[:, 1], "-o", label="pure UFL")
-    plt.plot(results[:, 0], results[:, 1], "-o", label="dolfinx-external-operator (Numba)")
-    # plt.plot(-results_interpolation[:, 0], results_interpolation[:, 1], "-o", label="interpolation")
-    plt.xlabel(r"Displacement of inner boundary at $(R_i, 0)$")
-    plt.ylabel(r"Applied pressure $q/q_{lim}$")
+    plt.plot(results_pure_ufl[:, 0], results_pure_ufl[:, 1], "o-", label="pure UFL")
+    plt.plot(results[:, 0], results[:, 1], "*-", label="dolfinx-external-operator (Numba)")
+    plt.xlabel(r"Displacement of inner boundary $u_x$ at $(R_i, 0)$ [mm]")
+    plt.ylabel(r"Applied pressure $q/q_{\text{lim}}$ [-]")
     plt.legend()
+    plt.grid()
     plt.show()
 
 # %% [markdown]
+# ## References
+#
 # ```{bibliography}
 # :filter: docname in docnames
 # ```
