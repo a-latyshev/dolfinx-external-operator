@@ -8,6 +8,10 @@
 #       format_name: percent
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: dolfinx-env
+#     language: python
+#     name: python3
 # ---
 
 # %% [markdown]
@@ -23,7 +27,7 @@
 #
 # - define a UFL form including a `FEMExternalOperator` which symbolically
 #   represents an external operator,
-# - define the concrete definition of the external operator using `Numpy` and
+# - define the concrete definition of the external operator using `NumPy` and
 #   functional programming techniques, and then attach it to the symbolic
 #   `FEMExternalOperator`,
 # - and assemble the Jacobian and residual operators that can be used inside a
@@ -42,7 +46,8 @@
 #   u, v \mapsto N(u; v) \in X,
 # $$
 #
-# where $v \in V$ is an *argument* of $N$. The operator $N$ can be **nonlinear**
+# where $v \in V$ is an *argument* of $N$. The semicolon is used to explicitly
+# distinguish operands and arguments as the operator $N$ may be **nonlinear**
 # concerning its *operands* but **linear** for its *arguments*.
 #
 # This concept is implemented in the form of a symbolic object of UFL and can be
@@ -120,7 +125,7 @@
 # \end{equation*}
 # We now proceed to the definition of residual and Jacobian of this problem
 # where $\boldsymbol{q}$ will be defined using the `FEMExternalOperator` approach
-# and an external implementation using the `Numpy` package.
+# and an external implementation using the `NumPy` package.
 # ```{note}
 # This simple model can also be implemented in pure UFL and the Jacobian
 # derived symbolically using UFL's `derivative` function.
@@ -174,7 +179,7 @@ T.interpolate(lambda x: x[0] ** 2 + x[1])
 
 
 # %% [markdown]
-# We also need to define a `fem.FunctionSpace` in which the output of the external
+# We also need to define a `fem.functionspace` in which the output of the external
 # operator $k$ will live. For optimal convergence, $k$
 # must be evaluated directly at the Gauss points used in the integration of the
 # weak form. This can be enforced by constructing a quadrature function space
@@ -197,7 +202,7 @@ k = FEMExternalOperator(T, function_space=Q)
 
 # %% [markdown]
 # Note that at this stage the object `k` is symbolic and we have not defined the
-# `Numpy` code to compute it. This will be done later in the example.
+# `NumPy` code to compute it. This will be done later in the example.
 # ```{note}
 # `FEMExternalOperator` holds the `ref_coefficient` (a `fem.Function`) attribute
 # to store its evaluation.
@@ -439,6 +444,7 @@ assert np.allclose(A_manual_matrix.to_dense(), A_matrix.to_dense())
 # external operator will have two operands.
 
 # %% [markdown]
+# ## References
 # ```{bibliography}
 # :filter: docname in docnames
 # ```

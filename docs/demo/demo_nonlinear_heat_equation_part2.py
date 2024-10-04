@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
 #   kernelspec:
-#     display_name: Python 3
+#     display_name: dolfinx-env
 #     language: python
 #     name: python3
 # ---
@@ -91,7 +91,7 @@
 # \end{align*}
 # We now proceed to the definition of residual and Jacobian of this problem
 # where $\boldsymbol{q}$ will be defined using the `FEMExternalOperator` approach
-# and an external implementation using `Numpy`.
+# and an external implementation using `NumPy`.
 # ```{note}
 # This simple model can also be implemented in pure UFL and the Jacobian
 # derived symbolically using UFL's `derivative` function.

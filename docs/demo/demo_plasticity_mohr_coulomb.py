@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -80,17 +79,15 @@ from petsc4py import PETSc
 import jax
 import jax.lax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
-import numpy as np
-
-from mpltools import annotation  # for slope markers
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import numpy as np
+from mpltools import annotation  # for slope markers
 from solvers import LinearProblem
 from utilities import find_cell_by_point
 
 import basix
-
 import ufl
 from dolfinx import common, default_scalar_type, fem, mesh
 from dolfinx_external_operator import (
@@ -264,7 +261,9 @@ sigma_n = fem.Function(S, name="sigma_n")
 #    of the plastic potential $g$,
 # 2. $j = \frac{\mathrm{d} \boldsymbol{r}}{\mathrm{d} \boldsymbol{y}}$ -
 #    derivative of the local residual $\boldsymbol{r}$,
-# 3. $\boldsymbol{C}_\text{tang} = \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$ - stress tensor
+# 3. $\boldsymbol{C}_\text{tang} =
+#    \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$ -
+#    stress tensor
 # derivative or consistent tangent moduli.
 #
 # #### Defining yield surface and plastic potential
@@ -275,6 +274,7 @@ sigma_n = fem.Function(S, name="sigma_n")
 # primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool
 # and just-in-time compilation. For more details, please, visit the JAX
 # [documentation](https://jax.readthedocs.io/en/latest/).
+
 
 # %%
 def J3(s):
@@ -371,16 +371,20 @@ def surface(sigma_local, angle):
         - c * np.cos(angle)
     )
 
+
 # %% [markdown]
 # By picking up an appropriate angle we define the yield surface $f$ and the
 # plastic potential $g$.
+
 
 # %%
 def f(sigma_local):
     return surface(sigma_local, phi)
 
+
 def g(sigma_local):
     return surface(sigma_local, psi)
+
 
 dgdsigma = jax.jacfwd(g)
 
@@ -526,6 +530,7 @@ def return_mapping(deps_local, sigma_n_local):
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
 
+
 # %% [markdown]
 # #### Consistent tangent stiffness matrix
 #
@@ -584,11 +589,13 @@ def C_tang_impl(deps):
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
+
 # %% [markdown]
 # Similarly to the von Mises example, we do not implement explicitly the
 # evaluation of the external operator. Instead, we obtain its values during the
 # evaluation of its derivative and then update the values of the operator in the
 # main Newton loop.
+
 
 # %%
 def sigma_external(derivatives):
@@ -735,9 +742,9 @@ print(f"Slope stability factor: {-q.value[-1]*H/c}")
 # slope stability factor $l_\text{lim}$ for the standard Mohr-Coulomb plasticity
 # model (*without* apex smoothing) under plane strain assumption for associative plastic flow
 #
-# $$ 
-#     l_\text{lim} = \gamma_\text{lim} H/c, 
-# $$ 
+# $$
+#     l_\text{lim} = \gamma_\text{lim} H/c,
+# $$
 #
 # where $\gamma_\text{lim}$ is an associated value of the soil self-weight. In
 # particular, for the rectangular slope with the friction angle $\phi$ equal to
@@ -756,8 +763,8 @@ print(f"Slope stability factor: {-q.value[-1]*H/c}")
 if len(points_on_process) > 0:
     l_lim = 6.69
     gamma_lim = l_lim / H * c
-    plt.plot(results[:, 0], results[:, 1], "o-",  label=r"$\gamma$")
-    plt.axhline(y=gamma_lim, color='r', linestyle='--', label=r"$\gamma_\text{lim}$")
+    plt.plot(results[:, 0], results[:, 1], "o-", label=r"$\gamma$")
+    plt.axhline(y=gamma_lim, color="r", linestyle="--", label=r"$\gamma_\text{lim}$")
     plt.xlabel(r"Displacement of the slope $u_x$ at $(0, H)$ [mm]")
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
     plt.grid()
@@ -829,7 +836,7 @@ if len(points_on_process) > 0:
 #         -\frac{2\sin\theta}{\sqrt{3}} \\
 #         \frac{\sin\theta}{\sqrt{3}} - \cos\theta
 #     \end{pmatrix},
-# $$ 
+# $$
 #
 # where $p = \xi/\sqrt{3}$ is a hydrostatic variable and $\sigma_{I} \geq
 # \sigma_{II} \geq \sigma_{III}$.
@@ -840,14 +847,14 @@ if len(points_on_process) > 0:
 
 # %%
 N_angles = 50
-N_loads = 9 # number of loadings or paths
+N_loads = 9  # number of loadings or paths
 eps = 0.00001
-R = 0.7 # fix the values of rho
-p = 0.1 # fix the deviatoric coordinate
-theta_1 = -np.pi/6
-theta_2 = np.pi/6
+R = 0.7  # fix the values of rho
+p = 0.1  # fix the deviatoric coordinate
+theta_1 = -np.pi / 6
+theta_2 = np.pi / 6
 
-theta_values = np.linspace(theta_1+eps, theta_2-eps, N_angles)
+theta_values = np.linspace(theta_1 + eps, theta_2 - eps, N_angles)
 theta_returned = np.empty((N_loads, N_angles))
 rho_returned = np.empty((N_loads, N_angles))
 sigma_returned = np.empty((N_loads, N_angles, stress_dim))
@@ -855,7 +862,7 @@ sigma_returned = np.empty((N_loads, N_angles, stress_dim))
 # fix an increment of the stress path
 dsigma_path = np.zeros((N_angles, stress_dim))
 dsigma_path[:, 0] = (R / np.sqrt(2)) * (np.cos(theta_values) + np.sin(theta_values) / np.sqrt(3))
-dsigma_path[:, 1] = (R / np.sqrt(2)) * (- 2 * np.sin(theta_values) / np.sqrt(3))
+dsigma_path[:, 1] = (R / np.sqrt(2)) * (-2 * np.sin(theta_values) / np.sqrt(3))
 dsigma_path[:, 2] = (R / np.sqrt(2)) * (np.sin(theta_values) / np.sqrt(3) - np.cos(theta_values))
 
 sigma_n_local = np.zeros_like(dsigma_path)
@@ -866,31 +873,35 @@ derviatoric_axis = tr
 
 
 # %% [markdown]
-# Then, we define and vectorize functions `rho`, `theta` and `sigma_tracing`
+# Then, we define and vectorize functions `rho`, `Lode_angle` and `sigma_tracing`
 # evaluating respectively the coordinates $\rho$, $\theta$ and the corrected (or
 # "returned") stress tensor for a certain stress state. `sigma_tracing` calls the
 # function `return_mapping`, where the constitutive model was defined via JAX
 # previously.
+
 
 # %%
 def rho(sigma_local):
     s = dev @ sigma_local
     return jnp.sqrt(2.0 * J2(s))
 
-def theta(sigma_local):
+
+def Lode_angle(sigma_local):
     s = dev @ sigma_local
     arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2(s) * J2(s) * J2(s)))
     arg = jnp.clip(arg, -1.0, 1.0)
     angle = 1.0 / 3.0 * jnp.arcsin(arg)
     return angle
-    
+
+
 def sigma_tracing(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
     sigma_corrected, state = return_mapping(deps_elas, sigma_n_local)
     yielding = state[2]
     return sigma_corrected, yielding
 
-theta_v = jax.jit(jax.vmap(theta, in_axes=(0)))
+
+Lode_angle_v = jax.jit(jax.vmap(Lode_angle, in_axes=(0)))
 rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
 sigma_tracing_v = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
 
@@ -907,7 +918,7 @@ for i in range(N_loads):
     dsigma -= np.outer(dp, derviatoric_axis)  # projection on the same deviatoric plane
 
     sigma_returned[i, :] = dsigma
-    theta_returned[i, :] = theta_v(dsigma)
+    theta_returned[i, :] = Lode_angle_v(dsigma)
     rho_returned[i, :] = rho_v(dsigma)
     print(f"max f: {jnp.max(yielding)}\n")
     sigma_n_local[:] = dsigma
@@ -927,12 +938,16 @@ for i in range(N_loads):
 #
 # Thus, we restore the standard Mohr-Coulomb yield surface:
 
+
 # %%
 def MC_yield_surface(theta_, p):
     """Restores the coordinate `rho` satisfying the standard Mohr-Coulomb yield
     criterion."""
-    rho = (np.sqrt(2)*(c * np.cos(phi) + p * np.sin(phi))) / (np.cos(theta_) - np.sin(phi) * np.sin(theta_) / np.sqrt(3)) 
+    rho = (np.sqrt(2) * (c * np.cos(phi) + p * np.sin(phi))) / (
+        np.cos(theta_) - np.sin(phi) * np.sin(theta_) / np.sqrt(3)
+    )
     return rho
+
 
 rho_standard_MC = MC_yield_surface(theta_values, p)
 
@@ -965,11 +980,11 @@ for j in range(12):
 ax.plot(theta_standard_MC_total, rho_standard_MC_total, "-", color="black")
 ax.set_yticklabels([])
 
-norm = mcolors.Normalize(vmin=0.1, vmax=0.7*9)
+norm = mcolors.Normalize(vmin=0.1, vmax=0.7 * 9)
 sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
 sm.set_array([])
-cbar = fig.colorbar(sm, ax=ax, orientation='vertical')
-cbar.set_label(r'Magnitude of the stress path deviator, $\rho$ [MPa]')
+cbar = fig.colorbar(sm, ax=ax, orientation="vertical")
+cbar.set_label(r"Magnitude of the stress path deviator, $\rho$ [MPa]")
 
 # %% [markdown]
 # Each colour represents one loading path. The circles are associated with the
@@ -992,10 +1007,13 @@ cbar.set_label(r'Magnitude of the stress path deviator, $\rho$ [MPa]')
 # V^\prime)$ defined as follows:
 #
 # $$
-#     \langle \mathcal{F}(\boldsymbol{u}), \boldsymbol{v} \rangle := F(\boldsymbol{u}; \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V,
+#     \langle \mathcal{F}(\boldsymbol{u}), \boldsymbol{v} \rangle :=
+#     F(\boldsymbol{u}; \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V,
 # $$
 # $$
-#     \langle (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}), \boldsymbol{v} \rangle := J(\boldsymbol{u}; k\boldsymbol{\delta u}, \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V, 
+#     \langle (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}),
+#     \boldsymbol{v} \rangle := J(\boldsymbol{u}; k\boldsymbol{\delta u},
+#     \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V,
 # $$
 #
 # where $V^\prime$ is a dual space of $V$, $\langle \cdot, \cdot \rangle$ is the
@@ -1008,10 +1026,15 @@ cbar.set_label(r'Magnitude of the stress path deviator, $\rho$ [MPa]')
 # following *mesh-independent* convergence rates in the dual space $V^\prime$:
 #
 # $$
-#     \| r_k^0 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \, \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) \|_{V^\prime} \longrightarrow 0 \text{ at } O(k),
+#     \| r_k^0 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \,
+#     \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) \|_{V^\prime}
+#     \longrightarrow 0 \text{ at } O(k),
 # $$ (eq:r0)
 # $$
-#     \| r_k^1 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \, \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) - \, (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}) \|_{V^\prime} \longrightarrow 0 \text{ at } O(k^2).
+#     \| r_k^1 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \,
+#     \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) - \,
+#     (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}) \|_{V^\prime}
+#     \longrightarrow 0 \text{ at } O(k^2).
 # $$ (eq:r1)
 #
 # In order to compute the norm of an element $f \in V^\prime$ from the dual space
@@ -1046,7 +1069,9 @@ cbar.set_label(r'Magnitude of the stress path deviator, $\rho$ [MPa]')
 #     \mathsf{r}_k^0 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) - \mathsf{F}(\mathsf{u}) \in \mathbb{R}^n,
 # $$ (eq:vec_r0)
 # $$
-#     \mathsf{r}_k^1 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) - \mathsf{F}(\mathsf{u}) - \, \mathsf{J}(\mathsf{u}) \cdot k\mathsf{\delta u} \in \mathbb{R}^n,
+#     \mathsf{r}_k^1 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) -
+#     \mathsf{F}(\mathsf{u}) - \, \mathsf{J}(\mathsf{u}) \cdot k\mathsf{\delta
+#     u} \in \mathbb{R}^n,
 # $$ (eq:vec_r1)
 #
 # where $\mathsf{u} \in \mathbb{R}^{\dim V_h}$ and $\mathsf{\delta u} \in
@@ -1064,7 +1089,7 @@ Riesz_solver = PETSc.KSP().create(domain.comm)
 Riesz_solver.setType("preonly")
 Riesz_solver.getPC().setType("lu")
 Riesz_solver.setOperators(L)
-y = fem.Function(V, name="Riesz_representer_of_r") # r - a Taylor remainder
+y = fem.Function(V, name="Riesz_representer_of_r")  # r - a Taylor remainder
 
 # %% [markdown]
 # Now we initialize main variables of the plasticity problem.
@@ -1140,6 +1165,7 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # %% tags=["scroll-output"]
 k_list = np.logspace(-2.0, -6.0, 5)[::-1]
 
+
 def perform_Taylor_test(Du0, sigma_n0):
     # r0 = F(Du0 + k*δu) - F(Du0)
     # r1 = F(Du0 + k*δu) - F(Du0) - k*J(Du0)*δu
@@ -1179,13 +1205,13 @@ def perform_Taylor_test(Du0, sigma_n0):
         r0 = F_delta - F0
         r1 = F_delta - F0 - Ju
 
-        Riesz_solver.solve(r0, y.x.petsc_vec) # y = L^{-1} r0
+        Riesz_solver.solve(r0, y.x.petsc_vec)  # y = L^{-1} r0
         y.x.scatter_forward()
-        zero_order_remainder[i] = np.sqrt(r0.dot(y.x.petsc_vec)) # sqrt{r0^T L^{-1} r0}
+        zero_order_remainder[i] = np.sqrt(r0.dot(y.x.petsc_vec))  # sqrt{r0^T L^{-1} r0}
 
-        Riesz_solver.solve(r1, y.x.petsc_vec) # y = L^{-1} r1
+        Riesz_solver.solve(r1, y.x.petsc_vec)  # y = L^{-1} r1
         y.x.scatter_forward()
-        first_order_remainder[i] = np.sqrt(r1.dot(y.x.petsc_vec)) # sqrt{r1^T L^{-1} r1}
+        first_order_remainder[i] = np.sqrt(r1.dot(y.x.petsc_vec))  # sqrt{r1^T L^{-1} r1}
 
     return zero_order_remainder, first_order_remainder
 
@@ -1237,5 +1263,3 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 # ```{bibliography}
 # :filter: docname in docnames
 # ```
-
-
