@@ -16,7 +16,7 @@ from dolfinx import fem
 
 
 def plasticity_von_mises_pure_ufl(verbose=True):
-    """"Implements von Mises plasticity analytically in UFL.
+    """Implements von Mises plasticity analytically in UFL.
 
     It solves the 2D cylinder expansion problem. For the detailed problem
     formulation, please, take a look `demo_plasticity_von_mises.py` of the

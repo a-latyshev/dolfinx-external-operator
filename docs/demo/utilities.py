@@ -1,8 +1,5 @@
 from mpi4py import MPI
-from petsc4py import PETSc
 
-import jax
-import jax.numpy as jnp
 import gmsh
 import numpy as np
 
@@ -122,4 +119,3 @@ def interpolate_quadrature(ufl_expr, fem_func: Function):
     expr_expr = Expression(ufl_expr, quadrature_points)
     expr_eval = expr_expr.eval(mesh, cells)
     np.copyto(fem_func.x.array, expr_eval.reshape(-1))
-
