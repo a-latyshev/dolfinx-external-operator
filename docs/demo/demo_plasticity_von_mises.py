@@ -511,7 +511,7 @@ for i, loading_v in enumerate(loadings):
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value / q_lim)
 
 # %% [markdown]
-# ### Verification
+# ### Post-processing
 #
 # In order to verify the correctness of obtained results, we perform their
 # comparison against a "pure UFl" implementation. Thanks to simplicity of the von
