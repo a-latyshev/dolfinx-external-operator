@@ -45,11 +45,11 @@ jobs:
       
       - name: Run demos (serial)
         run: |
-          python3 -m pytest -m mpi --num-proc=1 demo/
+          python3 -m pytest -m mpi --num-proc=1 doc/demo
 
       - name: Run demos (MPI, np=3)
         run: |
-          python3 -m pytest -m mpi --num-proc=3 demo/
+          python3 -m pytest -m mpi --num-proc=3 doc/demo
 
       - name: Build book
         working-directory: doc/
