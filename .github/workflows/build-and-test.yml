@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     container: ghcr.io/fenics/dolfinx/dolfinx:nightly
     
-    #env:
-      #PYVISTA_OFF_SCREEN: true
-      #PYVISTA_JUPYTER_BACKEND: "html"
-      #DISPLAY: ":99.0"
+    env:
+      PYVISTA_OFF_SCREEN: true
+      PYVISTA_JUPYTER_BACKEND: "static"
+      DISPLAY: ":99.0"
     
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +26,10 @@ jobs:
       - name: Install
         run: |
           python3 -m pip install '.[ci]'
+
+      - name: Install dependencies
+        run: |
+          apt update && apt install -y libxrender1 xvfb
 
       - name: ruff check and check format
         run: |
