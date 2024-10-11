@@ -775,8 +775,8 @@ if len(points_on_process) > 0:
 
 # %%
 try:
-    import pyvista
-    import dolfinx.plot as plot
+    import pyvista # noqa: I001
+    import dolfinx.plot
 
     W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
     u_tmp = fem.Function(W, name="Displacement")
@@ -784,7 +784,7 @@ try:
 
     pyvista.start_xvfb()
     plotter = pyvista.Plotter(window_size=[600, 400])
-    topology, cell_types, x = plot.vtk_mesh(domain)
+    topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
     grid = pyvista.UnstructuredGrid(topology, cell_types, x)
     vals = np.zeros((x.shape[0], 3))
     vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
