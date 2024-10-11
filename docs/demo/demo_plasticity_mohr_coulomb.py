@@ -775,7 +775,7 @@ if len(points_on_process) > 0:
 
 # %%
 try:
-    import pyvista # noqa: I001
+    import pyvista  # noqa: I001
     import dolfinx.plot
 
     W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
