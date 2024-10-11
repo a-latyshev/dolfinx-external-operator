@@ -52,12 +52,12 @@ jobs:
           python3 -m pytest -m mpi --num-proc=3 demo/
 
       - name: Build book
-        working-directory: docs/
+        working-directory: doc/
         run: jupyter-book build .
       
       - name: Upload documentation as artifact
         uses: actions/upload-artifact@v4
         with:
           name: webpage
-          path: docs/_build/html
+          path: doc/_build/html
           if-no-files-found: error
