@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ghcr.io/fenics/dolfinx/dolfinx:nightly
     
-    env:
+    #env:
       #PYVISTA_OFF_SCREEN: true
       #PYVISTA_JUPYTER_BACKEND: "html"
       #DISPLAY: ":99.0"
