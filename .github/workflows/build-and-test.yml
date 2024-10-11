@@ -17,7 +17,7 @@ jobs:
     
     env:
       PYVISTA_OFF_SCREEN: true
-      PYVISTA_JUPYTER_BACKEND: "html"
+      PYVISTA_JUPYTER_BACKEND: "static"
       DISPLAY: ":99.0"
     
     steps:
