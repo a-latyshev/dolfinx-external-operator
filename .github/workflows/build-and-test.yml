@@ -23,10 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Install dependencies
-        run: |
-          apt update && apt install -y libxrender1 xvfb
-      
       - name: Install
         run: |
           python3 -m pip install '.[ci]'
@@ -46,6 +42,7 @@ jobs:
       
       - name: Run demos (serial)
         run: |
+          python3 -c "from pyvista import start_xvfb; start_xvfb(0.1)"
           python3 -m pytest -m mpi -v --num-proc=1 doc/demo
 
       - name: Run demos (MPI, np=3)
