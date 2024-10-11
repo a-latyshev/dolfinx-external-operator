@@ -774,27 +774,29 @@ if len(points_on_process) > 0:
 # The slope profile reaching its stability limit:
 
 # %%
-# TODO: require pyvista support
-# import pyvista
-# import dolfinx.plot as plot
+try:
+    import pyvista
+    import dolfinx.plot as plot
 
-# W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
-# u_tmp = fem.Function(W, name="Displacement")
-# u_tmp.interpolate(u)
+    W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
+    u_tmp = fem.Function(W, name="Displacement")
+    u_tmp.interpolate(u)
 
-# pyvista.start_xvfb()
-# plotter = pyvista.Plotter(window_size=[600, 400])
-# topology, cell_types, x = plot.vtk_mesh(domain)
-# grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-# vals = np.zeros((x.shape[0], 3))
-# vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
-# grid["u"] = vals
-# warped = grid.warp_by_vector("u", factor=20)
-# plotter.add_text("Displacement field", font_size=11)
-# plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
-# plotter.view_xy()
-# if not pyvista.OFF_SCREEN:
-#     plotter.show()
+    pyvista.start_xvfb()
+    plotter = pyvista.Plotter(window_size=[600, 400])
+    topology, cell_types, x = plot.vtk_mesh(domain)
+    grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+    vals = np.zeros((x.shape[0], 3))
+    vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
+    grid["u"] = vals
+    warped = grid.warp_by_vector("u", factor=20)
+    plotter.add_text("Displacement field", font_size=11)
+    plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
+    plotter.view_xy()
+    if not pyvista.OFF_SCREEN:
+        plotter.show()
+except ImportError:
+    print("pyvista required for this plot")
 
 # %% [markdown]
 # ### Yield surface
@@ -985,6 +987,8 @@ sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
 sm.set_array([])
 cbar = fig.colorbar(sm, ax=ax, orientation="vertical")
 cbar.set_label(r"Magnitude of the stress path deviator, $\rho$ [MPa]")
+
+plt.show()
 
 # %% [markdown]
 # Each colour represents one loading path. The circles are associated with the
@@ -1242,6 +1246,7 @@ for i in range(2):
     axs[i].grid()
 
 plt.tight_layout()
+plt.show()
 
 first_order_rate = np.polyfit(np.log(k_list), np.log(zero_order_remainder_elastic), 1)[0]
 second_order_rate = np.polyfit(np.log(k_list), np.log(first_order_remainder_elastic), 1)[0]
