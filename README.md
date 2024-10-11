@@ -121,6 +121,13 @@ Research Fund (FNR), grant reference PRIDE/21/16747448/MATHCODA.
 
 ## Developer notes
 
+### Docker container
+
+```Shell
+docker run -ti -v $(pwd):/shared --entrypoint /bin/bash -w /shared docker.io/dolfinx/lab:nightly
+pip install .
+```
+
 ### Building Documentation
 
 ```Shell
