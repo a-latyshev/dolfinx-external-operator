@@ -13,11 +13,11 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    container: ghcr.io/fenics/dolfinx/dolfinx:nightly
+    container: ghcr.io/fenics/dolfinx/lab:nightly
     
     env:
       PYVISTA_OFF_SCREEN: true
-      PYVISTA_JUPYTER_BACKEND: "static"
+      PYVISTA_JUPYTER_BACKEND: "html"
       DISPLAY: ":99.0"
     
     steps:
@@ -26,10 +26,6 @@ jobs:
       - name: Install
         run: |
           python3 -m pip install '.[ci]'
-
-      - name: Install dependencies
-        run: |
-          apt update && apt install -y libxrender1 xvfb
 
       - name: ruff check and check format
         run: |
@@ -46,6 +42,7 @@ jobs:
       
       - name: Run demos (serial)
         run: |
+          python3 -c "from pyvista import start_xvfb; start_xvfb(0.1)"
           python3 -m pytest -m mpi -v --num-proc=1 doc/demo
 
       - name: Run demos (MPI, np=3)
