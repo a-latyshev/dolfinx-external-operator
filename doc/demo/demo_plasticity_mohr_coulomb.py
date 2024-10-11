@@ -775,9 +775,11 @@ if len(points_on_process) > 0:
 
 # %%
 try:
-    import pyvista  # noqa: I001
+    import pyvista
+
     print(pyvista.global_theme.jupyter_backend)
     import dolfinx.plot
+
     pyvista.start_xvfb(0.1)
 
     W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
