@@ -18,6 +18,7 @@ jobs:
     env:
       PYVISTA_OFF_SCREEN: true
       PYVISTA_JUPYTER_BACKEND: "html"
+      DISPLAY: ":99.0"
     
     steps:
       - uses: actions/checkout@v4
