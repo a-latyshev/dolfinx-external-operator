@@ -13,7 +13,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    container: ghcr.io/fenics/dolfinx/dolfinx:nightly
+    container: ghcr.io/fenics/dolfinx/lab:nightly
     
     env:
       PYVISTA_OFF_SCREEN: true
