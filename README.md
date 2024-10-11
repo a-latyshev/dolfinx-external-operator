@@ -156,3 +156,18 @@ ruff format .
 pip install '.[test]'
 py.test -v tests/
 ```
+
+### Releases
+
+```Shell
+git pull
+git checkout release
+git merge --no-commit origin/main
+git checkout --theirs . # files deleted on `main` must be manually git `rm`ed
+vim pyproject.toml # Update version numbers
+git diff origin/main # Check for mistakes
+git tag v0.9.0 # for example
+git push --tags origin
+```
+
+Then make a release using GitHub Releases.
