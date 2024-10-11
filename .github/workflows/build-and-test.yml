@@ -3,6 +3,9 @@ name: Build and test
 
 on:
   workflow_call:
+  push:
+    branches:
+      - "**"
   pull_request:
     branches:
       - "main"
@@ -10,18 +13,15 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    container: ghcr.io/fenics/dolfinx/dolfinx:nightly
+    container: ghcr.io/fenics/dolfinx/lab:nightly
     
     env:
       PYVISTA_OFF_SCREEN: true
-      PYVISTA_JUPYTER_BACKEND: "html"
+      PYVISTA_JUPYTER_BACKEND: "static"
+      DISPLAY: ":99.0"
     
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install dependencies
-        run: |
-          apt update && apt install -y libxrender1 xvfb
       
       - name: Install
         run: |
@@ -42,19 +42,20 @@ jobs:
       
       - name: Run demos (serial)
         run: |
-          python3 -m pytest docs/demo/
+          python3 -c "from pyvista import start_xvfb; start_xvfb(0.1)"
+          python3 -m pytest -m mpi -v --num-proc=1 doc/demo
 
-      # - name: Run demos (MPI, np=3)
-      #   run: |
-      #     mpirun -n 3 python3 -m pytest demo/
+      - name: Run demos (MPI, np=3)
+        run: |
+          python3 -m pytest -m mpi -v --num-proc=3 doc/demo
 
       - name: Build book
-        working-directory: docs/
+        working-directory: doc/
         run: jupyter-book build .
       
       - name: Upload documentation as artifact
         uses: actions/upload-artifact@v4
         with:
           name: webpage
-          path: docs/_build/html
+          path: doc/_build/html
           if-no-files-found: error
