@@ -48,8 +48,8 @@ jobs:
           python3 -m pytest docs/demo/
 
       - name: Run demos (MPI, np=3)
-         run: |
-           mpirun -n 3 python3 -m pytest demo/
+        run: |
+          mpirun -n 3 python3 -m pytest demo/
 
       - name: Build book
         working-directory: docs/
