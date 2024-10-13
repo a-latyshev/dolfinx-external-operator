@@ -797,8 +797,7 @@ try:
     plotter.add_text("Displacement field", font_size=11)
     plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
     plotter.view_xy()
-    if not pyvista.OFF_SCREEN:
-        plotter.show()
+    plotter.show()
 except ImportError:
     print("pyvista required for this plot")
 
