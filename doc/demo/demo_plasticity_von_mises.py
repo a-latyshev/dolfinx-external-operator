@@ -444,7 +444,7 @@ print(f"\nNumba's JIT compilation overhead: {pass_1 - pass_2}")
 # %%
 u = fem.Function(V, name="displacement")
 du = fem.Function(V, name="Newton_correction")
-external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
+external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
@@ -508,7 +508,7 @@ for i, loading_v in enumerate(loadings):
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (-u.eval(points_on_process, cells)[0], loading.value / q_lim)
+        results[i + 1, :] = (u.eval(points_on_process, cells)[0], loading.value / q_lim)
 
 # %% [markdown]
 # ### Post-processing
