@@ -108,10 +108,11 @@
 #     \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} \cdot \boldsymbol{v}
 #     \,\mathrm{d}\boldsymbol{x},
 # $$
-# where the vector $\boldsymbol{n}$ is a normal to the cylinder surface and the
-# loading parameter $q$ is progressively increased from 0 to $q_\text{lim} =
-# \frac{2}{\sqrt{3}}\sigma_0\log\left(\frac{R_o}{R_i}\right)$, the analytical
-# collapse load for the perfect plasticity model without hardening.
+# where the vector $\boldsymbol{n}$ is the outward normal to the cylinder
+# surface and the loading parameter $q$ is progressively adjusted from 0 to
+# $q_\text{lim} = \frac{2}{\sqrt{3}}\sigma_0\log\left(\frac{R_o}{R_i}\right)$,
+# the analytical collapse load for the perfect plasticity model without
+# hardening.
 #
 # The modelling is performed under assumptions of the plane strain and
 # an associative plasticity law.
@@ -444,7 +445,7 @@ print(f"\nNumba's JIT compilation overhead: {pass_1 - pass_2}")
 # %%
 u = fem.Function(V, name="displacement")
 du = fem.Function(V, name="Newton_correction")
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
@@ -478,7 +479,7 @@ for i, loading_v in enumerate(loadings):
         external_operator_problem.solve(du)
         du.x.scatter_forward()
 
-        Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
+        Du.x.petsc_vec.axpy(-1.0, du.x.petsc_vec)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
@@ -500,7 +501,7 @@ for i, loading_v in enumerate(loadings):
         if MPI.COMM_WORLD.rank == 0:
             print(f"    it# {iteration} residual: {residual}")
 
-    u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
+    u.x.petsc_vec.axpy(-1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
     # Taking into account the history of loading
