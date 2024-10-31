@@ -89,7 +89,7 @@ from utilities import find_cell_by_point
 
 import basix
 import ufl
-from dolfinx import common, default_scalar_type, fem, mesh
+from dolfinx import default_scalar_type, fem, mesh
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -637,28 +637,13 @@ J_form = fem.form(J_replaced)
 # expect an elastic response only, so it's enough to solve the constitutive
 # equations for a relatively small displacement field at each Gauss point. This
 # results in initializing the consistent tangent moduli with elastic ones.
-#
-# At the same time, we can measure the compilation overhead caused by the first
-# call of JIT-ed JAX functions.
 
 # %%
 Du.x.array[:] = 1.0
 sigma_n.x.array[:] = 0.0
 
-timer = common.Timer("DOLFINx_timer")
-timer.start()
 evaluated_operands = evaluate_operands(F_external_operators)
 _ = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer.stop()
-pass_1 = timer.elapsed()[0]
-
-timer.start()
-evaluated_operands = evaluate_operands(F_external_operators)
-_ = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer.stop()
-pass_2 = timer.elapsed()[0]
-
-print(f"\nJAX's JIT compilation overhead: {pass_1 - pass_2}")
 
 # %% [markdown]
 # ### Solving the problem
