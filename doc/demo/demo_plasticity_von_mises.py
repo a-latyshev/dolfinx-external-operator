@@ -429,7 +429,7 @@ Du.x.array[:] = eps
 # %%
 u = fem.Function(V, name="displacement")
 du = fem.Function(V, name="Newton_correction")
-external_operator_problem = LinearProblem(J_replaced, F_replaced, Du, bcs=bcs)
+external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
 # Defining a cell containing (Ri, 0) point, where we calculate a value of u
@@ -466,7 +466,7 @@ for i, loading_v in enumerate(loadings):
         external_operator_problem.solve(du)
         du.x.scatter_forward()
 
-        Du.x.petsc_vec.axpy(-1.0, du.x.petsc_vec)
+        Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
         Du.x.scatter_forward()
 
         evaluated_operands = evaluate_operands(F_external_operators)
