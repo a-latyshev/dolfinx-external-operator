@@ -150,19 +150,19 @@
 # ### Preamble
 
 # %%
-from mpi4py import MPI
 from petsc4py import PETSc
 
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
-from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
-from dolfinx import common, fem
+from dolfinx import fem
+from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.nls.petsc import NewtonSolver
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -419,8 +419,7 @@ J_form = fem.form(J_replaced)
 #
 # %%
 u = fem.Function(V, name="displacement")
-from dolfinx.fem.petsc import NonlinearProblem, assemble_vector, assemble_matrix_mat, apply_lifting, set_bc
-from petsc4py import PETSc
+
 
 class PlasticityProblem(NonlinearProblem):
     def form(self, x: PETSc.Vec) -> None:
@@ -431,60 +430,30 @@ class PlasticityProblem(NonlinearProblem):
            x: The vector containing the latest solution
         """
         x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
-        
-        evaluated_operands = evaluate_operands(F_external_operators) 
+
+        evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        
+
         sigma.ref_coefficient.x.array[:] = sigma_new
         dp.x.array[:] = dp_new
-    
-    def F(self, x: PETSc.Vec, b: PETSc.Vec) -> None:
-        """Assemble the residual F into the vector b.
 
-        Args:
-            x: The vector containing the latest solution
-            b: Vector to assemble the residual into
-        """
-        # Reset the residual vector
-        with b.localForm() as b_local:
-            b_local.set(0.0)
-        assemble_vector(b, self._L)
-
-        # Apply boundary condition
-        apply_lifting(b, [self._a], bcs=[self.bcs], x0=[x], alpha=-1.0)
-        b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        set_bc(b, self.bcs, x, -1.0)
-    
-    def J(self, x: PETSc.Vec, A: PETSc.Mat) -> None:
-        """Assemble the Jacobian matrix.
-
-        Args:
-            x: The vector containing the latest solution
-        """
-        A.zeroEntries()
-        assemble_matrix_mat(A, self._a, self.bcs)
-        A.assemble()
 
 problem = PlasticityProblem(F_replaced, Du, bcs=bcs, J=J_replaced)
 
 # %%
-# Defining a cell containing (Ri, 0) point, where we calculate a value of u
-# In order to run this program in parallel we need capture the process, to which
-# this point is attached
+# Defining a cell containing (Ri, 0) point, where we calculate a value of u In
+# order to run this program in parallel we need capture the process, to which
+# this point is attached.
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_process = find_cell_by_point(mesh, x_point)
 
-# %% tags=["scroll-output"]
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 num_increments = 20
-max_iterations, relative_tolerance = 200, 1e-8
 load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
 loadings = q_lim * load_steps
 results = np.zeros((num_increments, 2))
 
-from dolfinx.nls.petsc import NewtonSolver
 solver = NewtonSolver(mesh.comm, problem)
-
 ksp = solver.krylov_solver
 opts = PETSc.Options()  # type: ignore
 option_prefix = ksp.getOptionsPrefix()
@@ -504,7 +473,6 @@ for i, loading_v in enumerate(loadings):
     u.x.petsc_vec.axpy(-1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
-    # Taking into account the history of loading
     p.x.petsc_vec.axpy(1.0, dp.x.petsc_vec)
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
