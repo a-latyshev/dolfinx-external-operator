@@ -104,8 +104,8 @@
 # inside the cylinder and is written as the following Neumann condition
 #
 # $$
-#     F_\text{ext}(\boldsymbol{v}) = q
-#     \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} \cdot \boldsymbol{v}
+#     F_\text{ext}(\boldsymbol{v}) =
+#     \int\limits_{\partial\Omega_\text{inner}} (-q \boldsymbol{n}) \cdot \boldsymbol{v}
 #     \,\mathrm{d}\boldsymbol{x},
 # $$
 # where the vector $\boldsymbol{n}$ is the outward normal to the cylinder
@@ -245,10 +245,10 @@ n = ufl.FacetNormal(mesh)
 loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
-F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx - ufl.inner(loading * n, v) * ds(facet_tags_labels["inner"])
 
 # Internal state
-P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
+P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress)
 P = fem.functionspace(mesh, P_element)
 
 p = fem.Function(P, name="cumulative_plastic_strain")
@@ -412,9 +412,6 @@ J_form = fem.form(J_replaced)
 # first loading step, so to initialize the former, we evaluate external operators
 # for a close-to-zero displacement field.
 #
-# At the same time, we estimate the compilation overhead caused by the first call
-# of JIT-ed Numba functions.
-#
 # ### Solving the problem
 #
 # %%
@@ -424,16 +421,19 @@ u = fem.Function(V, name="displacement")
 class PlasticityProblem(NonlinearProblem):
     def form(self, x: PETSc.Vec) -> None:
         """This function is called before the residual or Jacobian is
-        computed. This is usually used to update ghost values.
+        computed. This is usually used to update ghost values, but here
+        we also use it to evaluate the external operators.
 
         Args:
            x: The vector containing the latest solution
         """
+        # The following line is from the standard NonlinearProblem class
         x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
 
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
+        # This avoids having to evaluate the external operators of F.
         sigma.ref_coefficient.x.array[:] = sigma_new
         dp.x.array[:] = dp_new
 
