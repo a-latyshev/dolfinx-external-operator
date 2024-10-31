@@ -416,7 +416,7 @@ J_form = fem.form(J_replaced)
 #
 # %%
 u = fem.Function(V, name="displacement")
-
+du = fem.Function(V, name="newton correction")
 
 class PlasticityProblem(NonlinearProblem):
     def form(self, x: PETSc.Vec) -> None:
