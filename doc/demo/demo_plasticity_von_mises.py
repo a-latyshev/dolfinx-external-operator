@@ -416,7 +416,6 @@ J_form = fem.form(J_replaced)
 #
 # %%
 u = fem.Function(V, name="displacement")
-du = fem.Function(V, name="newton correction")
 
 class PlasticityProblem(NonlinearProblem):
     def form(self, x: PETSc.Vec) -> None:
@@ -449,11 +448,13 @@ cells, points_on_process = find_cell_by_point(mesh, x_point)
 
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 num_increments = 20
-load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
+load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)
 loadings = q_lim * load_steps
 results = np.zeros((num_increments, 2))
 
 solver = NewtonSolver(mesh.comm, problem)
+solver.max_it = 200
+solver.rtol = 1E-8
 ksp = solver.krylov_solver
 opts = PETSc.Options()  # type: ignore
 option_prefix = ksp.getOptionsPrefix()
@@ -477,7 +478,7 @@ for i, loading_v in enumerate(loadings):
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process, cells)[0], loading.value / q_lim)
+        results[i, :] = (u.eval(points_on_process, cells)[0], loading.value / q_lim)
 
 # %% [markdown]
 # ### Post-processing
