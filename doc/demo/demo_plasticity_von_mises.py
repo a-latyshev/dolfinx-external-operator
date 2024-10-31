@@ -104,7 +104,7 @@
 # inside the cylinder and is written as the following Neumann condition
 #
 # $$
-#     F_\text{ext}(\boldsymbol{v}) = 
+#     F_\text{ext}(\boldsymbol{v}) =
 #     \int\limits_{\partial\Omega_\text{inner}} (-q \boldsymbol{n}) \cdot \boldsymbol{v}
 #     \,\mathrm{d}\boldsymbol{x},
 # $$
@@ -162,7 +162,7 @@ from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
-from dolfinx import common, fem
+from dolfinx import fem
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -245,7 +245,7 @@ n = ufl.FacetNormal(mesh)
 loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
-F = ufl.inner(sigma, epsilon(v)) * dx - ufl.inner(-loading*n, v) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx - ufl.inner(-loading * n, v) * ds(facet_tags_labels["inner"])
 
 # Internal state
 P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
