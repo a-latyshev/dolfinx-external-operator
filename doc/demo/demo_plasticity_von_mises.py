@@ -104,8 +104,8 @@
 # inside the cylinder and is written as the following Neumann condition
 #
 # $$
-#     F_\text{ext}(\boldsymbol{v}) = q
-#     \int\limits_{\partial\Omega_\text{inner}} \boldsymbol{n} \cdot \boldsymbol{v}
+#     F_\text{ext}(\boldsymbol{v}) = 
+#     \int\limits_{\partial\Omega_\text{inner}} (-q \boldsymbol{n}) \cdot \boldsymbol{v}
 #     \,\mathrm{d}\boldsymbol{x},
 # $$
 # where the vector $\boldsymbol{n}$ is the outward normal to the cylinder
@@ -245,7 +245,7 @@ n = ufl.FacetNormal(mesh)
 loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
-F = ufl.inner(sigma, epsilon(v)) * dx - loading * ufl.inner(v, n) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx - ufl.inner(-loading*n, v) * ds(facet_tags_labels["inner"])
 
 # Internal state
 P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
@@ -421,22 +421,6 @@ J_form = fem.form(J_replaced)
 eps = np.finfo(PETSc.ScalarType).eps
 Du.x.array[:] = eps
 
-timer = common.Timer("DOLFINx_timer")
-timer.start()
-evaluated_operands = evaluate_operands(F_external_operators)
-_ = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer.stop()
-pass_1 = timer.elapsed()[0]
-
-timer.start()
-evaluated_operands = evaluate_operands(F_external_operators)
-_ = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer.stop()
-pass_2 = timer.elapsed()[0]
-
-print(f"\nNumba's JIT compilation overhead: {pass_1 - pass_2}")
-
-
 # %% [markdown]
 # ### Solving the problem
 #
@@ -461,6 +445,9 @@ max_iterations, relative_tolerance = 200, 1e-8
 load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
 loadings = q_lim * load_steps
 results = np.zeros((num_increments, 2))
+
+evaluated_operands = evaluate_operands(F_external_operators)
+evaluate_external_operators(J_external_operators, evaluated_operands)
 
 for i, loading_v in enumerate(loadings):
     loading.value = loading_v
@@ -501,7 +488,7 @@ for i, loading_v in enumerate(loadings):
         if MPI.COMM_WORLD.rank == 0:
             print(f"    it# {iteration} residual: {residual}")
 
-    u.x.petsc_vec.axpy(-1.0, Du.x.petsc_vec)
+    u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
     # Taking into account the history of loading
