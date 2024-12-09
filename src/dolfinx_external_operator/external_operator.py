@@ -143,11 +143,10 @@ def evaluate_operands(
                     inverted_map = np.empty(len(cells), dtype=np.int32)
                     indices = np.flatnonzero(entity_maps[mesh] >= 0)
                     inverted_map[entity_maps[mesh][indices]] = indices
-                    integration_entities = cpp.fem.compute_integration_domains(
+                    integration_entities = fem.compute_integration_domains(
                         fem.IntegralType.exterior_facet,
-                        operand.function_space.mesh.topology._cpp_object,
+                        operand.function_space.mesh.topology,
                         inverted_map,
-                        operand.function_space.mesh.topology.dim - 1,
                     )
                     evaluated_operand = expr.eval(operand_mesh, integration_entities)
                 else:
