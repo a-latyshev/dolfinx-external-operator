@@ -16,3 +16,4 @@ build/
 *.synctex.gz
 *.tdo
 *.toc
+*.out
