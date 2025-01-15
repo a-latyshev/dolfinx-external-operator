@@ -552,13 +552,9 @@ def return_mapping(deps_local, sigma_n_local):
 # stress tensor.
 
 # %%
-dr_gdsigma = jax.jacfwd(r_g)
-
 def C_tang_local(sigma_local, dlambda_local, deps_local, sigma_n_local):
     y_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdy(y_local, deps_local, sigma_n_local)
-    # j_g = dr_gdsigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
-
     return jnp.linalg.inv(j)[:4,:4] @ C_elas
 
 C_tang_vec = jax.jit(jax.vmap(C_tang_local, in_axes=(0, 0, 0, 0)))
@@ -1340,6 +1336,12 @@ summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
 # %%
 fig, ax = plt.subplots(figsize=(10, 5))
 summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
+# 106.37
+
+# %%
+fig, ax = plt.subplots(figsize=(10, 5))
+summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
+#Total time: 48.410000000000004
 
 
 # %%
