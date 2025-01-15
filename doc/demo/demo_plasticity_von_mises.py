@@ -1,3 +1,4 @@
+# ---
 # jupyter:
 #   jupytext:
 #     cell_metadata_filter: -all
@@ -244,7 +245,7 @@ n = ufl.FacetNormal(mesh)
 loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
-F = ufl.inner(sigma, epsilon(v)) * dx - ufl.inner(loading * n, v) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx + ufl.inner(loading * n, v) * ds(facet_tags_labels["inner"])
 
 # Internal state
 P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress)
@@ -470,7 +471,7 @@ for i, loading_v in enumerate(loadings):
 
     solver.solve(Du)
 
-    u.x.petsc_vec.axpy(-1.0, Du.x.petsc_vec)
+    u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
     p.x.petsc_vec.axpy(1.0, dp.x.petsc_vec)
