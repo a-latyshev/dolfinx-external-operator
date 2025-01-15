@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -83,13 +84,14 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from mpltools import annotation  # for slope markers
 from solvers import LinearProblem
 from utilities import find_cell_by_point
 
 import basix
 import ufl
-from dolfinx import default_scalar_type, fem, mesh
+from dolfinx import default_scalar_type, fem, mesh, common
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -550,6 +552,17 @@ def return_mapping(deps_local, sigma_n_local):
 # stress tensor.
 
 # %%
+dr_gdsigma = jax.jacfwd(r_g)
+
+def C_tang_local(sigma_local, dlambda_local, deps_local, sigma_n_local):
+    y_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
+    j = drdy(y_local, deps_local, sigma_n_local)
+    # j_g = dr_gdsigma(sigma_local, dlambda_local, deps_local, sigma_n_local)
+
+    return jnp.linalg.inv(j)[:4,:4] @ C_elas
+
+C_tang_vec = jax.jit(jax.vmap(C_tang_local, in_axes=(0, 0, 0, 0)))
+
 dsigma_ddeps = jax.jacfwd(return_mapping, has_aux=True)
 
 # %% [markdown]
@@ -570,14 +583,19 @@ dsigma_ddeps = jax.jacfwd(return_mapping, has_aux=True)
 
 # %%
 dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
+return_mapping_vec = jax.jit(jax.vmap(return_mapping, in_axes=(0, 0)))
 
 
 def C_tang_impl(deps):
     deps_ = deps.reshape((-1, stress_dim))
     sigma_n_ = sigma_n.x.array.reshape((-1, stress_dim))
 
-    (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    # (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    (sigam_global, state) = return_mapping_vec(deps_, sigma_n_)
+    
     sigma_global, niter, yielding, norm_res, dlambda = state
+
+    C_tang_global = C_tang_vec(sigma_global, dlambda, deps_, sigma_n_)
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -672,8 +690,21 @@ num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
 # %% tags=["scroll-output"]
+timer = common.Timer("DOLFINx_timer")
+timer_total = common.Timer("Total_timer")
+local_monitor = {}
+performance_monitor = pd.DataFrame({
+    "loading_step": np.array([], dtype=np.int64),
+    "Newton_iteration": np.array([], dtype=np.int64),
+    "matrix_assembling": np.array([], dtype=np.float64),
+    "vector_assembling": np.array([], dtype=np.float64),
+    "linear_solver": np.array([], dtype=np.float64),
+    "constitutive_model_update": np.array([], dtype=np.float64),
+})
 
+timer_total.start()
 for i, load in enumerate(load_steps):
+    local_monitor["loading_step"] = i
     q.value = load * np.array([0, -gamma])
     external_operator_problem.assemble_vector()
 
@@ -685,23 +716,40 @@ for i, load in enumerate(load_steps):
         print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
 
     for iteration in range(0, max_iterations):
+        local_monitor["Newton_iteration"] = iteration
         if residual / residual_0 < relative_tolerance:
             break
 
         if MPI.COMM_WORLD.rank == 0:
             print(f"\tOuter Newton iteration #{iteration}")
+
+        timer.start()
         external_operator_problem.assemble_matrix()
+        timer.stop()
+        local_monitor["matrix_assembling"] = timer.elapsed()[0]
+
+        timer.start()
         external_operator_problem.solve(du)
+        timer.stop()
+        local_monitor["linear_solver"] = timer.elapsed()[0]
 
         Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
         Du.x.scatter_forward()
 
+        timer.start()
         evaluated_operands = evaluate_operands(F_external_operators)
         ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
         # Direct access to the external operator values
         sigma.ref_coefficient.x.array[:] = sigma_new
+        timer.stop()
+        local_monitor["constitutive_model_update"] = timer.elapsed()[0]
 
+        timer.start()
         external_operator_problem.assemble_vector()
+        timer.stop()
+        local_monitor["vector_assembling"] = timer.elapsed()[0]
+        performance_monitor.loc[len(performance_monitor.index)] = local_monitor
+
         residual = external_operator_problem.b.norm()
 
         if MPI.COMM_WORLD.rank == 0:
@@ -714,8 +762,11 @@ for i, load in enumerate(load_steps):
 
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
+timer_total.stop()
+total_time = timer_total.elapsed()[0]
 
 print(f"Slope stability factor: {-q.value[-1]*H/c}")
+print(f"Total time: {total_time}")
 
 # %% [markdown]
 # ## Verification
@@ -1250,6 +1301,49 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 # Similarly to the elastic flow, the zeroth-order Taylor remainder $r_k^0$ of the
 # plastic phase (b) reaches the first-order convergence, whereas the first-order
 # remainder $r_k^1$ achieves the second-order convergence rate, as expected.
+
+# %% [markdown]
+# ## Performance
+
+# %%
+# def Newton_iterations_in_total():
+#     N_iterations = 0
+#     for i in range(0, num_increments):
+#         N_iterations += performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
+#     return N_iterations
+# print(f"Newton iterations in total = {Newton_iterations_in_total()}")
+# return performance_monitor
+
+# %%
+summary_monitor = pd.DataFrame({
+    "loading_step": np.array([], dtype=np.int64),
+    "matrix_assembling": np.array([], dtype=np.float64),
+    "vector_assembling": np.array([], dtype=np.float64),
+    "linear_solver": np.array([], dtype=np.float64),
+    "constitutive_model_update": np.array([], dtype=np.float64),
+})
+cols = ["matrix_assembling", "vector_assembling", "linear_solver", "constitutive_model_update"]
+
+# %%
+tmp_monitor = {}
+for i in range(num_increments):
+    tmp_monitor["loading_step"] = i
+    for col in cols:
+        Newton_iters = performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
+        tmp_monitor[col] = performance_monitor[performance_monitor["loading_step"]==i][col].sum()/Newton_iters
+    summary_monitor.loc[len(summary_monitor.index)] = tmp_monitor
+
+# %%
+fig, ax = plt.subplots(figsize=(10, 5))
+summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
+
+# %%
+fig, ax = plt.subplots(figsize=(10, 5))
+summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
+
+
+# %%
+summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True)
 
 # %% [markdown]
 # ## References
