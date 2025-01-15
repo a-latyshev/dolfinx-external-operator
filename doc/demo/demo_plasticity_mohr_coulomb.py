@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -108,7 +109,7 @@ E = 6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
 c = 3.45  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
-psi = 30 * np.pi / 180  # [rad] dilatancy angle
+psi = 10 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
@@ -665,9 +666,10 @@ cells, points_on_process = find_cell_by_point(domain, x_point)
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
 
-load_steps_1 = np.linspace(2, 21, 40)
-load_steps_2 = np.linspace(21, 22.75, 20)[1:]
-load_steps = np.concatenate([load_steps_1, load_steps_2])
+load_steps_1 = np.linspace(1.7, 20, 90)
+load_steps_12 = np.linspace(20, 21.84, 10)[1:]
+load_steps_2 = [21.90, 21.901, 21.916] ##np.linspace(21.84, 22.75, 10)[1:]
+load_steps = np.concatenate([load_steps_1, load_steps_12, load_steps_2])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
@@ -754,6 +756,9 @@ if len(points_on_process) > 0:
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
     plt.grid()
     plt.legend()
+
+# %%
+np.save("results_mohr_coulomb_non_associative.npy", results)
 
 # %% [markdown]
 # The slope profile reaching its stability limit:
