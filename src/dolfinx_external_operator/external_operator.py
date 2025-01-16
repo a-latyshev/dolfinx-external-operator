@@ -1,10 +1,8 @@
-from typing import Optional, Union
-
 import numpy as np
 
 import basix
 import ufl
-from dolfinx import cpp, fem
+from dolfinx import fem
 from dolfinx import mesh as _mesh
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
@@ -28,7 +26,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         *operands,
         function_space: fem.function.FunctionSpace,
         external_function=None,
-        derivatives: Optional[tuple[int, ...]] = None,
+        derivatives: tuple[int, ...] | None = None,
         argument_slots=(),
     ) -> None:
         """Initializes `FEMExternalOperator`.
@@ -98,7 +96,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
 def evaluate_operands(
     external_operators: list[FEMExternalOperator], entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None
-) -> dict[Union[ufl.core.expr.Expr, int], np.ndarray]:
+) -> dict[ufl.core.expr.Expr | int, np.ndarray]:
     """Evaluates operands of external operators.
 
     Args:
@@ -143,11 +141,10 @@ def evaluate_operands(
                     inverted_map = np.empty(len(cells), dtype=np.int32)
                     indices = np.flatnonzero(entity_maps[mesh] >= 0)
                     inverted_map[entity_maps[mesh][indices]] = indices
-                    integration_entities = cpp.fem.compute_integration_domains(
+                    integration_entities = fem.compute_integration_domains(
                         fem.IntegralType.exterior_facet,
-                        operand.function_space.mesh.topology._cpp_object,
+                        operand.function_space.mesh.topology,
                         inverted_map,
-                        operand.function_space.mesh.topology.dim - 1,
                     )
                     evaluated_operand = expr.eval(operand_mesh, integration_entities)
                 else:
@@ -158,7 +155,7 @@ def evaluate_operands(
 
 
 def evaluate_external_operators(
-    external_operators: list[FEMExternalOperator], evaluated_operands: dict[Union[ufl.core.expr.Expr, int], np.ndarray]
+    external_operators: list[FEMExternalOperator], evaluated_operands: dict[ufl.core.expr.Expr | int, np.ndarray]
 ) -> list[list[np.ndarray]]:
     """Evaluates external operators and updates the associated coefficient.
 

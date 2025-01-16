@@ -1,4 +1,3 @@
-
 from petsc4py import PETSc
 
 import dolfinx.fem.petsc  # noqa: F401
@@ -7,9 +6,9 @@ from dolfinx import fem
 
 
 class LinearProblem:
-    def __init__(self, dR: ufl.Form, R: ufl.Form, u: fem.Function, bcs: list[fem.dirichletbc] = []):
+    def __init__(self, dR: ufl.Form, R: ufl.Form, u: fem.Function, bcs: list[fem.dirichletbc] | None = None):
         self.u = u
-        self.bcs = bcs
+        self.bcs = bcs if bcs is not None else []
 
         V = u.function_space
         domain = V.mesh
