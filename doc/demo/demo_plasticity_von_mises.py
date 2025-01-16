@@ -150,6 +150,7 @@
 # ### Preamble
 
 # %%
+from mpi4py import MPI  # noqa: F401
 from petsc4py import PETSc
 
 import matplotlib.pyplot as plt
@@ -275,10 +276,10 @@ sigma_n = fem.Function(S, name="stress_n")
 # $\frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}$
 # must be implemented by the user. In this tutorial, we implement the derivative using the Numba package.
 #
-# First of all, we implement the return-mapping procedure locally in the function
-# `_kernel`. It computes the values of the stress tensor, the tangent moduli and
-# the increment of cumulative plastic strain at a single Gausse node. For more
-# details, visit the [original
+# First of all, we implement the return-mapping procedure locally in the
+# function `_kernel`. It computes the values of the stress tensor, the tangent
+# moduli and the increment of cumulative plastic strain at a single Gausse
+# node. For more details, visit the [original
 # implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
 # of this problem for the legacy FEniCS 2019.
 #
@@ -417,6 +418,7 @@ J_form = fem.form(J_replaced)
 # %%
 u = fem.Function(V, name="displacement")
 
+
 class PlasticityProblem(NonlinearProblem):
     def form(self, x: PETSc.Vec) -> None:
         """This function is called before the residual or Jacobian is
@@ -448,13 +450,13 @@ cells, points_on_process = find_cell_by_point(mesh, x_point)
 
 q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
 num_increments = 20
-load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)
+load_steps = np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5
 loadings = q_lim * load_steps
 results = np.zeros((num_increments, 2))
 
 solver = NewtonSolver(mesh.comm, problem)
 solver.max_it = 200
-solver.rtol = 1E-8
+solver.rtol = 1e-8
 ksp = solver.krylov_solver
 opts = PETSc.Options()  # type: ignore
 option_prefix = ksp.getOptionsPrefix()
