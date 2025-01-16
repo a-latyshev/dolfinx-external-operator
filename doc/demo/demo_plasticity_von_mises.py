@@ -441,10 +441,6 @@ class PlasticityProblem(NonlinearProblem):
 
 problem = PlasticityProblem(F_replaced, Du, bcs=bcs, J=J_replaced)
 
-# %%
-# Defining a cell containing (Ri, 0) point, where we calculate a value of u In
-# order to run this program in parallel we need capture the process, to which
-# this point is attached.
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_process = find_cell_by_point(mesh, x_point)
 
