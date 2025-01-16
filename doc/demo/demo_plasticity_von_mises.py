@@ -203,7 +203,7 @@ mesh, facet_tags, facet_tags_labels = build_cylinder_quarter()
 
 # %%
 k_u = 2
-V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
+V = fem.functionspace(mesh, ("Lagrange", k_u, (mesh.geometry.dim,)))
 # Boundary conditions
 bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
 left_facets = facet_tags.find(facet_tags_labels["Ly"])
@@ -245,7 +245,7 @@ n = ufl.FacetNormal(mesh)
 loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
-F = ufl.inner(sigma, epsilon(v)) * dx + ufl.inner(loading * n, v) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx - ufl.inner(loading * -n, v) * ds(facet_tags_labels["inner"])
 
 # Internal state
 P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress)
@@ -506,6 +506,7 @@ if len(points_on_process) > 0:
     plt.ylabel(r"Applied pressure $q/q_{\text{lim}}$ [-]")
     plt.legend()
     plt.grid()
+    plt.savefig("output.png")
     plt.show()
 
 # %% [markdown]
