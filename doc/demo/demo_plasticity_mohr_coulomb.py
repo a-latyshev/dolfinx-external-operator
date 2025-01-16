@@ -715,7 +715,7 @@ for i, load in enumerate(load_steps):
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
 
-print(f"Slope stability factor: {-q.value[-1]*H/c}")
+print(f"Slope stability factor: {-q.value[-1] * H / c}")
 
 # %% [markdown]
 # ## Verification
