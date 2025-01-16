@@ -1,4 +1,3 @@
-from typing import List
 
 from petsc4py import PETSc
 
@@ -8,7 +7,7 @@ from dolfinx import fem
 
 
 class LinearProblem:
-    def __init__(self, dR: ufl.Form, R: ufl.Form, u: fem.Function, bcs: List[fem.dirichletbc] = []):
+    def __init__(self, dR: ufl.Form, R: ufl.Form, u: fem.Function, bcs: list[fem.dirichletbc] = []):
         self.u = u
         self.bcs = bcs
 

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
 
@@ -28,7 +28,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         *operands,
         function_space: fem.function.FunctionSpace,
         external_function=None,
-        derivatives: Optional[Tuple[int, ...]] = None,
+        derivatives: Optional[tuple[int, ...]] = None,
         argument_slots=(),
     ) -> None:
         """Initializes `FEMExternalOperator`.
@@ -97,8 +97,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
 
 def evaluate_operands(
-    external_operators: List[FEMExternalOperator], entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None
-) -> Dict[Union[ufl.core.expr.Expr, int], np.ndarray]:
+    external_operators: list[FEMExternalOperator], entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None
+) -> dict[Union[ufl.core.expr.Expr, int], np.ndarray]:
     """Evaluates operands of external operators.
 
     Args:
@@ -158,7 +158,7 @@ def evaluate_operands(
 
 
 def evaluate_external_operators(
-    external_operators: List[FEMExternalOperator], evaluated_operands: Dict[Union[ufl.core.expr.Expr, int], np.ndarray]
+    external_operators: list[FEMExternalOperator], evaluated_operands: dict[Union[ufl.core.expr.Expr, int], np.ndarray]
 ) -> list[list[np.ndarray]]:
     """Evaluates external operators and updates the associated coefficient.
 
