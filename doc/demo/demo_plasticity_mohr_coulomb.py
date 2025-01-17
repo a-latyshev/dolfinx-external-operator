@@ -106,9 +106,9 @@ jax.config.update("jax_enable_x64", True)
 # some useful constants.
 
 # %%
-E = 6778  # [MPa] Young modulus
+E = 1.0  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
-c = 3.45  # [MPa] cohesion
+c = 3.45 / 6778.0  # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
@@ -116,9 +116,12 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 L, H = (1.2, 1.0)
-Nx, Ny = (50, 50)
-gamma = 1.0
+Nx, Ny = (100, 100)
+gamma = 1.0 / 6778
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
+
+# %%
+domain.topology.index_map(0).size_global
 
 # %%
 k_u = 2
@@ -679,9 +682,10 @@ cells, points_on_process = find_cell_by_point(domain, x_point)
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
 
-load_steps_1 = np.linspace(2, 21, 40)
+load_steps_1 = np.linspace(1.5, 21, 40)
 load_steps_2 = np.linspace(21, 22.75, 20)[1:]
 load_steps = np.concatenate([load_steps_1, load_steps_2])
+load_steps = np.linspace(1.5, 22.75, 200)
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
@@ -763,6 +767,8 @@ total_time = timer_total.elapsed()[0]
 
 print(f"Slope stability factor: {-q.value[-1]*H/c}")
 print(f"Total time: {total_time}")
+
+# %%
 
 # %% [markdown]
 # ## Verification
