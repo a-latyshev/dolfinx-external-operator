@@ -150,19 +150,20 @@
 # ### Preamble
 
 # %%
-from mpi4py import MPI
+from mpi4py import MPI  # noqa: F401
 from petsc4py import PETSc
 
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
-from solvers import LinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
 from dolfinx import fem
+from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.nls.petsc import NewtonSolver
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -203,7 +204,7 @@ mesh, facet_tags, facet_tags_labels = build_cylinder_quarter()
 
 # %%
 k_u = 2
-V = fem.functionspace(mesh, ("Lagrange", k_u, (2,)))
+V = fem.functionspace(mesh, ("Lagrange", k_u, (mesh.geometry.dim,)))
 # Boundary conditions
 bottom_facets = facet_tags.find(facet_tags_labels["Lx"])
 left_facets = facet_tags.find(facet_tags_labels["Ly"])
@@ -245,10 +246,10 @@ n = ufl.FacetNormal(mesh)
 loading = fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 v = ufl.TestFunction(V)
-F = ufl.inner(sigma, epsilon(v)) * dx - ufl.inner(-loading * n, v) * ds(facet_tags_labels["inner"])
+F = ufl.inner(sigma, epsilon(v)) * dx - ufl.inner(loading * -n, v) * ds(facet_tags_labels["inner"])
 
 # Internal state
-P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress, value_shape=())
+P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_stress)
 P = fem.functionspace(mesh, P_element)
 
 p = fem.Function(P, name="cumulative_plastic_strain")
@@ -275,10 +276,10 @@ sigma_n = fem.Function(S, name="stress_n")
 # $\frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}$
 # must be implemented by the user. In this tutorial, we implement the derivative using the Numba package.
 #
-# First of all, we implement the return-mapping procedure locally in the function
-# `_kernel`. It computes the values of the stress tensor, the tangent moduli and
-# the increment of cumulative plastic strain at a single Gausse node. For more
-# details, visit the [original
+# First of all, we implement the return-mapping procedure locally in the
+# function `_kernel`. It computes the values of the stress tensor, the tangent
+# moduli and the increment of cumulative plastic strain at a single Gausse
+# node. For more details, visit the [original
 # implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
 # of this problem for the legacy FEniCS 2019.
 #
@@ -412,91 +413,70 @@ J_form = fem.form(J_replaced)
 # first loading step, so to initialize the former, we evaluate external operators
 # for a close-to-zero displacement field.
 #
-# At the same time, we estimate the compilation overhead caused by the first call
-# of JIT-ed Numba functions.
-
-# %%
-# We need to initialize `Du` with small values in order to avoid the division by
-# zero error
-eps = np.finfo(PETSc.ScalarType).eps
-Du.x.array[:] = eps
-
-# %% [markdown]
 # ### Solving the problem
 #
-# Solving the problem is carried out in a manually implemented Newton solver.
-
 # %%
 u = fem.Function(V, name="displacement")
-du = fem.Function(V, name="Newton_correction")
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
-# %%
-# Defining a cell containing (Ri, 0) point, where we calculate a value of u
-# In order to run this program in parallel we need capture the process, to which
-# this point is attached
-x_point = np.array([[R_i, 0, 0]])
-cells, points_on_process = find_cell_by_point(mesh, x_point)
 
-# %% tags=["scroll-output"]
-q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-num_increments = 20
-max_iterations, relative_tolerance = 200, 1e-8
-load_steps = (np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5)[1:]
-loadings = q_lim * load_steps
-results = np.zeros((num_increments, 2))
+class PlasticityProblem(NonlinearProblem):
+    def form(self, x: PETSc.Vec) -> None:
+        """This function is called before the residual or Jacobian is
+        computed. This is usually used to update ghost values, but here
+        we also use it to evaluate the external operators.
 
-evaluated_operands = evaluate_operands(F_external_operators)
-evaluate_external_operators(J_external_operators, evaluated_operands)
-
-for i, loading_v in enumerate(loadings):
-    loading.value = loading_v
-    external_operator_problem.assemble_vector()
-
-    residual_0 = residual = external_operator_problem.b.norm()
-    Du.x.array[:] = 0.0
-
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"\nresidual , {residual} \n increment: {i+1!s}, load = {loading.value}")
-
-    for iteration in range(0, max_iterations):
-        if residual / residual_0 < relative_tolerance:
-            break
-        external_operator_problem.assemble_matrix()
-        external_operator_problem.solve(du)
-        du.x.scatter_forward()
-
-        Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
-        Du.x.scatter_forward()
+        Args:
+           x: The vector containing the latest solution
+        """
+        # The following line is from the standard NonlinearProblem class
+        x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
 
         evaluated_operands = evaluate_operands(F_external_operators)
-
-        # Implementation of an external operator may return several outputs and
-        # not only its evaluation. For example, `C_tang_impl` returns a tuple of
-        # Numpy-arrays with values of `C_tang`, `sigma` and `dp`.
         ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
 
-        # In order to update the values of the external operator we may directly
-        # access them and avoid the call of
-        # `evaluate_external_operators(F_external_operators, evaluated_operands).`
+        # This avoids having to evaluate the external operators of F.
         sigma.ref_coefficient.x.array[:] = sigma_new
         dp.x.array[:] = dp_new
 
-        external_operator_problem.assemble_vector()
-        residual = external_operator_problem.b.norm()
 
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"    it# {iteration} residual: {residual}")
+problem = PlasticityProblem(F_replaced, Du, bcs=bcs, J=J_replaced)
+
+x_point = np.array([[R_i, 0, 0]])
+cells, points_on_process = find_cell_by_point(mesh, x_point)
+
+q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
+num_increments = 20
+load_steps = np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5
+loadings = q_lim * load_steps
+results = np.zeros((num_increments, 2))
+
+solver = NewtonSolver(mesh.comm, problem)
+solver.max_it = 200
+solver.rtol = 1e-8
+ksp = solver.krylov_solver
+opts = PETSc.Options()  # type: ignore
+option_prefix = ksp.getOptionsPrefix()
+opts[f"{option_prefix}ksp_type"] = "preonly"
+opts[f"{option_prefix}pc_type"] = "lu"
+opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
+ksp.setFromOptions()
+
+eps = np.finfo(PETSc.ScalarType).eps
+
+for i, loading_v in enumerate(loadings):
+    loading.value = loading_v
+    Du.x.array[:] = eps
+
+    solver.solve(Du)
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
-    # Taking into account the history of loading
     p.x.petsc_vec.axpy(1.0, dp.x.petsc_vec)
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
     if len(points_on_process) > 0:
-        results[i + 1, :] = (u.eval(points_on_process, cells)[0], loading.value / q_lim)
+        results[i, :] = (u.eval(points_on_process, cells)[0], loading.value / q_lim)
 
 # %% [markdown]
 # ### Post-processing
@@ -524,6 +504,7 @@ if len(points_on_process) > 0:
     plt.ylabel(r"Applied pressure $q/q_{\text{lim}}$ [-]")
     plt.legend()
     plt.grid()
+    plt.savefig("output.png")
     plt.show()
 
 # %% [markdown]
