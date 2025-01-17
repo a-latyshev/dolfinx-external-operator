@@ -441,6 +441,30 @@ class PlasticityProblem(NonlinearProblem):
 
 problem = PlasticityProblem(F_replaced, Du, bcs=bcs, J=J_replaced)
 
+from solvers import SNESProblem
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+    # This avoids having to evaluate the external operators of F.
+    sigma.ref_coefficient.x.array[:] = sigma_new
+    dp.x.array[:] = dp_new
+
+petsc_options = {
+    "snes_type": "vinewtonrsls",
+    "snes_linesearch_type": "basic",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps",
+    "snes_atol": 1.0e-11,
+    "snes_rtol": 1.0e-11,
+    "snes_max_it": 500,
+    "snes_monitor": "",
+    # "snes_monitor_cancel": "",
+}
+
+external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, system_update=constitutive_update)
+
 x_point = np.array([[R_i, 0, 0]])
 cells, points_on_process = find_cell_by_point(mesh, x_point)
 
@@ -467,7 +491,11 @@ for i, loading_v in enumerate(loadings):
     loading.value = loading_v
     Du.x.array[:] = eps
 
-    solver.solve(Du)
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"Load increment #{i}, load: {loading_v}")
+    # solver.solve(Du)
+    info = external_operator_problem.solve()
+    # print(info)
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()

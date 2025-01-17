@@ -86,7 +86,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from mpltools import annotation  # for slope markers
-from solvers import LinearProblem
+from solvers import LinearProblem, SNESProblem
 from utilities import find_cell_by_point
 
 import basix
@@ -106,9 +106,9 @@ jax.config.update("jax_enable_x64", True)
 # some useful constants.
 
 # %%
-E = 1.0  # [MPa] Young modulus
+E =  6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
-c = 3.45 / 6778.0  # [MPa] cohesion
+c = 3.45 # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
@@ -117,7 +117,7 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 # %%
 L, H = (1.2, 1.0)
 Nx, Ny = (100, 100)
-gamma = 1.0 / 6778
+gamma = 1.0
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
 # %%
@@ -672,9 +672,6 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # applied to other plasticity models.
 
 # %%
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
-
-# %%
 x_point = np.array([[0, H, 0]])
 cells, points_on_process = find_cell_by_point(domain, x_point)
 
@@ -685,76 +682,58 @@ max_iterations, relative_tolerance = 200, 1e-8
 load_steps_1 = np.linspace(1.5, 21, 40)
 load_steps_2 = np.linspace(21, 22.75, 20)[1:]
 load_steps = np.concatenate([load_steps_1, load_steps_2])
-load_steps = np.linspace(1.5, 22.75, 200)
+load_steps = np.concatenate([np.linspace(1.5, 22.75, 100)[:-1], [22.6, 22.625]])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %% tags=["scroll-output"]
-timer = common.Timer("DOLFINx_timer")
+# %%
+petsc_options = {
+    "snes_type": "vinewtonrsls",
+    "snes_linesearch_type": "basic",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps",
+    "snes_atol": 1.0e-12,
+    "snes_rtol": 1.0e-12,
+    "snes_max_it": 50,
+    "snes_monitor": "",
+    # "snes_monitor_cancel": "",
+}
+
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # Direct access to the external operator values
+    sigma.ref_coefficient.x.array[:] = sigma_new
+
+external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, system_update=constitutive_update)
+
+# %%
 timer_total = common.Timer("Total_timer")
-local_monitor = {}
-performance_monitor = pd.DataFrame({
-    "loading_step": np.array([], dtype=np.int64),
-    "Newton_iteration": np.array([], dtype=np.int64),
-    "matrix_assembling": np.array([], dtype=np.float64),
-    "vector_assembling": np.array([], dtype=np.float64),
-    "linear_solver": np.array([], dtype=np.float64),
-    "constitutive_model_update": np.array([], dtype=np.float64),
-})
+# timer = common.Timer("DOLFINx_timer")
+# local_monitor = {}
+# performance_monitor = pd.DataFrame({
+#     "loading_step": np.array([], dtype=np.int64),
+#     "Newton_iteration": np.array([], dtype=np.int64),
+#     "matrix_assembling": np.array([], dtype=np.float64),
+#     "vector_assembling": np.array([], dtype=np.float64),
+#     "linear_solver": np.array([], dtype=np.float64),
+#     "constitutive_model_update": np.array([], dtype=np.float64),
+# })
+
+# %%
 
 timer_total.start()
 for i, load in enumerate(load_steps):
-    local_monitor["loading_step"] = i
     q.value = load * np.array([0, -gamma])
-    external_operator_problem.assemble_vector()
 
-    residual_0 = external_operator_problem.b.norm()
-    residual = residual_0
-    Du.x.array[:] = 0
+    # Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+        print(f"Load increment #{i}, load: {load}")
 
-    for iteration in range(0, max_iterations):
-        local_monitor["Newton_iteration"] = iteration
-        if residual / residual_0 < relative_tolerance:
-            break
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tOuter Newton iteration #{iteration}")
-
-        timer.start()
-        external_operator_problem.assemble_matrix()
-        timer.stop()
-        local_monitor["matrix_assembling"] = timer.elapsed()[0]
-
-        timer.start()
-        external_operator_problem.solve(du)
-        timer.stop()
-        local_monitor["linear_solver"] = timer.elapsed()[0]
-
-        Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
-        Du.x.scatter_forward()
-
-        timer.start()
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        # Direct access to the external operator values
-        sigma.ref_coefficient.x.array[:] = sigma_new
-        timer.stop()
-        local_monitor["constitutive_model_update"] = timer.elapsed()[0]
-
-        timer.start()
-        external_operator_problem.assemble_vector()
-        timer.stop()
-        local_monitor["vector_assembling"] = timer.elapsed()[0]
-        performance_monitor.loc[len(performance_monitor.index)] = local_monitor
-
-        residual = external_operator_problem.b.norm()
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tResidual: {residual}\n")
-
+    external_operator_problem.solve(i)
+    
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
