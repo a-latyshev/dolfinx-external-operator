@@ -106,9 +106,9 @@ jax.config.update("jax_enable_x64", True)
 # some useful constants.
 
 # %%
-E =  6778  # [MPa] Young modulus
+E =  1.0  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
-c = 3.45 # [MPa] cohesion
+c = 3.45 / 6778 # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
@@ -117,7 +117,7 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 # %%
 L, H = (1.2, 1.0)
 Nx, Ny = (100, 100)
-gamma = 1.0
+gamma = 1.0 / 6778
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
 # %%
@@ -710,19 +710,6 @@ external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, pet
 
 # %%
 timer_total = common.Timer("Total_timer")
-# timer = common.Timer("DOLFINx_timer")
-# local_monitor = {}
-# performance_monitor = pd.DataFrame({
-#     "loading_step": np.array([], dtype=np.int64),
-#     "Newton_iteration": np.array([], dtype=np.int64),
-#     "matrix_assembling": np.array([], dtype=np.float64),
-#     "vector_assembling": np.array([], dtype=np.float64),
-#     "linear_solver": np.array([], dtype=np.float64),
-#     "constitutive_model_update": np.array([], dtype=np.float64),
-# })
-
-# %%
-
 timer_total.start()
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
@@ -732,7 +719,7 @@ for i, load in enumerate(load_steps):
     if MPI.COMM_WORLD.rank == 0:
         print(f"Load increment #{i}, load: {load}")
 
-    external_operator_problem.solve(i)
+    external_operator_problem.solve()
     
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
@@ -748,6 +735,7 @@ print(f"Slope stability factor: {-q.value[-1]*H/c}")
 print(f"Total time: {total_time}")
 
 # %%
+external_operator_problem.performance_monitor
 
 # %% [markdown]
 # ## Verification
@@ -1287,13 +1275,22 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 # ## Performance
 
 # %%
-# def Newton_iterations_in_total():
-#     N_iterations = 0
-#     for i in range(0, num_increments):
-#         N_iterations += performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
-#     return N_iterations
-# print(f"Newton iterations in total = {Newton_iterations_in_total()}")
-# return performance_monitor
+summary_monitor
+
+# %%
+summary_monitor = external_operator_problem.performance_monitor.copy()
+
+cols = ["matrix_assembling", "vector_assembling", "linear_solver", "constitutive_model_update"]
+summary_monitor["linear_solver"] = summary_monitor["nonlinear_solver"] - summary_monitor["matrix_assembling"] - summary_monitor["vector_assembling"] - summary_monitor["constitutive_model_update"]
+
+fig, ax = plt.subplots(figsize=(10, 5))
+summary_monitor.plot(use_index=True, y=cols, kind="bar", stacked=True, ax=ax)
+
+# %%
+fig, ax = plt.subplots(figsize=(10, 5))
+for col in cols:
+    summary_monitor[col] = summary_monitor[col] / (summary_monitor["Newton_iterations"]+1)
+summary_monitor.plot(use_index=True, y=cols, kind="bar", stacked=True, ax=ax)
 
 # %%
 summary_monitor = pd.DataFrame({

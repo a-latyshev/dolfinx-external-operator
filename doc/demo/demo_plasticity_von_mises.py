@@ -158,12 +158,11 @@ import numba
 import numpy as np
 from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
 from utilities import build_cylinder_quarter, find_cell_by_point
+from solvers import SNESProblem
 
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.fem.petsc import NonlinearProblem
-from dolfinx.nls.petsc import NewtonSolver
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -418,30 +417,6 @@ J_form = fem.form(J_replaced)
 # %%
 u = fem.Function(V, name="displacement")
 
-
-class PlasticityProblem(NonlinearProblem):
-    def form(self, x: PETSc.Vec) -> None:
-        """This function is called before the residual or Jacobian is
-        computed. This is usually used to update ghost values, but here
-        we also use it to evaluate the external operators.
-
-        Args:
-           x: The vector containing the latest solution
-        """
-        # The following line is from the standard NonlinearProblem class
-        x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
-
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-        # This avoids having to evaluate the external operators of F.
-        sigma.ref_coefficient.x.array[:] = sigma_new
-        dp.x.array[:] = dp_new
-
-
-problem = PlasticityProblem(F_replaced, Du, bcs=bcs, J=J_replaced)
-
-from solvers import SNESProblem
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
     ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
@@ -460,7 +435,6 @@ petsc_options = {
     "snes_rtol": 1.0e-11,
     "snes_max_it": 500,
     "snes_monitor": "",
-    # "snes_monitor_cancel": "",
 }
 
 external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, system_update=constitutive_update)
@@ -474,17 +448,6 @@ load_steps = np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5
 loadings = q_lim * load_steps
 results = np.zeros((num_increments, 2))
 
-solver = NewtonSolver(mesh.comm, problem)
-solver.max_it = 200
-solver.rtol = 1e-8
-ksp = solver.krylov_solver
-opts = PETSc.Options()  # type: ignore
-option_prefix = ksp.getOptionsPrefix()
-opts[f"{option_prefix}ksp_type"] = "preonly"
-opts[f"{option_prefix}pc_type"] = "lu"
-opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-ksp.setFromOptions()
-
 eps = np.finfo(PETSc.ScalarType).eps
 
 for i, loading_v in enumerate(loadings):
@@ -493,9 +456,7 @@ for i, loading_v in enumerate(loadings):
 
     if MPI.COMM_WORLD.rank == 0:
         print(f"Load increment #{i}, load: {loading_v}")
-    # solver.solve(Du)
-    info = external_operator_problem.solve()
-    # print(info)
+    external_operator_problem.solve()
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
