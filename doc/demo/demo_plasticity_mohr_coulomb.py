@@ -116,7 +116,7 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 L, H = (1.2, 1.0)
-Nx, Ny = (100, 100)
+Nx, Ny = (200, 200)
 gamma = 1.0 / 6778
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
@@ -175,7 +175,6 @@ S = fem.functionspace(domain, S_element)
 Du = fem.Function(V, name="Du")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="du")
-# v = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
@@ -469,7 +468,7 @@ drdy = jax.jacfwd(r)
 # return-mapping algorithm numerically via the Newton method.
 
 # %%
-Nitermax, tol = 200, 1e-10
+Nitermax, tol = 200, 1e-12
 
 ZERO_SCALAR = np.array([0.0])
 
@@ -690,6 +689,9 @@ results = np.zeros((num_increments + 1, 2))
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "snes_linesearch_type": "basic",
+    # "snes_linesearch_damping": 0.95,
+    # "snes_linesearch_order": 3,
+    # "snes_linesearch_minlambda": .5,
     "ksp_type": "preonly",
     "pc_type": "lu",
     "pc_factor_mat_solver_type": "mumps",
@@ -1273,9 +1275,6 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 
 # %% [markdown]
 # ## Performance
-
-# %%
-summary_monitor
 
 # %%
 summary_monitor = external_operator_problem.performance_monitor.copy()
