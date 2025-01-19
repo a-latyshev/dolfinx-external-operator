@@ -14,29 +14,22 @@ import matplotlib.pyplot as plt
 from jax.sharding import PartitionSpec as P
 from jax._src import distributed
 
+from dolfinx import mesh, fem
+import basix
+
+jax.distributed.initialize()
+print(f"Backend: {jax.default_backend()}")
+print(f"Global devices: {jax.devices()}\n")
+print(f"Local devices: {jax.local_devices()}\n")
 cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-local_device_ids = [int(i) for i in cuda_visible_devices.split(",")]
 print(f"CUDA_VISIBLE_DEVICES = {local_device_ids} ")
-jax.distributed.initialize(local_device_ids=local_device_ids)
+local_device_ids = [int(i) for i in cuda_visible_devices.split(",")]
 print(distributed.global_state.client)
 print(distributed.global_state.service)
 print(distributed.global_state.process_id)
 # import os
 # os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=8'
 # jax.distributed.initialize() 
-print(f"Backend: {jax.default_backend()}")
-print(f"Global devices: {jax.devices()}\n")
-print(f"Local devices: {jax.local_devices()}\n")
-
-# A = jax.random.uniform(jax.random.key(0), (3,3,3), dtype=jnp.float64)
-# A_sym = 0.5 * (A + A.T)
-# result = jax.lax.linalg.eigh(A, lower=True, symmetrize_input=True,
-# sort_eigenvalues=True, subset_by_index=None)
-
-# LU_vec = jax.jit(jax.vmap(jax.lax.linalg.lu, in_axes=(0)))
-# result = LU_vec(A_sym)
-# print(result)
-
 
 E = 6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
@@ -51,21 +44,34 @@ C_elas = np.array(
     ],
     dtype=np.float64,
 )
+tr = np.array([1.0, 1.0, 1.0, 0.0], dtype=PETSc.ScalarType)
+
 def f(eps):
-    return C_elas @ eps
+    """Function for benchmarking"""
+    return tr @ C_elas @ eps
+
 f_vec = jax.vmap(f, in_axes=(0))
+f_vec_jit = jax.jit(f_vec)
+
+N = 10
+domain = mesh.create_unit_square(MPI.COMM_WORLD, N, N, mesh.CellType.triangle)
+Q_element = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1, value_shape=())
+Q = fem.functionspace(domain, Q_element)
+scale_var = fem.Function(Q)
+
+if MPI.COMM_WORLD.rank == 0:
+    print(f"rank = {MPI.COMM_WORLD.rank} Globally: #DoFs(Q): {Q.dofmap.index_map.size_global:6d}\n", flush=True)
+
+print(f"rank = {MPI.COMM_WORLD.rank} Locally: #DoFs(V_alpha): {Q.dofmap.index_map.size_local:6d} scale_var {scale_var.x.array.shape}", flush=True)
 
 # def f(x):  # function we're benchmarking (works in both NumPy & JAX)
 #   return x.T @ (x - x.mean(axis=0))
-
-f_vec_jit = jax.jit(f_vec)
 
 N_list = 12*np.array([10, 100, 1000, 10000, 100000, 1000000])
 
 def benchmarking(sharding=None):
     def measurement(N, sharding=sharding):
-        eps_np = np.ones((N, 4), dtype=np.float64)  # same as JAX default dtype
-        # x_np = np.ones((N, N), dtype=np.float64)  # same as JAX default dtype
+        eps_np = np.ones((N, 4), dtype=np.float64)  
 
         time_numpy = timeit(lambda: f_vec(eps_np), number=1)
 

@@ -1,7 +1,7 @@
 #!/bin/bash -l
-#SBATCH --nodes=2
-#SBATCH -G 8
-#SBATCH -c 28
+#SBATCH --nodes=1
+#SBATCH -G 4
+#SBATCH -c 12
 #SBATCH --partition=gpu
 
 ##SBATCH --ntasks-per-node=28

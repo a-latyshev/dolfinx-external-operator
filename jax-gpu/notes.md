@@ -5,6 +5,11 @@ In a spack env:
 pip install -U "jax[cuda12]"
 ```
 
+To allocate 4 GPUs
+```python
+ si-gpu -N 1 -G 4 -t 0-02:00:00
+```
+
 > We recommend using one process per GPU and not one per node. In some cases,
 > this can speed up jitted computation. The jax.distributed.initialize() API
 > will automatically understand that configuration when run under SLURM.
