@@ -116,7 +116,7 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 L, H = (1.2, 1.0)
-Nx, Ny = (200, 200)
+Nx, Ny = (100, 100)
 gamma = 1.0 / 6778
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
@@ -468,7 +468,7 @@ drdy = jax.jacfwd(r)
 # return-mapping algorithm numerically via the Newton method.
 
 # %%
-Nitermax, tol = 200, 1e-8
+Nitermax, tol = 200, 1e-6
 
 ZERO_SCALAR = np.array([0.0])
 
@@ -588,20 +588,21 @@ def C_tang_impl(deps):
     deps_ = deps.reshape((-1, stress_dim))
     sigma_n_ = sigma_n.x.array.reshape((-1, stress_dim))
 
-    # (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    (sigam_global, state) = return_mapping_vec(deps_, sigma_n_)
+    (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    # (sigam_global, state) = return_mapping_vec(deps_, sigma_n_)
     
     sigma_global, niter, yielding, norm_res, dlambda = state
 
-    C_tang_global = C_tang_vec(sigma_global, dlambda, deps_, sigma_n_)
+    # C_tang_global = C_tang_vec(sigma_global, dlambda, deps_, sigma_n_)
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
-    print("\tInner Newton summary:")
-    print(f"\t\tUnique number of iterations: {unique_iters}")
-    print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum f: {jnp.max(yielding)}")
-    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+    if MPI.COMM_WORLD.rank == 0:
+        print("\tInner Newton summary:", flush=True)
+        print(f"\t\tUnique number of iterations: {unique_iters}", flush=True)
+        print(f"\t\tCounts of unique number of iterations: {counts}", flush=True)
+        print(f"\t\tMaximum f: {jnp.max(yielding)}", flush=True)
+        print(f"\t\tMaximum residual: {jnp.max(norm_res)}", flush=True)
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -681,7 +682,9 @@ max_iterations, relative_tolerance = 200, 1e-8
 load_steps_1 = np.linspace(1.5, 21, 40)
 load_steps_2 = np.linspace(21, 22.75, 20)[1:]
 load_steps = np.concatenate([load_steps_1, load_steps_2])
-load_steps = np.concatenate([np.linspace(1.25, 22.75, 1000)[:-1], [22.6, 22.625]])
+# load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1], [22.325]]) # OK
+load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1], [22.325, 22.34, 22.36, 22.45, 22.5, 22.55, 22.6, 22.65, 22.7, 22.75]])
+load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1]])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
@@ -689,16 +692,13 @@ results = np.zeros((num_increments + 1, 2))
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "snes_linesearch_type": "basic",
-    # "snes_linesearch_damping": 0.95,
-    # "snes_linesearch_order": 3,
-    # "snes_linesearch_minlambda": .5,
     "ksp_type": "preonly",
     "pc_type": "lu",
     "pc_factor_mat_solver_type": "mumps",
-    "snes_atol": 1.0e-12,
-    "snes_rtol": 1.0e-12,
+    "snes_atol": 1.0e-11,
+    "snes_rtol": 1.0e-11,
     "snes_max_it": 50,
-    "snes_monitor": "",
+    # "snes_monitor": "",
     # "snes_monitor_cancel": "",
 }
 
@@ -713,13 +713,15 @@ external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, pet
 # %%
 timer_total = common.Timer("Total_timer")
 timer_total.start()
+
+print(f" rank = {MPI.COMM_WORLD.rank}", flush=True)
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
 
     # Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment #{i}, load: {load}")
+        print(f"Load increment #{i}, load: {load}", flush=True)
 
     external_operator_problem.solve()
     
@@ -733,11 +735,11 @@ for i, load in enumerate(load_steps):
 timer_total.stop()
 total_time = timer_total.elapsed()[0]
 
-print(f"Slope stability factor: {-q.value[-1]*H/c}")
-print(f"Total time: {total_time}")
+print(f"Slope stability factor: {-q.value[-1]*H/c}", flush=True)
+print(f"Total time: {total_time}", flush=True)
+# Load increment #97, load: 22.32070707070707 - OK
+# load: 22.535353535353536 - not OK
 
-# %%
-external_operator_problem.performance_monitor
 
 # %% [markdown]
 # ## Verification
@@ -770,566 +772,16 @@ external_operator_problem.performance_monitor
 if len(points_on_process) > 0:
     l_lim = 6.69
     gamma_lim = l_lim / H * c
-    plt.plot(results[:, 0], results[:, 1], "o-", label=r"$\gamma$")
+    plt.plot(results[:-3, 0], results[:-3, 1], "o-", label=r"$\gamma$")
     plt.axhline(y=gamma_lim, color="r", linestyle="--", label=r"$\gamma_\text{lim}$")
     plt.xlabel(r"Displacement of the slope $u_x$ at $(0, H)$ [mm]")
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
     plt.grid()
     plt.legend()
-
-# %% [markdown]
-# The slope profile reaching its stability limit:
+    plt.savefig("mc_mpi.png")
 
 # %%
-try:
-    import pyvista
-
-    print(pyvista.global_theme.jupyter_backend)
-    import dolfinx.plot
-
-    pyvista.start_xvfb(0.1)
-
-    W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
-    u_tmp = fem.Function(W, name="Displacement")
-    u_tmp.interpolate(u)
-
-    pyvista.start_xvfb()
-    plotter = pyvista.Plotter(window_size=[600, 400])
-    topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
-    grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-    vals = np.zeros((x.shape[0], 3))
-    vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
-    grid["u"] = vals
-    warped = grid.warp_by_vector("u", factor=20)
-    plotter.add_text("Displacement field", font_size=11)
-    plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
-    plotter.view_xy()
-    plotter.show()
-except ImportError:
-    print("pyvista required for this plot")
-
-# %% [markdown]
-# ### Yield surface
-#
-# We verify that the constitutive model is correctly implemented by tracing the
-# yield surface. We generate several stress paths and check whether they remain
-# within the Mohr-Coulomb yield surface. The stress tracing is performed in the
-# [Haigh-Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
-# $(\xi, \rho, \theta)$ which are defined as follows
-#
-# $$
-#     \xi = \frac{1}{\sqrt{3}}I_1, \quad \rho =
-#     \sqrt{2J_2}, \quad \sin(3\theta) = -\frac{3\sqrt{3}}{2}
-#     \frac{J_3}{J_2^{3/2}},
-# $$
-# where $J_3(\boldsymbol{\sigma}) = \det(\boldsymbol{s})$ is the third invariant
-# of the deviatoric part of the stress tensor, $\xi$ is the deviatoric coordinate,
-# $\rho$ is the radial coordinate and the angle $\theta \in
-# [-\frac{\pi}{6}, \frac{\pi}{6}]$ is called Lode or stress angle.
-#
-# To generate the stress paths we use the principal
-# stresses formula written in Haigh-Westergaard coordinates as follows
-#
-# $$
-#     \begin{pmatrix}
-#         \sigma_{I} \\
-#         \sigma_{II} \\
-#         \sigma_{III}
-#     \end{pmatrix}
-#     = p
-#     \begin{pmatrix}
-#         1 \\
-#         1 \\
-#         1
-#     \end{pmatrix}
-#     + \frac{\rho}{\sqrt{2}}
-#     \begin{pmatrix}
-#         \cos\theta + \frac{\sin\theta}{\sqrt{3}} \\
-#         -\frac{2\sin\theta}{\sqrt{3}} \\
-#         \frac{\sin\theta}{\sqrt{3}} - \cos\theta
-#     \end{pmatrix},
-# $$
-#
-# where $p = \xi/\sqrt{3}$ is a hydrostatic variable and $\sigma_{I} \geq
-# \sigma_{II} \geq \sigma_{III}$.
-#
-# Now we generate the loading path by evaluating principal stresses in
-# Haigh-Westergaard coordinates for the Lode angle $\theta$ being varied from
-# $-\frac{\pi}{6}$ to $\frac{\pi}{6}$ with fixed $\rho$ and $p$.
-
-# %%
-N_angles = 50
-N_loads = 9  # number of loadings or paths
-eps = 0.00001
-R = 0.7  # fix the values of rho
-p = 0.1  # fix the deviatoric coordinate
-theta_1 = -np.pi / 6
-theta_2 = np.pi / 6
-
-theta_values = np.linspace(theta_1 + eps, theta_2 - eps, N_angles)
-theta_returned = np.empty((N_loads, N_angles))
-rho_returned = np.empty((N_loads, N_angles))
-sigma_returned = np.empty((N_loads, N_angles, stress_dim))
-
-# fix an increment of the stress path
-dsigma_path = np.zeros((N_angles, stress_dim))
-dsigma_path[:, 0] = (R / np.sqrt(2)) * (np.cos(theta_values) + np.sin(theta_values) / np.sqrt(3))
-dsigma_path[:, 1] = (R / np.sqrt(2)) * (-2 * np.sin(theta_values) / np.sqrt(3))
-dsigma_path[:, 2] = (R / np.sqrt(2)) * (np.sin(theta_values) / np.sqrt(3) - np.cos(theta_values))
-
-sigma_n_local = np.zeros_like(dsigma_path)
-sigma_n_local[:, 0] = p
-sigma_n_local[:, 1] = p
-sigma_n_local[:, 2] = p
-derviatoric_axis = tr
-
-
-# %% [markdown]
-# Then, we define and vectorize functions `rho`, `Lode_angle` and `sigma_tracing`
-# evaluating respectively the coordinates $\rho$, $\theta$ and the corrected (or
-# "returned") stress tensor for a certain stress state. `sigma_tracing` calls the
-# function `return_mapping`, where the constitutive model was defined via JAX
-# previously.
-
-
-# %%
-def rho(sigma_local):
-    s = dev @ sigma_local
-    return jnp.sqrt(2.0 * J2(s))
-
-
-def Lode_angle(sigma_local):
-    s = dev @ sigma_local
-    arg = -(3.0 * jnp.sqrt(3.0) * J3(s)) / (2.0 * jnp.sqrt(J2(s) * J2(s) * J2(s)))
-    arg = jnp.clip(arg, -1.0, 1.0)
-    angle = 1.0 / 3.0 * jnp.arcsin(arg)
-    return angle
-
-
-def sigma_tracing(sigma_local, sigma_n_local):
-    deps_elas = S_elas @ sigma_local
-    sigma_corrected, state = return_mapping(deps_elas, sigma_n_local)
-    yielding = state[2]
-    return sigma_corrected, yielding
-
-
-Lode_angle_v = jax.jit(jax.vmap(Lode_angle, in_axes=(0)))
-rho_v = jax.jit(jax.vmap(rho, in_axes=(0)))
-sigma_tracing_v = jax.jit(jax.vmap(sigma_tracing, in_axes=(0, 0)))
-
-# %% [markdown]
-# For each stress path, we call the function `sigma_tracing_v` to get the
-# corrected stress state and then we project it onto the deviatoric plane $(\rho,
-# \theta)$ with a fixed value of $p$.
-
-# %% tags=["scroll-output"]
-for i in range(N_loads):
-    print(f"Loading path#{i}")
-    dsigma, yielding = sigma_tracing_v(dsigma_path, sigma_n_local)
-    dp = dsigma @ tr / 3.0 - p
-    dsigma -= np.outer(dp, derviatoric_axis)  # projection on the same deviatoric plane
-
-    sigma_returned[i, :] = dsigma
-    theta_returned[i, :] = Lode_angle_v(dsigma)
-    rho_returned[i, :] = rho_v(dsigma)
-    print(f"max f: {jnp.max(yielding)}\n")
-    sigma_n_local[:] = dsigma
-
-
-# %% [markdown]
-# Then, by knowing the expression of the [standrad
-# Mohr-Coulomb](https://en.wikipedia.org/wiki/Mohr%E2%80%93Coulomb_theory) yield
-# surface in principle stresses, we can obtain an analogue expression in
-# Haigh-Westergaard coordinates, which leads us to the following equation:
-#
-#
-# $$
-#     \frac{\rho}{\sqrt{6}}(\sqrt{3}\cos\theta + \sin\phi
-#     \sin\theta) - p\sin\phi - c\cos\phi= 0.
-# $$ (eq:standard_MC)
-#
-# Thus, we restore the standard Mohr-Coulomb yield surface:
-
-
-# %%
-def MC_yield_surface(theta_, p):
-    """Restores the coordinate `rho` satisfying the standard Mohr-Coulomb yield
-    criterion."""
-    rho = (np.sqrt(2) * (c * np.cos(phi) + p * np.sin(phi))) / (
-        np.cos(theta_) - np.sin(phi) * np.sin(theta_) / np.sqrt(3)
-    )
-    return rho
-
-
-rho_standard_MC = MC_yield_surface(theta_values, p)
-
-# %% [markdown]
-# Finally, we plot the yield surface:
-
-# %%
-colormap = cm.plasma
-colors = colormap(np.linspace(0.0, 1.0, N_loads))
-
-fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 8))
-# Mohr-Coulomb yield surface with apex smoothing
-for i, color in enumerate(colors):
-    rho_total = np.array([])
-    theta_total = np.array([])
-    for j in range(12):
-        angles = j * np.pi / 3 - j % 2 * theta_returned[i] + (1 - j % 2) * theta_returned[i]
-        theta_total = np.concatenate([theta_total, angles])
-        rho_total = np.concatenate([rho_total, rho_returned[i]])
-
-    ax.plot(theta_total, rho_total, ".", color=color)
-
-# standard Mohr-Coulomb yield surface
-theta_standard_MC_total = np.array([])
-rho_standard_MC_total = np.array([])
-for j in range(12):
-    angles = j * np.pi / 3 - j % 2 * theta_values + (1 - j % 2) * theta_values
-    theta_standard_MC_total = np.concatenate([theta_standard_MC_total, angles])
-    rho_standard_MC_total = np.concatenate([rho_standard_MC_total, rho_standard_MC])
-ax.plot(theta_standard_MC_total, rho_standard_MC_total, "-", color="black")
-ax.set_yticklabels([])
-
-norm = mcolors.Normalize(vmin=0.1, vmax=0.7 * 9)
-sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
-sm.set_array([])
-cbar = fig.colorbar(sm, ax=ax, orientation="vertical")
-cbar.set_label(r"Magnitude of the stress path deviator, $\rho$ [MPa]")
-
-plt.show()
-
-# %% [markdown]
-# Each colour represents one loading path. The circles are associated with the
-# loading during the elastic phase. Once the loading reaches the elastic limit,
-# the circles start outlining the yield surface, which in the limit lay along the
-# standard Mohr-Coulomb one without smoothing (black contour).
-
-# %% [markdown]
-# ### Taylor test
-#
-# Here, we perform a Taylor test to check that the form $F$ and its Jacobian $J$
-# are consistent zeroth- and first-order approximations of the residual $F$. In
-# particular, the test verifies that the program `dsigma_ddeps_vec`
-# obtained by the JAX's AD returns correct values of the external operator
-# $\boldsymbol{\sigma}$ and its derivative $\boldsymbol{C}_\text{tang}$, which
-# define $F$ and $J$ respectively.
-#
-# To perform the test, we introduce the
-# operators $\mathcal{F}: V \rightarrow V^\prime$ and $\mathcal{J}: V \rightarrow \mathcal{L}(V,
-# V^\prime)$ defined as follows:
-#
-# $$
-#     \langle \mathcal{F}(\boldsymbol{u}), \boldsymbol{v} \rangle :=
-#     F(\boldsymbol{u}; \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V,
-# $$
-# $$
-#     \langle (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}),
-#     \boldsymbol{v} \rangle := J(\boldsymbol{u}; k\boldsymbol{\delta u},
-#     \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V,
-# $$
-#
-# where $V^\prime$ is a dual space of $V$, $\langle \cdot, \cdot \rangle$ is the
-# $V^\prime \times V$ duality pairing and $\mathcal{L}(V, V^\prime)$ is a space of
-# bounded linear operators from $V$ to its dual.
-#
-# Then, by following the Taylor's theorem on Banach spaces and perturbating the
-# functional $\mathcal{F}$ in the direction $k \, \boldsymbol{δu} \in V$ for $k >
-# 0$, the zeroth and first order Taylor reminders $r_k^0$ and $r_k^1$ have the
-# following *mesh-independent* convergence rates in the dual space $V^\prime$:
-#
-# $$
-#     \| r_k^0 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \,
-#     \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) \|_{V^\prime}
-#     \longrightarrow 0 \text{ at } O(k),
-# $$ (eq:r0)
-# $$
-#     \| r_k^1 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \,
-#     \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) - \,
-#     (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}) \|_{V^\prime}
-#     \longrightarrow 0 \text{ at } O(k^2).
-# $$ (eq:r1)
-#
-# In order to compute the norm of an element $f \in V^\prime$ from the dual space
-# $V^\prime$, we apply the Riesz representation theorem, which states that there
-# is a linear isometric isomorphism $\mathcal{R} : V^\prime \to V$, which
-# associates a linear functional $f$ with a unique element $\mathcal{R} f =
-# \boldsymbol{u} \in V$. In practice, within a finite subspace $V_h \subset V$, the
-# Riesz map $\mathcal{R}$ is represented by the matrix $\mathsf{L}^{-1}$, the
-# inverse of the Laplacian operator {cite}`kirbyFunctional2010`
-#
-# $$
-#     \mathsf{L}_{ij} = \int\limits_\Omega \nabla\varphi_i \cdot \nabla\varphi_j \mathrm{d} x , \quad i,j = 1, \dots, n,
-# $$
-#
-# where $\{\varphi_i\}_{i=1}^{\dim V_h}$ is a set of basis function of the space
-# $V_h$.
-#
-# If the Euclidean vectors $\mathsf{r}_k^i \in \mathbb{R}^{\dim V_h}, \, i \in
-# \{0,1\}$ represent the Taylor remainders from {eq}`eq:r0`--{eq}`eq:r1` in the
-# finite space, then the dual norms are computed through the following formula
-# {cite}`kirbyFunctional2010`
-#
-# $$
-#     \| r_k^i \|^2_{V^\prime_h} = (\mathsf{r}_k^i)^T \mathsf{L}^{-1} \mathsf{r}_k^i, \quad i \in \{0,1\}.
-# $$ (eq:r_norms)
-#
-# In practice, the vectors $\mathsf{r}_k^i$ are defined through the residual
-# vector $\mathsf{F} \in \mathbb{R}^{\dim V_h}$ and the Jacobian matrix
-# $\mathsf{J} \in \mathbb{R}^{\dim V_h\times\dim V_h}$
-#
-# $$
-#     \mathsf{r}_k^0 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) - \mathsf{F}(\mathsf{u}) \in \mathbb{R}^n,
-# $$ (eq:vec_r0)
-# $$
-#     \mathsf{r}_k^1 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) -
-#     \mathsf{F}(\mathsf{u}) - \, \mathsf{J}(\mathsf{u}) \cdot k\mathsf{\delta
-#     u} \in \mathbb{R}^n,
-# $$ (eq:vec_r1)
-#
-# where $\mathsf{u} \in \mathbb{R}^{\dim V_h}$ and $\mathsf{\delta u} \in
-# \mathbb{R}^{\dim V_h}$ represent dispacement fields $\boldsymbol{u} \in V_h$ and
-# $\boldsymbol{\delta u} \in V_h$.
-#
-# Now we can proceed with the Taylor test implementation. Let us first start with
-# defining the Laplace operator.
-
-# %%
-L_form = fem.form(ufl.inner(ufl.grad(u_hat), ufl.grad(v)) * ufl.dx)
-L = fem.petsc.assemble_matrix(L_form, bcs=bcs)
-L.assemble()
-Riesz_solver = PETSc.KSP().create(domain.comm)
-Riesz_solver.setType("preonly")
-Riesz_solver.getPC().setType("lu")
-Riesz_solver.setOperators(L)
-y = fem.Function(V, name="Riesz_representer_of_r")  # r - a Taylor remainder
-
-# %% [markdown]
-# Now we initialize main variables of the plasticity problem.
-
-# %%
-# Reset main variables to zero including the external operators values
-sigma_n.x.array[:] = 0.0
-sigma.ref_coefficient.x.array[:] = 0.0
-J_external_operators[0].ref_coefficient.x.array[:] = 0.0
-# Reset the values of the consistent tangent matrix to elastic moduli
-Du.x.array[:] = 1.0
-evaluated_operands = evaluate_operands(F_external_operators)
-_ = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-# %% [markdown]
-# As the derivatives of the constitutive model are different for elastic and
-# plastic phases, we must consider two initial states for the Taylor test. For
-# this reason, we solve the problem once for a certain loading value to get the
-# initial state close to the one with plastic deformations but still remain in the
-# elastic phase.
-
-# %%
-i = 0
-load = 2.0
-q.value = load * np.array([0, -gamma])
-external_operator_problem.assemble_vector()
-
-residual_0 = external_operator_problem.b.norm()
-residual = residual_0
-Du.x.array[:] = 0
-
-if MPI.COMM_WORLD.rank == 0:
-    print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
-
-for iteration in range(0, max_iterations):
-    if residual / residual_0 < relative_tolerance:
-        break
-
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"\tOuter Newton iteration #{iteration}")
-    external_operator_problem.assemble_matrix()
-    external_operator_problem.solve(du)
-
-    Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
-    Du.x.scatter_forward()
-
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-    sigma.ref_coefficient.x.array[:] = sigma_new
-
-    external_operator_problem.assemble_vector()
-    residual = external_operator_problem.b.norm()
-
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"\tResidual: {residual}\n")
-
-sigma_n.x.array[:] = sigma.ref_coefficient.x.array
-
-# Initial values of the displacement field and the stress state for the Taylor
-# test
-Du0 = np.copy(Du.x.array)
-sigma_n0 = np.copy(sigma_n.x.array)
-
-# %% [markdown]
-# If we take into account the initial stress state `sigma_n0` computed in the cell
-# above, we perform the Taylor test for the plastic phase, otherwise we stay in
-# the elastic one.
-#
-# Finally, we define the function `perform_Taylor_test`, which returns the norms
-# of the Taylor reminders in dual space {eq}`eq:r_norms`--{eq}`eq:vec_r1`.
-
-# %% tags=["scroll-output"]
-k_list = np.logspace(-2.0, -6.0, 5)[::-1]
-
-
-def perform_Taylor_test(Du0, sigma_n0):
-    # r0 = F(Du0 + k*δu) - F(Du0)
-    # r1 = F(Du0 + k*δu) - F(Du0) - k*J(Du0)*δu
-    Du.x.array[:] = Du0
-    sigma_n.x.array[:] = sigma_n0
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    sigma.ref_coefficient.x.array[:] = sigma_new
-
-    F0 = fem.petsc.assemble_vector(F_form)  # F(Du0)
-    F0.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-    fem.set_bc(F0, bcs)
-
-    J0 = fem.petsc.assemble_matrix(J_form, bcs=bcs)
-    J0.assemble()  # J(Du0)
-    Ju = J0.createVecLeft()  # Ju = J0 @ u
-
-    δu = fem.Function(V)
-    δu.x.array[:] = Du0  # δu == Du0
-
-    zero_order_remainder = np.zeros_like(k_list)
-    first_order_remainder = np.zeros_like(k_list)
-
-    for i, k in enumerate(k_list):
-        Du.x.array[:] = Du0 + k * δu.x.array
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        sigma.ref_coefficient.x.array[:] = sigma_new
-
-        F_delta = fem.petsc.assemble_vector(F_form)  # F(Du0 + h*δu)
-        F_delta.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        fem.set_bc(F_delta, bcs)
-
-        J0.mult(δu.x.petsc_vec, Ju)  # Ju = J(Du0)*δu
-        Ju.scale(k)  # Ju = k*Ju
-
-        r0 = F_delta - F0
-        r1 = F_delta - F0 - Ju
-
-        Riesz_solver.solve(r0, y.x.petsc_vec)  # y = L^{-1} r0
-        y.x.scatter_forward()
-        zero_order_remainder[i] = np.sqrt(r0.dot(y.x.petsc_vec))  # sqrt{r0^T L^{-1} r0}
-
-        Riesz_solver.solve(r1, y.x.petsc_vec)  # y = L^{-1} r1
-        y.x.scatter_forward()
-        first_order_remainder[i] = np.sqrt(r1.dot(y.x.petsc_vec))  # sqrt{r1^T L^{-1} r1}
-
-    return zero_order_remainder, first_order_remainder
-
-
-print("Elastic phase")
-zero_order_remainder_elastic, first_order_remainder_elastic = perform_Taylor_test(Du0, 0.0)
-print("Plastic phase")
-zero_order_remainder_plastic, first_order_remainder_plastic = perform_Taylor_test(Du0, sigma_n0)
-
-# %%
-fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-
-axs[0].loglog(k_list, zero_order_remainder_elastic, "o-", label=r"$\|r_k^0\|_{V^\prime}$")
-axs[0].loglog(k_list, first_order_remainder_elastic, "o-", label=r"$\|r_k^1\|_{V^\prime}$")
-annotation.slope_marker((2e-4, 5e-5), 1, ax=axs[0], poly_kwargs={"facecolor": "tab:blue"})
-axs[0].text(0.5, -0.2, "(a) Elastic phase", transform=axs[0].transAxes, ha="center", va="top")
-
-axs[1].loglog(k_list, zero_order_remainder_plastic, "o-", label=r"$\|r_k^0\|_{V^\prime}$")
-annotation.slope_marker((2e-4, 5e-5), 1, ax=axs[1], poly_kwargs={"facecolor": "tab:blue"})
-axs[1].loglog(k_list, first_order_remainder_plastic, "o-", label=r"$\|r_k^1\|_{V^\prime}$")
-annotation.slope_marker((2e-4, 5e-13), 2, ax=axs[1], poly_kwargs={"facecolor": "tab:orange"})
-axs[1].text(0.5, -0.2, "(b) Plastic phase", transform=axs[1].transAxes, ha="center", va="top")
-
-for i in range(2):
-    axs[i].set_xlabel("k")
-    axs[i].set_ylabel("Taylor remainder norm")
-    axs[i].legend()
-    axs[i].grid()
-
-plt.tight_layout()
-plt.show()
-
-first_order_rate = np.polyfit(np.log(k_list), np.log(zero_order_remainder_elastic), 1)[0]
-second_order_rate = np.polyfit(np.log(k_list), np.log(first_order_remainder_elastic), 1)[0]
-print(f"Elastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
-first_order_rate = np.polyfit(np.log(k_list), np.log(zero_order_remainder_plastic), 1)[0]
-second_order_rate = np.polyfit(np.log(k_list[1:]), np.log(first_order_remainder_plastic[1:]), 1)[0]
-print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd order rate = {second_order_rate:.2f}")
-
-# %% [markdown]
-# For the elastic phase (a) the zeroth-order Taylor remainder $r_k^0$ achieves the
-# first-order convergence rate, whereas the first-order remainder $r_k^1$ is
-# computed at the level of machine precision due to the constant Jacobian.
-# Similarly to the elastic flow, the zeroth-order Taylor remainder $r_k^0$ of the
-# plastic phase (b) reaches the first-order convergence, whereas the first-order
-# remainder $r_k^1$ achieves the second-order convergence rate, as expected.
-
-# %% [markdown]
-# ## Performance
-
-# %%
-summary_monitor = external_operator_problem.performance_monitor.copy()
-
-cols = ["matrix_assembling", "vector_assembling", "linear_solver", "constitutive_model_update"]
-summary_monitor["linear_solver"] = summary_monitor["nonlinear_solver"] - summary_monitor["matrix_assembling"] - summary_monitor["vector_assembling"] - summary_monitor["constitutive_model_update"]
-
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(use_index=True, y=cols, kind="bar", stacked=True, ax=ax)
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-for col in cols:
-    summary_monitor[col] = summary_monitor[col] / (summary_monitor["Newton_iterations"]+1)
-summary_monitor.plot(use_index=True, y=cols, kind="bar", stacked=True, ax=ax)
-
-# %%
-summary_monitor = pd.DataFrame({
-    "loading_step": np.array([], dtype=np.int64),
-    "matrix_assembling": np.array([], dtype=np.float64),
-    "vector_assembling": np.array([], dtype=np.float64),
-    "linear_solver": np.array([], dtype=np.float64),
-    "constitutive_model_update": np.array([], dtype=np.float64),
-})
-cols = ["matrix_assembling", "vector_assembling", "linear_solver", "constitutive_model_update"]
-
-# %%
-tmp_monitor = {}
-for i in range(num_increments):
-    tmp_monitor["loading_step"] = i
-    for col in cols:
-        Newton_iters = performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
-        tmp_monitor[col] = performance_monitor[performance_monitor["loading_step"]==i][col].sum()/Newton_iters
-    summary_monitor.loc[len(summary_monitor.index)] = tmp_monitor
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
-# 106.37
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
-#Total time: 48.410000000000004
-
-
-# %%
-summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True)
-
-# %% [markdown]
-# ## References
-# ```{bibliography}
-# :filter: docname in docnames
-# ```
+import pickle
+performance_data = {"total_time": total_time, "performance_monitor": external_operator_problem.performance_monitor}
+with open("performance_data", "wb") as f:
+        pickle.dump(performance_data, f)

@@ -155,7 +155,7 @@ class SNESProblem:
         self.u.x.scatter_forward()
 
         #TODO: SNES makes the iteration #0, where it calculates the b norm.
-        #`inside_Newton()` can be omitted in that case
+        #`system_update()` can be omitted in that case
         self.timer.start()
         self.system_update()
         self.timer.stop()
