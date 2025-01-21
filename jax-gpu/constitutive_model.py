@@ -241,4 +241,5 @@ def constitutive_response(sigma_local, sigma_n_local):
     deps_elas = S_elas @ sigma_local
     sigma_corrected, state = return_mapping(deps_elas, sigma_n_local)
     yielding = state[2]
-    return sigma_corrected, yielding
+    return sigma_corrected, (sigma_corrected, yielding)
+

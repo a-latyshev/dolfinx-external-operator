@@ -73,6 +73,9 @@
 # ### Preamble
 
 # %%
+import os, sys 
+sys.setdlopenflags(os.RTLD_NOW | os.RTLD_GLOBAL)
+
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -581,11 +584,12 @@ def C_tang_impl(deps):
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
-    print("\tInner Newton summary:")
-    print(f"\t\tUnique number of iterations: {unique_iters}")
-    print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum f: {jnp.max(yielding)}")
-    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+    if MPI.COMM_WORLD.rank == 0:
+        print("\tInner Newton summary:")
+        print(f"\t\tUnique number of iterations: {unique_iters}")
+        print(f"\t\tCounts of unique number of iterations: {counts}")
+        print(f"\t\tMaximum f: {jnp.max(yielding)}")
+        print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -715,7 +719,8 @@ for i, load in enumerate(load_steps):
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
 
-print(f"Slope stability factor: {-q.value[-1]*H/c}")
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Slope stability factor: {-q.value[-1]*H/c}")
 
 # %% [markdown]
 # ## Verification

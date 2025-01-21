@@ -12,8 +12,8 @@ authors = [
 license = { file = "LICENSE" }
 readme = "README.md"
 dependencies = [
-    "fenics-dolfinx>=0.10.0.dev0,<=0.11.0",
-    "fenics-ufl>=2024.3.0.dev0,<=2024.4.0",
+    "fenics-dolfinx>=0.9.0,<=0.11.0",
+    "fenics-ufl>=2024.2.0,<=2024.4.0",
 ]
 
 [project.optional-dependencies]
