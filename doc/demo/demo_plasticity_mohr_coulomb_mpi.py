@@ -722,7 +722,6 @@ external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, pet
 timer_total = common.Timer("Total_timer")
 timer_total.start()
 
-print(f" rank = {MPI.COMM_WORLD.rank}", flush=True)
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
 
@@ -787,10 +786,10 @@ if len(points_on_process) > 0:
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
     plt.grid()
     plt.legend()
-    plt.savefig(f"mc_mpi_{N}x{N}_n_{n}.png")
+    plt.savefig(f"output_data/mc_mpi_{N}x{N}_n_{n}.png")
 
 # %%
 import pickle
 performance_data = {"total_time": total_time, "performance_monitor": external_operator_problem.performance_monitor}
-with open(f"performance_data_{N}x{N}_n_{n}", "wb") as f:
+with open(f"output_data/performance_data_{N}x{N}_n_{n}.pkl", "wb") as f:
         pickle.dump(performance_data, f)
