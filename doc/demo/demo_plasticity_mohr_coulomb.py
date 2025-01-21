@@ -1,6 +1,19 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+# ---
+
 # %% [markdown]
 # # Plasticity of Mohr-Coulomb with apex-smoothing
-# 
+#
 # This tutorial aims to demonstrate how modern automatic algorithmic
 # differentiation (AD) techniques may be used to define a complex constitutive
 # model demanding a lot of by-hand differentiation. In particular, we implement
@@ -10,17 +23,17 @@
 # relations including the differentiation of certain terms and
 # `FEMExternalOperator` class to incorporate this model into a weak formulation
 # within [UFL](https://github.com/fenics/ufl).
-# 
+#
 # The tutorial is based on the
 # [limit analysis](https://fenics-optim.readthedocs.io/en/latest/demos/limit_analysis_3D_SDP.html)
 # within semi-definite programming framework, where the plasticity model was
 # replaced by the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of
 # the Mohr-Coulomb elastoplastic model with apex smoothing.
-# 
-# 
+#
+#
 # ## Problem formulation
-# 
+#
 # We solve a slope stability problem of a soil domain $\Omega$ represented by a
 # rectangle $[0; L] \times [0; W]$ with homogeneous Dirichlet boundary conditions
 # for the displacement field $\boldsymbol{u} = \boldsymbol{0}$ on the right side
@@ -31,12 +44,12 @@
 # model without smoothing under plane strain assumption for associative plastic law
 # {cite}`chenLimitAnalysisSoil1990`. Here we follow the same Mandel-Voigt notation
 # as in the [von Mises plasticity tutorial](demo_plasticity_von_mises.py).
-# 
+#
 # If $V$ is a functional space of admissible displacement fields, then we can
 # write out a weak formulation of the problem:
-# 
+#
 # Find $\boldsymbol{u} \in V$ such that
-# 
+#
 # $$
 #     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
 #     \boldsymbol{\sigma}(\boldsymbol{u}) \cdot
@@ -45,15 +58,15 @@
 #     \forall \boldsymbol{v} \in V,
 # $$
 # where $\boldsymbol{\sigma}$ is an external operator representing the stress tensor.
-# 
+#
 # ```{note}
 # Although the tutorial shows the implementation of the Mohr-Coulomb model, it
 # is quite general to be adapted to a wide rage of plasticity models that may
 # be defined through a yield surface and a plastic potential.
 # ```
-# 
+#
 # ## Implementation
-# 
+#
 # ### Preamble
 
 # %%
@@ -166,12 +179,12 @@ sigma_n = fem.Function(S, name="sigma_n")
 
 # %% [markdown]
 # ### Defining plasticity model and external operator
-# 
+#
 # The constitutive model of the soil is described by a non-associative plasticity
 # law without hardening that is defined by the Mohr-Coulomb yield surface $f$ and
 # the plastic potential $g$. Both quantities may be expressed through the
 # following function $h$
-# 
+#
 # \begin{align*}
 #     & h(\boldsymbol{\sigma}, \alpha) =
 #     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
@@ -187,12 +200,12 @@ sigma_n = fem.Function(S, name="sigma_n")
 # deviatoric part of the stress tensor. The expression of the coefficient
 # $K(\alpha)$ may be found in the MFront/TFEL
 # [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of this plastic model.
-# 
+#
 # During the plastic loading the stress-strain state of the solid must satisfy
 # the following system of nonlinear equations
-# 
+#
 # $$
-# 
+#
 #     \begin{cases}
 #         \boldsymbol{r}_{g}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
 #         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
@@ -201,25 +214,25 @@ sigma_n = fem.Function(S, name="sigma_n")
 #         \boldsymbol{0}, \\
 #          r_f(\boldsymbol{\sigma}_{n+1}) = f(\boldsymbol{\sigma}_{n+1}) = 0,
 #     \end{cases}
-# 
+#
 # $$ (eq_MC_1)
 # where $\Delta$ is associated with increments of a quantity between the next
 # loading step $n + 1$ and the current loading step $n$.
-# 
+#
 # By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{g}^T,
 # r_f]^T$ and its argument vector $\boldsymbol{y}_{n+1} =
 # [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$, we obtain the following
 # nonlinear constitutive equation:
-# 
+#
 # $$
 #     \boldsymbol{r}(\boldsymbol{y}_{n+1}) = \boldsymbol{0}.
 # $$
-# 
+#
 # To solve this equation we apply the Newton method and introduce the local
 # Jacobian of the residual vector $\boldsymbol{j} := \frac{\mathrm{d}
 # \boldsymbol{r}}{\mathrm{d} \boldsymbol{y}}$. Thus we solve the following linear
 # system at each quadrature point for the plastic phase
-# 
+#
 # $$
 #     \begin{cases}
 #         \boldsymbol{j}(\boldsymbol{y}_{n})\boldsymbol{t} = -
@@ -227,22 +240,22 @@ sigma_n = fem.Function(S, name="sigma_n")
 #         \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{t}.
 #     \end{cases}
 # $$
-# 
+#
 # During the elastic loading, we consider a trivial system of equations
-# 
+#
 # $$
 #     \begin{cases}
 #         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
 #         \boldsymbol{C} \cdot \Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
 #     \end{cases}
 # $$ (eq_MC_2)
-# 
+#
 # The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
 # *return-mapping procedure* and the solution defines the return-mapping
 # correction of the stress tensor. By implementation of the external operator
 # $\boldsymbol{\sigma}$ we mean the implementation of this *algorithmic*
 # procedure.
-# 
+#
 # The automatic differentiation tools of the JAX library are applied to calculate
 # the three distinct derivatives:
 # 1. $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}$ - derivative
@@ -253,9 +266,9 @@ sigma_n = fem.Function(S, name="sigma_n")
 #    \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$ -
 #    stress tensor
 # derivative or consistent tangent moduli.
-# 
+#
 # #### Defining yield surface and plastic potential
-# 
+#
 # First of all, we define supplementary functions that help us to express the
 # yield surface $f$ and the plastic potential $g$. In the following definitions,
 # we use built-in functions of the JAX package, in particular, the conditional
@@ -375,12 +388,12 @@ dgdsigma = jax.jacfwd(g)
 
 # %% [markdown]
 # #### Solving constitutive equations
-# 
+#
 # In this section, we define the constitutive model by solving the systems
 # {eq}`eq_MC_1`--{eq}`eq_MC_2`. They must be solved at each Gauss point, so we
 # apply the Newton method, implement the whole algorithm locally and then
 # vectorize the final result using `jax.vmap`.
-# 
+#
 # In the following cell, we define locally the residual $\boldsymbol{r}$ and
 # its Jacobian `drdy`.
 
@@ -517,7 +530,7 @@ def return_mapping(deps_local, sigma_n_local):
 
 # %% [markdown]
 # #### Consistent tangent stiffness matrix
-# 
+#
 # Not only is the automatic differentiation able to compute the derivative of a
 # mathematical expression but also a numerical algorithm. For instance, AD can
 # calculate the derivative of the function performing return-mapping with respect
@@ -525,7 +538,7 @@ def return_mapping(deps_local, sigma_n_local):
 # consistent tangent moduli $\boldsymbol{C}_\text{tang}$, this feature becomes
 # very useful, as there is no need to write an additional program computing the
 # stress derivative.
-# 
+#
 # JAX's AD tool permits taking the derivative of the function `return_mapping`,
 # which is factually the while loop. The derivative is taken with respect to the
 # first output and the remaining outputs are used as auxiliary data. Thus, the
@@ -545,11 +558,11 @@ dsigma_ddeps = jax.jacfwd(return_mapping, has_aux=True)
 
 # %% [markdown]
 # #### Defining external operator
-# 
+#
 # Once we define the function `dsigma_ddeps`, which evaluates both the
 # external operator and its derivative locally, we can simply vectorize it and
 # define the final implementation of the external operator derivative.
-# 
+#
 # ```{note}
 # The function `dsigma_ddeps` containing a `while_loop` is designed to be called
 # at a single Gauss point that's why we need to vectorize it for the all points
@@ -625,7 +638,7 @@ J_form = fem.form(J_replaced)
 
 # %% [markdown]
 # ### Variables initialization and compilation
-# 
+#
 # Before solving the problem we have to initialize values of the stiffness matrix,
 # as it requires for the system assembling. During the first loading step, we
 # expect an elastic response only, so it's enough to solve the constitutive
@@ -641,7 +654,7 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
 # %% [markdown]
 # ### Solving the problem
-# 
+#
 # Summing up, we apply the Newton method to solve the main weak problem. On each
 # iteration of the main Newton loop, we solve elastoplastic constitutive equations
 # by using the second (inner) Newton method at each Gauss point. Thanks to the
@@ -722,15 +735,15 @@ external_operator_problem.performance_monitor
 
 # %% [markdown]
 # ### Critical load
-# 
+#
 # According to {cite:t}`chenLimitAnalysisSoil1990`, we can derive analytically the
 # slope stability factor $l_\text{lim}$ for the standard Mohr-Coulomb plasticity
 # model (*without* apex smoothing) under plane strain assumption for associative plastic flow
-# 
+#
 # $$
 #     l_\text{lim} = \gamma_\text{lim} H/c,
 # $$
-# 
+#
 # where $\gamma_\text{lim}$ is an associated value of the soil self-weight. In
 # particular, for the rectangular slope with the friction angle $\phi$ equal to
 # $30^\circ$, $l_\text{lim} = 6.69$ {cite}`chenLimitAnalysisSoil1990`. Thus, by
@@ -740,7 +753,7 @@ external_operator_problem.performance_monitor
 # $\gamma_\text{lim}^\text{num}$, when the perfect plasticity plateau is reached
 # on the loading-displacement curve at the $(0, H)$ point and then compare
 # $\gamma_\text{lim}^\text{num}$ against analytical $\gamma_\text{lim}$.
-# 
+#
 # By demonstrating the loading-displacement curve on the figure below we approve
 # that the yield strength limit reached for $\gamma_\text{lim}^\text{num}$ is close to $\gamma_\text{lim}$.
 
@@ -816,13 +829,13 @@ except ImportError:
 
 # %% [markdown]
 # ### Yield surface
-# 
+#
 # We verify that the constitutive model is correctly implemented by tracing the
 # yield surface. We generate several stress paths and check whether they remain
 # within the Mohr-Coulomb yield surface. The stress tracing is performed in the
 # [Haigh-Westergaard coordinates](https://en.wikipedia.org/wiki/Lode_coordinates)
 # $(\xi, \rho, \theta)$ which are defined as follows
-# 
+#
 # $$
 #     \xi = \frac{1}{\sqrt{3}}I_1, \quad \rho =
 #     \sqrt{2J_2}, \quad \sin(3\theta) = -\frac{3\sqrt{3}}{2}
@@ -832,10 +845,10 @@ except ImportError:
 # of the deviatoric part of the stress tensor, $\xi$ is the deviatoric coordinate,
 # $\rho$ is the radial coordinate and the angle $\theta \in
 # [-\frac{\pi}{6}, \frac{\pi}{6}]$ is called Lode or stress angle.
-# 
+#
 # To generate the stress paths we use the principal
 # stresses formula written in Haigh-Westergaard coordinates as follows
-# 
+#
 # $$
 #     \begin{pmatrix}
 #         \sigma_{I} \\
@@ -855,10 +868,10 @@ except ImportError:
 #         \frac{\sin\theta}{\sqrt{3}} - \cos\theta
 #     \end{pmatrix},
 # $$
-# 
+#
 # where $p = \xi/\sqrt{3}$ is a hydrostatic variable and $\sigma_{I} \geq
 # \sigma_{II} \geq \sigma_{III}$.
-# 
+#
 # Now we generate the loading path by evaluating principal stresses in
 # Haigh-Westergaard coordinates for the Lode angle $\theta$ being varied from
 # $-\frac{\pi}{6}$ to $\frac{\pi}{6}$ with fixed $\rho$ and $p$.
@@ -944,13 +957,13 @@ for i in range(N_loads):
 # Mohr-Coulomb](https://en.wikipedia.org/wiki/Mohr%E2%80%93Coulomb_theory) yield
 # surface in principle stresses, we can obtain an analogue expression in
 # Haigh-Westergaard coordinates, which leads us to the following equation:
-# 
-# 
+#
+#
 # $$
 #     \frac{\rho}{\sqrt{6}}(\sqrt{3}\cos\theta + \sin\phi
 #     \sin\theta) - p\sin\phi - c\cos\phi= 0.
 # $$ (eq:standard_MC)
-# 
+#
 # Thus, we restore the standard Mohr-Coulomb yield surface:
 
 # %%
@@ -1010,18 +1023,18 @@ plt.show()
 
 # %% [markdown]
 # ### Taylor test
-# 
+#
 # Here, we perform a Taylor test to check that the form $F$ and its Jacobian $J$
 # are consistent zeroth- and first-order approximations of the residual $F$. In
 # particular, the test verifies that the program `dsigma_ddeps_vec`
 # obtained by the JAX's AD returns correct values of the external operator
 # $\boldsymbol{\sigma}$ and its derivative $\boldsymbol{C}_\text{tang}$, which
 # define $F$ and $J$ respectively.
-# 
+#
 # To perform the test, we introduce the
 # operators $\mathcal{F}: V \rightarrow V^\prime$ and $\mathcal{J}: V \rightarrow \mathcal{L}(V,
 # V^\prime)$ defined as follows:
-# 
+#
 # $$
 #     \langle \mathcal{F}(\boldsymbol{u}), \boldsymbol{v} \rangle :=
 #     F(\boldsymbol{u}; \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V,
@@ -1031,16 +1044,16 @@ plt.show()
 #     \boldsymbol{v} \rangle := J(\boldsymbol{u}; k\boldsymbol{\delta u},
 #     \boldsymbol{v}), \quad \forall \boldsymbol{v} \in V,
 # $$
-# 
+#
 # where $V^\prime$ is a dual space of $V$, $\langle \cdot, \cdot \rangle$ is the
 # $V^\prime \times V$ duality pairing and $\mathcal{L}(V, V^\prime)$ is a space of
 # bounded linear operators from $V$ to its dual.
-# 
+#
 # Then, by following the Taylor's theorem on Banach spaces and perturbating the
 # functional $\mathcal{F}$ in the direction $k \, \boldsymbol{δu} \in V$ for $k >
 # 0$, the zeroth and first order Taylor reminders $r_k^0$ and $r_k^1$ have the
 # following *mesh-independent* convergence rates in the dual space $V^\prime$:
-# 
+#
 # $$
 #     \| r_k^0 \|_{V^\prime} := \| \mathcal{F}(\boldsymbol{u} + k \,
 #     \boldsymbol{\delta u}) - \mathcal{F}(\boldsymbol{u}) \|_{V^\prime}
@@ -1052,7 +1065,7 @@ plt.show()
 #     (\mathcal{J}(\boldsymbol{u}))(k\boldsymbol{\delta u}) \|_{V^\prime}
 #     \longrightarrow 0 \text{ at } O(k^2).
 # $$ (eq:r1)
-# 
+#
 # In order to compute the norm of an element $f \in V^\prime$ from the dual space
 # $V^\prime$, we apply the Riesz representation theorem, which states that there
 # is a linear isometric isomorphism $\mathcal{R} : V^\prime \to V$, which
@@ -1060,27 +1073,27 @@ plt.show()
 # \boldsymbol{u} \in V$. In practice, within a finite subspace $V_h \subset V$, the
 # Riesz map $\mathcal{R}$ is represented by the matrix $\mathsf{L}^{-1}$, the
 # inverse of the Laplacian operator {cite}`kirbyFunctional2010`
-# 
+#
 # $$
 #     \mathsf{L}_{ij} = \int\limits_\Omega \nabla\varphi_i \cdot \nabla\varphi_j \mathrm{d} x , \quad i,j = 1, \dots, n,
 # $$
-# 
+#
 # where $\{\varphi_i\}_{i=1}^{\dim V_h}$ is a set of basis function of the space
 # $V_h$.
-# 
+#
 # If the Euclidean vectors $\mathsf{r}_k^i \in \mathbb{R}^{\dim V_h}, \, i \in
 # \{0,1\}$ represent the Taylor remainders from {eq}`eq:r0`--{eq}`eq:r1` in the
 # finite space, then the dual norms are computed through the following formula
 # {cite}`kirbyFunctional2010`
-# 
+#
 # $$
 #     \| r_k^i \|^2_{V^\prime_h} = (\mathsf{r}_k^i)^T \mathsf{L}^{-1} \mathsf{r}_k^i, \quad i \in \{0,1\}.
 # $$ (eq:r_norms)
-# 
+#
 # In practice, the vectors $\mathsf{r}_k^i$ are defined through the residual
 # vector $\mathsf{F} \in \mathbb{R}^{\dim V_h}$ and the Jacobian matrix
 # $\mathsf{J} \in \mathbb{R}^{\dim V_h\times\dim V_h}$
-# 
+#
 # $$
 #     \mathsf{r}_k^0 = \mathsf{F}(\mathsf{u} + k \, \mathsf{\delta u}) - \mathsf{F}(\mathsf{u}) \in \mathbb{R}^n,
 # $$ (eq:vec_r0)
@@ -1089,11 +1102,11 @@ plt.show()
 #     \mathsf{F}(\mathsf{u}) - \, \mathsf{J}(\mathsf{u}) \cdot k\mathsf{\delta
 #     u} \in \mathbb{R}^n,
 # $$ (eq:vec_r1)
-# 
+#
 # where $\mathsf{u} \in \mathbb{R}^{\dim V_h}$ and $\mathsf{\delta u} \in
 # \mathbb{R}^{\dim V_h}$ represent dispacement fields $\boldsymbol{u} \in V_h$ and
 # $\boldsymbol{\delta u} \in V_h$.
-# 
+#
 # Now we can proceed with the Taylor test implementation. Let us first start with
 # defining the Laplace operator.
 
@@ -1174,7 +1187,7 @@ sigma_n0 = np.copy(sigma_n.x.array)
 # If we take into account the initial stress state `sigma_n0` computed in the cell
 # above, we perform the Taylor test for the plastic phase, otherwise we stay in
 # the elastic one.
-# 
+#
 # Finally, we define the function `perform_Taylor_test`, which returns the norms
 # of the Taylor reminders in dual space {eq}`eq:r_norms`--{eq}`eq:vec_r1`.
 
