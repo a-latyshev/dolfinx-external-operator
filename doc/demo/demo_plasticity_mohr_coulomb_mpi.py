@@ -74,6 +74,8 @@
 # ### Preamble
 
 # %%
+import os, sys 
+sys.setdlopenflags(os.RTLD_NOW | os.RTLD_GLOBAL)
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -113,10 +115,16 @@ phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
 a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
+import argparse
+
+parser = argparse.ArgumentParser(description="Demo Plasticity Mohr Coulomb MPI")
+parser.add_argument("--N", type=int, default=50, help="Mesh size")
+args = parser.parse_args()
+N = args.N
 
 # %%
 L, H = (1.2, 1.0)
-Nx, Ny = (100, 100)
+Nx, Ny = (N, N)
 gamma = 1.0 / 6778
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
@@ -768,6 +776,7 @@ print(f"Total time: {total_time}", flush=True)
 # By demonstrating the loading-displacement curve on the figure below we approve
 # that the yield strength limit reached for $\gamma_\text{lim}^\text{num}$ is close to $\gamma_\text{lim}$.
 
+n = MPI.COMM_WORLD.Get_size()
 # %%
 if len(points_on_process) > 0:
     l_lim = 6.69
@@ -778,10 +787,10 @@ if len(points_on_process) > 0:
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
     plt.grid()
     plt.legend()
-    plt.savefig("mc_mpi.png")
+    plt.savefig(f"mc_mpi_{N}x{N}_n_{n}.png")
 
 # %%
 import pickle
 performance_data = {"total_time": total_time, "performance_monitor": external_operator_problem.performance_monitor}
-with open("performance_data", "wb") as f:
+with open(f"performance_data_{N}x{N}_n_{n}", "wb") as f:
         pickle.dump(performance_data, f)
