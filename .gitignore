@@ -18,3 +18,4 @@ build/
 *.toc
 
 *.out
+*.pkl

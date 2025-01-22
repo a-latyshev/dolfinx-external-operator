@@ -596,12 +596,12 @@ def C_tang_impl(deps):
     deps_ = deps.reshape((-1, stress_dim))
     sigma_n_ = sigma_n.x.array.reshape((-1, stress_dim))
 
-    (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    # (sigam_global, state) = return_mapping_vec(deps_, sigma_n_)
+    # (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
+    (sigam_global, state) = return_mapping_vec(deps_, sigma_n_)
     
     sigma_global, niter, yielding, norm_res, dlambda = state
 
-    # C_tang_global = C_tang_vec(sigma_global, dlambda, deps_, sigma_n_)
+    C_tang_global = C_tang_vec(sigma_global, dlambda, deps_, sigma_n_)
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -614,12 +614,6 @@ def C_tang_impl(deps):
         print(f"\t\tCounts of unique number of iterations: {counts}", flush=True)
         print(f"\t\tMaximum f: {max_yielding}", flush=True)
         print(f"\t\tMaximum residual: {jnp.max(norm_res)}", flush=True)
-    # if MPI.COMM_WORLD.rank == 0:
-    #     print("\tInner Newton summary:", flush=True)
-    #     print(f"\t\tUnique number of iterations: {unique_iters}", flush=True)
-    #     print(f"\t\tCounts of unique number of iterations: {counts}", flush=True)
-    #     print(f"\t\tMaximum f: {jnp.max(yielding)}", flush=True)
-    #     print(f"\t\tMaximum residual: {jnp.max(norm_res)}", flush=True)
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -694,9 +688,9 @@ cells, points_on_process = find_cell_by_point(domain, x_point)
 
 # %%
 # parameters of the manual Newton method
-max_iterations, relative_tolerance = 200, 1e-9
+max_iterations, relative_tolerance = 200, 1e-7
 
-load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1]])
+load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1]])[:10]
 # load_steps = np.linspace(2, 21, 40)
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
@@ -744,12 +738,12 @@ for i, load in enumerate(load_steps):
         timer.start()
         external_operator_problem.assemble_matrix()
         timer.stop()
-        local_monitor["matrix_assembling"] = comm.allreduce(timer.elapsed()[0], op=MPI.SUM)
+        local_monitor["matrix_assembling"] = comm.allreduce(timer.elapsed()[0], op=MPI.MAX)
 
         timer.start()
         external_operator_problem.solve(du)
         timer.stop()
-        local_monitor["linear_solver"] = comm.allreduce(timer.elapsed()[0], op=MPI.SUM)
+        local_monitor["linear_solver"] = comm.allreduce(timer.elapsed()[0], op=MPI.MAX)
 
         Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
         Du.x.scatter_forward()
@@ -760,18 +754,18 @@ for i, load in enumerate(load_steps):
         # Direct access to the external operator values
         sigma.ref_coefficient.x.array[:] = sigma_new
         timer.stop()
-        local_monitor["constitutive_model_update"] = comm.allreduce(timer.elapsed()[0], op=MPI.SUM)
+        local_monitor["constitutive_model_update"] = comm.allreduce(timer.elapsed()[0], op=MPI.MAX)
 
         timer.start()
         external_operator_problem.assemble_vector()
         timer.stop()
-        local_monitor["vector_assembling"] = comm.allreduce(timer.elapsed()[0], op=MPI.SUM)
+        local_monitor["vector_assembling"] = comm.allreduce(timer.elapsed()[0], op=MPI.MAX)
         performance_monitor.loc[len(performance_monitor.index)] = local_monitor
 
         residual = external_operator_problem.b.norm()
 
         if MPI.COMM_WORLD.rank == 0:
-            print(f"\tResidual: {residual}\n", flush=True)
+            print(f"\tResidual: {residual} Relative: {residual / residual_0}\n", flush=True)
 
     if MPI.COMM_WORLD.rank == 0:
         print("____________________\n", flush=True)
