@@ -1,3 +1,4 @@
+from mpi4py import MPI
 from petsc4py import PETSc
 
 import dolfinx.fem.petsc  # noqa: F401
@@ -159,7 +160,7 @@ class SNESProblem:
         self.timer.start()
         self.system_update()
         self.timer.stop()
-        self.local_monitor["constitutive_model_update"] += self.timer.elapsed()[0]
+        self.local_monitor["constitutive_model_update"] += self.comm.allreduce(self.timer.elapsed()[0], op=MPI.SUM)
 
         self.timer.start()
         with b.localForm() as b_local:
@@ -170,7 +171,7 @@ class SNESProblem:
         b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         fem.petsc.set_bc(b, self.bcs, x, -1.0)
         self.timer.stop()
-        self.local_monitor["vector_assembling"] += self.timer.elapsed()[0]
+        self.local_monitor["vector_assembling"] += self.comm.allreduce(self.timer.elapsed()[0], op=MPI.SUM)
 
     def J(self, snes, x: PETSc.Vec, A: PETSc.Mat, P: PETSc.Mat) -> None:
         """Assemble the Jacobian matrix.
@@ -185,7 +186,7 @@ class SNESProblem:
         fem.petsc.assemble_matrix(A, self.J_form, self.bcs)
         A.assemble()
         self.timer.stop()
-        self.local_monitor["matrix_assembling"] += self.timer.elapsed()[0]
+        self.local_monitor["matrix_assembling"] += self.comm.allreduce(self.timer.elapsed()[0], op=MPI.SUM)
 
     def solve(self,) -> Tuple[int, int]:
         # self.local_monitor["loading_step"] = loading_step
@@ -196,7 +197,7 @@ class SNESProblem:
         self.timer.start()
         self.solver.solve(None, self.u.x.petsc_vec)
         timer.stop()
-        self.local_monitor["nonlinear_solver"] = timer.elapsed()[0]
+        self.local_monitor["nonlinear_solver"] = self.comm.allreduce(self.timer.elapsed()[0], op=MPI.SUM)
         self.local_monitor["Newton_iterations"] = self.solver.getIterationNumber()
         self.u.x.scatter_forward()
         self.performance_monitor.loc[len(self.performance_monitor.index)] = self.local_monitor
