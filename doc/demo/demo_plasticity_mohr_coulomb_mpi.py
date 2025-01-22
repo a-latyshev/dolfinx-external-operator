@@ -108,9 +108,9 @@ jax.config.update("jax_enable_x64", True)
 # some useful constants.
 
 # %%
-E =  1.0  # [MPa] Young modulus
+E =  6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
-c = 3.45 / 6778 # [MPa] cohesion
+c = 3.45 # [MPa] cohesion
 phi = 30 * np.pi / 180  # [rad] friction angle
 psi = 30 * np.pi / 180  # [rad] dilatancy angle
 theta_T = 26 * np.pi / 180  # [rad] transition angle as defined by Abbo and Sloan
@@ -125,7 +125,7 @@ N = args.N
 # %%
 L, H = (1.2, 1.0)
 Nx, Ny = (N, N)
-gamma = 1.0 / 6778
+gamma = 1.0
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
 # %%
@@ -476,7 +476,7 @@ drdy = jax.jacfwd(r)
 # return-mapping algorithm numerically via the Newton method.
 
 # %%
-Nitermax, tol = 200, 1e-6
+Nitermax, tol = 200, 1e-7
 
 ZERO_SCALAR = np.array([0.0])
 
@@ -605,12 +605,21 @@ def C_tang_impl(deps):
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
-    if MPI.COMM_WORLD.rank == 0:
+    max_yielding = jnp.max(yielding)
+    max_yielding_rank = MPI.COMM_WORLD.allreduce((max_yielding, MPI.COMM_WORLD.rank), op=MPI.MAXLOC)[1]
+
+    if MPI.COMM_WORLD.rank == max_yielding_rank:
         print("\tInner Newton summary:", flush=True)
         print(f"\t\tUnique number of iterations: {unique_iters}", flush=True)
         print(f"\t\tCounts of unique number of iterations: {counts}", flush=True)
-        print(f"\t\tMaximum f: {jnp.max(yielding)}", flush=True)
+        print(f"\t\tMaximum f: {max_yielding}", flush=True)
         print(f"\t\tMaximum residual: {jnp.max(norm_res)}", flush=True)
+    # if MPI.COMM_WORLD.rank == 0:
+    #     print("\tInner Newton summary:", flush=True)
+    #     print(f"\t\tUnique number of iterations: {unique_iters}", flush=True)
+    #     print(f"\t\tCounts of unique number of iterations: {counts}", flush=True)
+    #     print(f"\t\tMaximum f: {jnp.max(yielding)}", flush=True)
+    #     print(f"\t\tMaximum residual: {jnp.max(norm_res)}", flush=True)
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -685,53 +694,87 @@ cells, points_on_process = find_cell_by_point(domain, x_point)
 
 # %%
 # parameters of the manual Newton method
-max_iterations, relative_tolerance = 200, 1e-8
+max_iterations, relative_tolerance = 200, 1e-9
 
-load_steps_1 = np.linspace(1.5, 21, 40)
-load_steps_2 = np.linspace(21, 22.75, 20)[1:]
-load_steps = np.concatenate([load_steps_1, load_steps_2])
-# load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1], [22.325]]) # OK
-load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1], [22.325, 22.34, 22.36, 22.45, 22.5, 22.55, 22.6, 22.65, 22.7, 22.75]])
 load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1]])
+# load_steps = np.linspace(2, 21, 40)
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %%
-petsc_options = {
-    "snes_type": "vinewtonrsls",
-    "snes_linesearch_type": "basic",
-    "ksp_type": "preonly",
-    "pc_type": "lu",
-    "pc_factor_mat_solver_type": "mumps",
-    "snes_atol": 1.0e-11,
-    "snes_rtol": 1.0e-11,
-    "snes_max_it": 50,
-    # "snes_monitor": "",
-    # "snes_monitor_cancel": "",
-}
-
-def constitutive_update():
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # Direct access to the external operator values
-    sigma.ref_coefficient.x.array[:] = sigma_new
-
-external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, system_update=constitutive_update)
+external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
 # %%
+timer = common.Timer("DOLFINx_timer")
 timer_total = common.Timer("Total_timer")
+local_monitor = {}
+performance_monitor = pd.DataFrame({
+    "loading_step": np.array([], dtype=np.int64),
+    "Newton_iteration": np.array([], dtype=np.int64),
+    "matrix_assembling": np.array([], dtype=np.float64),
+    "vector_assembling": np.array([], dtype=np.float64),
+    "linear_solver": np.array([], dtype=np.float64),
+    "constitutive_model_update": np.array([], dtype=np.float64),
+})
+
+if MPI.COMM_WORLD.rank == 0:
+    print(f"N = {N}, n = {MPI.COMM_WORLD.Get_size()}", flush=True)
+
 timer_total.start()
-
+comm = MPI.COMM_WORLD
 for i, load in enumerate(load_steps):
+    local_monitor["loading_step"] = i
     q.value = load * np.array([0, -gamma])
+    external_operator_problem.assemble_vector()
 
-    # Du.x.array[:] = 0
+    residual_0 = external_operator_problem.b.norm()
+    residual = residual_0
+    Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment #{i}, load: {load}", flush=True)
+        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}", flush=True)
 
-    external_operator_problem.solve()
-    
+    for iteration in range(0, max_iterations):
+        local_monitor["Newton_iteration"] = iteration
+        if residual / residual_0 < relative_tolerance:
+            break
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tOuter Newton iteration #{iteration}", flush=True)
+
+        timer.start()
+        external_operator_problem.assemble_matrix()
+        timer.stop()
+        local_monitor["matrix_assembling"] = comm.allreduce(timer.elapsed()[0], op=MPI.SUM)
+
+        timer.start()
+        external_operator_problem.solve(du)
+        timer.stop()
+        local_monitor["linear_solver"] = comm.allreduce(timer.elapsed()[0], op=MPI.SUM)
+
+        Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
+        Du.x.scatter_forward()
+
+        timer.start()
+        evaluated_operands = evaluate_operands(F_external_operators)
+        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+        # Direct access to the external operator values
+        sigma.ref_coefficient.x.array[:] = sigma_new
+        timer.stop()
+        local_monitor["constitutive_model_update"] = comm.allreduce(timer.elapsed()[0], op=MPI.SUM)
+
+        timer.start()
+        external_operator_problem.assemble_vector()
+        timer.stop()
+        local_monitor["vector_assembling"] = comm.allreduce(timer.elapsed()[0], op=MPI.SUM)
+        performance_monitor.loc[len(performance_monitor.index)] = local_monitor
+
+        residual = external_operator_problem.b.norm()
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"\tResidual: {residual}\n", flush=True)
+
+    if MPI.COMM_WORLD.rank == 0:
+        print("____________________\n", flush=True)
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
@@ -742,8 +785,9 @@ for i, load in enumerate(load_steps):
 timer_total.stop()
 total_time = timer_total.elapsed()[0]
 
-print(f"Slope stability factor: {-q.value[-1]*H/c}", flush=True)
-print(f"Total time: {total_time}", flush=True)
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Slope stability factor: {-q.value[-1]*H/c}", flush=True)
+    print(f"Total time: {total_time}", flush=True)
 # Load increment #97, load: 22.32070707070707 - OK
 # load: 22.535353535353536 - not OK
 
@@ -790,6 +834,6 @@ if len(points_on_process) > 0:
 
 # %%
 import pickle
-performance_data = {"total_time": total_time, "performance_monitor": external_operator_problem.performance_monitor}
+performance_data = {"total_time": total_time, "performance_monitor": performance_monitor}
 with open(f"output_data/performance_data_{N}x{N}_n_{n}.pkl", "wb") as f:
         pickle.dump(performance_data, f)
