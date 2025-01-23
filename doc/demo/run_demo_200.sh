@@ -1,7 +1,8 @@
 #!/bin/bash -l
 #SBATCH -N 1
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks-per-node=16
 #SBATCH --cpus-per-task=1
+#SBATCH --mem-per-cpu=2G
 #SBATCH --time=0-02:00:00
 #SBATCH -p batch
 
@@ -18,10 +19,7 @@ echo "== Number of tasks: ${SLURM_NTASKS}"
 spack env activate fenicsx-v09
 cd ~/dolfinx-external-operator/doc/demo
 
-srun -c 1 --exclusive -n 8 python demo_plasticity_mohr_coulomb_mpi.py --N 200
-# srun -c 1 --exclusive -n 4 python demo_plasticity_mohr_coulomb_mpi.py --N 50
-# srun -c 1 --exclusive -n 2 python demo_plasticity_mohr_coulomb_mpi.py --N 50
-# srun -n 1 python demo_plasticity_mohr_coulomb_mpi.py --N 50
+srun -c 1 python demo_plasticity_mohr_coulomb_mpi.py --N 200
 
 echo ""
 echo "== Finished at $(date)"
