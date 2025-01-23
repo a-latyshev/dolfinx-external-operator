@@ -32,7 +32,9 @@ class LinearProblem:
         """Sets the solver parameters."""
         solver = PETSc.KSP().create(self.comm)
         solver.setType("preonly")
-        solver.getPC().setType("lu")
+        pc = solver.getPC()
+        pc.setType("lu")
+        pc.setFactorSolverType("mumps")
         solver.setOperators(self.A)
         return solver
 

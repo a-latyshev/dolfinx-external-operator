@@ -80,6 +80,8 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import jax
+jax.config.update("jax_enable_x64", True)
+# jax.distributed.initialize(cluster_detection_method="mpi4py")
 import jax.lax
 import jax.numpy as jnp
 import matplotlib.cm as cm
@@ -101,7 +103,6 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
-jax.config.update("jax_enable_x64", True)
 
 # %% [markdown]
 # Here we define geometrical and material parameters of the problem as well as
@@ -777,7 +778,7 @@ for i, load in enumerate(load_steps):
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
 timer_total.stop()
-total_time = timer_total.elapsed()[0]
+total_time = timer_total.elapsed().total_seconds()
 
 if MPI.COMM_WORLD.rank == 0:
     print(f"Slope stability factor: {-q.value[-1]*H/c}", flush=True)
@@ -813,7 +814,7 @@ if MPI.COMM_WORLD.rank == 0:
 # By demonstrating the loading-displacement curve on the figure below we approve
 # that the yield strength limit reached for $\gamma_\text{lim}^\text{num}$ is close to $\gamma_\text{lim}$.
 #
-# n = MPI.COMM_WORLD.Get_size()
+n = MPI.COMM_WORLD.Get_size()
 # %%
 if len(points_on_process) > 0:
     l_lim = 6.69
