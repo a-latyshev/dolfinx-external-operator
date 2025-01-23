@@ -831,5 +831,3 @@ import pickle
 performance_data = {"total_time": total_time, "performance_monitor": performance_monitor}
 with open(f"output_data/performance_data_{N}x{N}_n_{n}.pkl", "wb") as f:
         pickle.dump(performance_data, f)
-
-
