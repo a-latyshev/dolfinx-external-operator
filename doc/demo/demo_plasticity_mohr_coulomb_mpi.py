@@ -738,12 +738,12 @@ for i, load in enumerate(load_steps):
         timer.start()
         external_operator_problem.assemble_matrix()
         timer.stop()
-        local_monitor["matrix_assembling"] = comm.allreduce(timer.elapsed()[0], op=MPI.MAX)
+        local_monitor["matrix_assembling"] = comm.allreduce(timer.elapsed().total_seconds(), op=MPI.MAX)
 
         timer.start()
         external_operator_problem.solve(du)
         timer.stop()
-        local_monitor["linear_solver"] = comm.allreduce(timer.elapsed()[0], op=MPI.MAX)
+        local_monitor["linear_solver"] = comm.allreduce(timer.elapsed().total_seconds(), op=MPI.MAX)
 
         Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
         Du.x.scatter_forward()
@@ -754,12 +754,12 @@ for i, load in enumerate(load_steps):
         # Direct access to the external operator values
         sigma.ref_coefficient.x.array[:] = sigma_new
         timer.stop()
-        local_monitor["constitutive_model_update"] = comm.allreduce(timer.elapsed()[0], op=MPI.MAX)
+        local_monitor["constitutive_model_update"] = comm.allreduce(timer.elapsed().total_seconds(), op=MPI.MAX)
 
         timer.start()
         external_operator_problem.assemble_vector()
         timer.stop()
-        local_monitor["vector_assembling"] = comm.allreduce(timer.elapsed()[0], op=MPI.MAX)
+        local_monitor["vector_assembling"] = comm.allreduce(timer.elapsed().total_seconds(), op=MPI.MAX)
         performance_monitor.loc[len(performance_monitor.index)] = local_monitor
 
         residual = external_operator_problem.b.norm()
@@ -812,8 +812,8 @@ if MPI.COMM_WORLD.rank == 0:
 #
 # By demonstrating the loading-displacement curve on the figure below we approve
 # that the yield strength limit reached for $\gamma_\text{lim}^\text{num}$ is close to $\gamma_\text{lim}$.
-
-n = MPI.COMM_WORLD.Get_size()
+#
+# n = MPI.COMM_WORLD.Get_size()
 # %%
 if len(points_on_process) > 0:
     l_lim = 6.69
