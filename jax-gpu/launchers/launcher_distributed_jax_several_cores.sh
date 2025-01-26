@@ -1,16 +1,10 @@
 #!/bin/bash -l
 #SBATCH --nodes=1
-#SBATCH -G 4
-#SBATCH -c 12
-#SBATCH --partition=gpu
-
-##SBATCH --ntasks-per-node=28
-##SBATCH --cpus-per-task=1
-##SBATCH -p batch
-##SBATCH --qos=normal
+#SBATCH --cpus-per-task=2
+#SBATCH -p batch
 
 #SBATCH --time=0-01:00:00
-#SBATCH --job-name=jax-gpu
+#SBATCH --job-name=jax-distributed
 #SBATCH --chdir=slurm_output/
 
 echo "== Starting run at $(date)"
@@ -23,7 +17,7 @@ echo "== Number of tasks: ${SLURM_NTASKS}"
 spack env activate fenicsx-v09
 cd ~/dolfinx-external-operator/jax-gpu
 
-python jax-gpu.py
+srun -c 2 -n $SLURM_NTASKS python tests/distributed_jax.py --N $1
 
 echo ""
 echo "== Finished at $(date)"

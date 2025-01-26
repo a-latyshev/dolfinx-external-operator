@@ -37,3 +37,23 @@ https://jax.readthedocs.io/en/latest/multi_process.html#initializing-the-cluster
 1 process may have $N$ GPU 
 Local devices are about A process.
 Global devises are about all devices across all the processes.
+
+
+`pmap`:
+* https://colab.research.google.com/github/google/jax/blob/master/cloud_tpu_colabs/Pmap_Cookbook.ipynb 
+* `out = pmap(lambda x: x ** 2, devices=jax.devices('cpu'))(jnp.arange(8))`
+* https://jax.readthedocs.io/en/latest/_autosummary/jax.pmap.html#jax.pmap 
+> Multi-process platforms: On multi-process platforms such as TPU pods, pmap()
+> is designed to be used in SPMD Python programs, where every process is running
+> the same Python code such that all processes run the same pmapped function in
+> the same order. Each process should still call the pmapped function with
+> mapped axis size equal to the number of local devices (unless devices is
+> specified, see below), and an array of the same leading axis size will be
+> returned as usual. However, any collective operations in fun will be computed
+> over all participating devices, including those on other processes, via
+> device-to-device communication. Conceptually, this can be thought of as
+> running a pmap over a single array sharded across processes, where each
+> process “sees” only its local shard of the input and output. The SPMD model
+> requires that the same multi-process pmaps must be run in the same order on
+> all devices, but they can be interspersed with arbitrary operations running in
+> a single process.
