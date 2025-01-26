@@ -5,7 +5,7 @@ jax.distributed.initialize()
 import os, sys
 path_to_src = os.path.join(os.path.dirname(__file__), "../src")
 sys.path.append(path_to_src)
-from benchmark import run_benchmark
+from benchmark import run_benchmark_no_devices
 
 import argparse
 parser = argparse.ArgumentParser(description="JAX-CPU-GPU")
@@ -14,4 +14,4 @@ args = parser.parse_args()
 N = args.N
 
 params = {"N": N, "type": "distributed_jax"}
-run_benchmark(params)
+run_benchmark_no_devices(params)

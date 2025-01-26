@@ -38,6 +38,7 @@ https://jax.readthedocs.io/en/latest/multi_process.html#initializing-the-cluster
 Local devices are about A process.
 Global devises are about all devices across all the processes.
 
+## CPU only (multithreading)
 
 `pmap`:
 * https://colab.research.google.com/github/google/jax/blob/master/cloud_tpu_colabs/Pmap_Cookbook.ipynb 
@@ -57,3 +58,19 @@ Global devises are about all devices across all the processes.
 > requires that the same multi-process pmaps must be run in the same order on
 > all devices, but they can be interspersed with arbitrary operations running in
 > a single process.
+
+
+https://github.com/jax-ml/jax/discussions/25716:
+> Move to using shard_map. This is appealing in some sense because it is quite
+> similar to MPI, which is a standard tool in our toolkit. However, MPI is only
+> reliably fast if data is local to a core, and there aren't rogue thread pools
+> stomping all over each other. If there's no way to ensure that each shard will
+> get one thread, then I can't see any reason to use shard_map at all.
+
+https://github.com/jax-ml/jax/issues/5022 
+
+
+* eps(u) -> numpy array -> JAX function is ok as we have the same copy of the numpy
+array without any need to distributed.
+* computed stress by JAX is distributed across JAX devices. Then moving it to a
+numpy array (even on CPU) is not OK.
