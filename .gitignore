@@ -18,3 +18,5 @@ build/
 *.toc
 *.out
 *.pkl
+
+*.txt
