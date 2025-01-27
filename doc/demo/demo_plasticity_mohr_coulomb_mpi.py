@@ -1,79 +1,18 @@
-# -*- coding: utf-8 -*-
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: tags,-all
-#     custom_cell_magics: kql
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.11.2
-#   kernelspec:
-#     display_name: dolfinx-env
-#     language: python
-#     name: python3
-# ---
+# Author: Andrey Latyshev 
+# 
+# This script is a modified version of the tutorial on the Mohr-Coulomb model
+# https://a-latyshev.github.io/dolfinx-external-operator/ and is a part of the
+# suplementary material to the paper "Expressing general constitutive models in
+# FEniCSx using external operators and algorithmic automatic differentiation"
+# (preprint: hal.science/hal-04735022v1). The difference is routed in
+# implementation of `C_tang`, where the implicit function theorem is applied
+# instead of passing AD through unrolled Newton loop. The script is compatible
+# with the JAX version 0.5.0, the image ghcr.io/fenics/dolfinx/dolfinx:nightly
+# ID 28eb839aff48 and git hash ecfa039132622b8d6539ef21288cdba7f41dcf76 of the
+# repository https://github.com/a-latyshev/dolfinx-external-operator. 
+# 
+# Typical run: `mpirun -n 2 python demo_plasticity_mohr_coulomb_mpi.py --N 200`
 
-# %% [markdown]
-# # Plasticity of Mohr-Coulomb with apex-smoothing
-#
-# This tutorial aims to demonstrate how modern automatic algorithmic
-# differentiation (AD) techniques may be used to define a complex constitutive
-# model demanding a lot of by-hand differentiation. In particular, we implement
-# the non-associative plasticity model of Mohr-Coulomb with apex-smoothing applied
-# to a slope stability problem for soil. We use the
-# [JAX](https://jax.readthedocs.io/en/latest/) package to define constitutive
-# relations including the differentiation of certain terms and
-# `FEMExternalOperator` class to incorporate this model into a weak formulation
-# within [UFL](https://github.com/fenics/ufl).
-#
-# The tutorial is based on the
-# [limit analysis](https://fenics-optim.readthedocs.io/en/latest/demos/limit_analysis_3D_SDP.html)
-# within semi-definite programming framework, where the plasticity model was
-# replaced by the MFront/TFEL
-# [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of
-# the Mohr-Coulomb elastoplastic model with apex smoothing.
-#
-#
-# ## Problem formulation
-#
-# We solve a slope stability problem of a soil domain $\Omega$ represented by a
-# rectangle $[0; L] \times [0; W]$ with homogeneous Dirichlet boundary conditions
-# for the displacement field $\boldsymbol{u} = \boldsymbol{0}$ on the right side
-# $x = L$ and the bottom one $z = 0$. The loading consists of a gravitational body
-# force $\boldsymbol{q}=[0, -\gamma]^T$ with $\gamma$ being the soil self-weight.
-# The solution of the problem is to find the collapse load $q_\text{lim}$, for
-# which we know an analytical solution in the case of the standard Mohr-Coulomb
-# model without smoothing under plane strain assumption for associative plastic law
-# {cite}`chenLimitAnalysisSoil1990`. Here we follow the same Mandel-Voigt notation
-# as in the [von Mises plasticity tutorial](demo_plasticity_von_mises.py).
-#
-# If $V$ is a functional space of admissible displacement fields, then we can
-# write out a weak formulation of the problem:
-#
-# Find $\boldsymbol{u} \in V$ such that
-#
-# $$
-#     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
-#     \boldsymbol{\sigma}(\boldsymbol{u}) \cdot
-#     \boldsymbol{\varepsilon}(\boldsymbol{v}) \, \mathrm{d}\boldsymbol{x} -
-#     \int\limits_\Omega \boldsymbol{q} \cdot \boldsymbol{v} \, \mathrm{d}\boldsymbol{x} = \boldsymbol{0}, \quad
-#     \forall \boldsymbol{v} \in V,
-# $$
-# where $\boldsymbol{\sigma}$ is an external operator representing the stress tensor.
-#
-# ```{note}
-# Although the tutorial shows the implementation of the Mohr-Coulomb model, it
-# is quite general to be adapted to a wide rage of plasticity models that may
-# be defined through a yield surface and a plastic potential.
-# ```
-#
-# ## Implementation
-#
-# ### Preamble
-
-# %%
 import os, sys 
 sys.setdlopenflags(os.RTLD_NOW | os.RTLD_GLOBAL)
 from mpi4py import MPI
@@ -81,7 +20,6 @@ from petsc4py import PETSc
 
 import jax
 jax.config.update("jax_enable_x64", True)
-# jax.distributed.initialize(cluster_detection_method="mpi4py")
 import jax.lax
 import jax.numpy as jnp
 import matplotlib.cm as cm
@@ -102,13 +40,6 @@ from dolfinx_external_operator import (
     evaluate_operands,
     replace_external_operators,
 )
-
-
-# %% [markdown]
-# Here we define geometrical and material parameters of the problem as well as
-# some useful constants.
-
-# %%
 E =  6778  # [MPa] Young modulus
 nu = 0.25  # [-] Poisson ratio
 c = 3.45 # [MPa] cohesion
@@ -119,20 +50,14 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 import argparse
 
 parser = argparse.ArgumentParser(description="Demo Plasticity Mohr Coulomb MPI")
-parser.add_argument("--N", type=int, default=50, help="Mesh size")
+parser.add_argument("--N", type=int, default=200, help="Mesh size")
 args = parser.parse_args()
 N = args.N
-
-# %%
 L, H = (1.2, 1.0)
 Nx, Ny = (N, N)
 gamma = 1.0
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
-
-# %%
 domain.topology.index_map(0).size_global
-
-# %%
 k_u = 2
 gdim = domain.topology.dim
 V = fem.functionspace(domain, ("Lagrange", k_u, (gdim,)))
@@ -189,107 +114,6 @@ v = ufl.TestFunction(V)
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
 sigma_n = fem.Function(S, name="sigma_n")
 
-# %% [markdown]
-# ### Defining plasticity model and external operator
-#
-# The constitutive model of the soil is described by a non-associative plasticity
-# law without hardening that is defined by the Mohr-Coulomb yield surface $f$ and
-# the plastic potential $g$. Both quantities may be expressed through the
-# following function $h$
-#
-# \begin{align*}
-#     & h(\boldsymbol{\sigma}, \alpha) =
-#     \frac{I_1(\boldsymbol{\sigma})}{3}\sin\alpha +
-#     \sqrt{J_2(\boldsymbol{\sigma}) K^2(\alpha) + a^2(\alpha)\sin^2\alpha} -
-#     c\cos\alpha, \\
-#     & f(\boldsymbol{\sigma}) = h(\boldsymbol{\sigma}, \phi), \\
-#     & g(\boldsymbol{\sigma}) = h(\boldsymbol{\sigma}, \psi),
-# \end{align*}
-# where $\phi$ and $\psi$ are friction and dilatancy angles, $c$ is a cohesion,
-# $I_1(\boldsymbol{\sigma}) = \mathrm{tr} \boldsymbol{\sigma}$ is the first
-# invariant of the stress tensor and $J_2(\boldsymbol{\sigma}) =
-# \frac{1}{2}\boldsymbol{s} \cdot \boldsymbol{s}$ is the second invariant of the
-# deviatoric part of the stress tensor. The expression of the coefficient
-# $K(\alpha)$ may be found in the MFront/TFEL
-# [implementation](https://thelfer.github.io/tfel/web/MohrCoulomb.html) of this plastic model.
-#
-# During the plastic loading the stress-strain state of the solid must satisfy
-# the following system of nonlinear equations
-#
-# $$
-#
-#     \begin{cases}
-#         \boldsymbol{r}_{g}(\boldsymbol{\sigma}_{n+1}, \Delta\lambda) =
-#         \boldsymbol{\sigma}_{n+1} - \boldsymbol{\sigma}_n -
-#         \boldsymbol{C} \cdot (\Delta\boldsymbol{\varepsilon} - \Delta\lambda
-#         \frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}(\boldsymbol{\sigma_{n+1}})) =
-#         \boldsymbol{0}, \\
-#          r_f(\boldsymbol{\sigma}_{n+1}) = f(\boldsymbol{\sigma}_{n+1}) = 0,
-#     \end{cases}
-#
-# $$ (eq_MC_1)
-# where $\Delta$ is associated with increments of a quantity between the next
-# loading step $n + 1$ and the current loading step $n$.
-#
-# By introducing the residual vector $\boldsymbol{r} = [\boldsymbol{r}_{g}^T,
-# r_f]^T$ and its argument vector $\boldsymbol{y}_{n+1} =
-# [\boldsymbol{\sigma}_{n+1}^T, \Delta\lambda]^T$, we obtain the following
-# nonlinear constitutive equation:
-#
-# $$
-#     \boldsymbol{r}(\boldsymbol{y}_{n+1}) = \boldsymbol{0}.
-# $$
-#
-# To solve this equation we apply the Newton method and introduce the local
-# Jacobian of the residual vector $\boldsymbol{j} := \frac{\mathrm{d}
-# \boldsymbol{r}}{\mathrm{d} \boldsymbol{y}}$. Thus we solve the following linear
-# system at each quadrature point for the plastic phase
-#
-# $$
-#     \begin{cases}
-#         \boldsymbol{j}(\boldsymbol{y}_{n})\boldsymbol{t} = -
-#         \boldsymbol{r}(\boldsymbol{y}_{n}), \\
-#         \boldsymbol{x}_{n+1} = \boldsymbol{x}_n + \boldsymbol{t}.
-#     \end{cases}
-# $$
-#
-# During the elastic loading, we consider a trivial system of equations
-#
-# $$
-#     \begin{cases}
-#         \boldsymbol{\sigma}_{n+1} = \boldsymbol{\sigma}_n +
-#         \boldsymbol{C} \cdot \Delta\boldsymbol{\varepsilon}, \\ \Delta\lambda = 0.
-#     \end{cases}
-# $$ (eq_MC_2)
-#
-# The algorithm solving the systems {eq}`eq_MC_1`--{eq}`eq_MC_2` is called the
-# *return-mapping procedure* and the solution defines the return-mapping
-# correction of the stress tensor. By implementation of the external operator
-# $\boldsymbol{\sigma}$ we mean the implementation of this *algorithmic*
-# procedure.
-#
-# The automatic differentiation tools of the JAX library are applied to calculate
-# the three distinct derivatives:
-# 1. $\frac{\mathrm{d} g}{\mathrm{d}\boldsymbol{\sigma}}$ - derivative
-#    of the plastic potential $g$,
-# 2. $j = \frac{\mathrm{d} \boldsymbol{r}}{\mathrm{d} \boldsymbol{y}}$ -
-#    derivative of the local residual $\boldsymbol{r}$,
-# 3. $\boldsymbol{C}_\text{tang} =
-#    \frac{\mathrm{d}\boldsymbol{\sigma}}{\mathrm{d}\boldsymbol{\varepsilon}}$ -
-#    stress tensor
-# derivative or consistent tangent moduli.
-#
-# #### Defining yield surface and plastic potential
-#
-# First of all, we define supplementary functions that help us to express the
-# yield surface $f$ and the plastic potential $g$. In the following definitions,
-# we use built-in functions of the JAX package, in particular, the conditional
-# primitive `jax.lax.cond`. It is necessary for the correct work of the AD tool
-# and just-in-time compilation. For more details, please, visit the JAX
-# [documentation](https://jax.readthedocs.io/en/latest/).
-
-
-# %%
 def J3(s):
     return s[2] * (s[0] * s[1] - s[3] * s[3] / 2.0)
 
@@ -383,14 +207,6 @@ def surface(sigma_local, angle):
         )
         - c * np.cos(angle)
     )
-
-
-# %% [markdown]
-# By picking up an appropriate angle we define the yield surface $f$ and the
-# plastic potential $g$.
-
-
-# %%
 def f(sigma_local):
     return surface(sigma_local, phi)
 
@@ -400,19 +216,6 @@ def g(sigma_local):
 
 
 dgdsigma = jax.jacfwd(g)
-
-# %% [markdown]
-# #### Solving constitutive equations
-#
-# In this section, we define the constitutive model by solving the systems
-# {eq}`eq_MC_1`--{eq}`eq_MC_2`. They must be solved at each Gauss point, so we
-# apply the Newton method, implement the whole algorithm locally and then
-# vectorize the final result using `jax.vmap`.
-#
-# In the following cell, we define locally the residual $\boldsymbol{r}$ and
-# its Jacobian `drdy`.
-
-# %%
 lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
 mu = E / (2.0 * (1.0 + nu))
 C_elas = np.array(
@@ -471,12 +274,6 @@ def r(y_local, deps_local, sigma_n_local):
 
 
 drdy = jax.jacfwd(r)
-
-# %% [markdown]
-# Then we define the function `return_mapping` that implements the
-# return-mapping algorithm numerically via the Newton method.
-
-# %%
 Nitermax, tol = 200, 1e-7
 
 ZERO_SCALAR = np.array([0.0])
@@ -542,64 +339,21 @@ def return_mapping(deps_local, sigma_n_local):
     yielding = f(sigma_n_local + sigma_elas_local)
 
     return sigma_local, (sigma_local, niter_total, yielding, norm_res, dlambda)
-
-
-# %% [markdown]
-# #### Consistent tangent stiffness matrix
-#
-# Not only is the automatic differentiation able to compute the derivative of a
-# mathematical expression but also a numerical algorithm. For instance, AD can
-# calculate the derivative of the function performing return-mapping with respect
-# to its output, the stress tensor $\boldsymbol{\sigma}$. In the context of the
-# consistent tangent moduli $\boldsymbol{C}_\text{tang}$, this feature becomes
-# very useful, as there is no need to write an additional program computing the
-# stress derivative.
-#
-# JAX's AD tool permits taking the derivative of the function `return_mapping`,
-# which is factually the while loop. The derivative is taken with respect to the
-# first output and the remaining outputs are used as auxiliary data. Thus, the
-# derivative `dsigma_ddeps` returns both values of the consistent tangent moduli
-# and the stress tensor, so there is no need in a supplementary computation of the
-# stress tensor.
-
-# %%
 def C_tang_local(sigma_local, dlambda_local, deps_local, sigma_n_local):
+    # impilicit function theorem and automatic differentiation:
+    # http://implicit-layers-tutorial.org/implicit_functions/ 
     y_local = jnp.c_["0,1,-1", sigma_local, dlambda_local]
     j = drdy(y_local, deps_local, sigma_n_local)
     return jnp.linalg.inv(j)[:4,:4] @ C_elas
 
-C_tang_vec = jax.jit(jax.vmap(C_tang_local, in_axes=(0, 0, 0, 0)))
-
-dsigma_ddeps = jax.jacfwd(return_mapping, has_aux=True)
-
-# %% [markdown]
-# #### Defining external operator
-#
-# Once we define the function `dsigma_ddeps`, which evaluates both the
-# external operator and its derivative locally, we can simply vectorize it and
-# define the final implementation of the external operator derivative.
-#
-# ```{note}
-# The function `dsigma_ddeps` containing a `while_loop` is designed to be called
-# at a single Gauss point that's why we need to vectorize it for the all points
-# of our functional space `S`. For this purpose we use the `vmap` function of JAX.
-# It creates another `while_loop`, which terminates only when all mapped loops
-# terminate. Find further details in this
-# [discussion](https://github.com/google/jax/discussions/15954).
-# ```
-
-# %%
-dsigma_ddeps_vec = jax.jit(jax.vmap(dsigma_ddeps, in_axes=(0, 0)))
 return_mapping_vec = jax.jit(jax.vmap(return_mapping, in_axes=(0, 0)))
-
+C_tang_vec = jax.jit(jax.vmap(C_tang_local, in_axes=(0, 0, 0, 0)))
 
 def C_tang_impl(deps):
     deps_ = deps.reshape((-1, stress_dim))
     sigma_n_ = sigma_n.x.array.reshape((-1, stress_dim))
 
-    # (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
     (sigam_global, state) = return_mapping_vec(deps_, sigma_n_)
-    
     sigma_global, niter, yielding, norm_res, dlambda = state
 
     C_tang_global = C_tang_vec(sigma_global, dlambda, deps_, sigma_n_)
@@ -617,16 +371,6 @@ def C_tang_impl(deps):
         print(f"\t\tMaximum residual: {jnp.max(norm_res)}", flush=True)
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
-
-
-# %% [markdown]
-# Similarly to the von Mises example, we do not implement explicitly the
-# evaluation of the external operator. Instead, we obtain its values during the
-# evaluation of its derivative and then update the values of the operator in the
-# main Newton loop.
-
-
-# %%
 def sigma_external(derivatives):
     if derivatives == (1,):
         return C_tang_impl
@@ -635,11 +379,6 @@ def sigma_external(derivatives):
 
 
 sigma.external_function = sigma_external
-
-# %% [markdown]
-# ### Defining the forms
-
-# %%
 q = fem.Constant(domain, default_scalar_type((0, -gamma)))
 
 
@@ -657,48 +396,23 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
-
-# %% [markdown]
-# ### Variables initialization and compilation
-#
-# Before solving the problem we have to initialize values of the stiffness matrix,
-# as it requires for the system assembling. During the first loading step, we
-# expect an elastic response only, so it's enough to solve the constitutive
-# equations for a relatively small displacement field at each Gauss point. This
-# results in initializing the consistent tangent moduli with elastic ones.
-
-# %%
 Du.x.array[:] = 1.0
 sigma_n.x.array[:] = 0.0
 
 evaluated_operands = evaluate_operands(F_external_operators)
 _ = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-# %% [markdown]
-# ### Solving the problem
-#
-# Summing up, we apply the Newton method to solve the main weak problem. On each
-# iteration of the main Newton loop, we solve elastoplastic constitutive equations
-# by using the second (inner) Newton method at each Gauss point. Thanks to the
-# framework and the JAX library, the final interface is general enough to be
-# applied to other plasticity models.
-
-# %%
 x_point = np.array([[0, H, 0]])
 cells, points_on_process = find_cell_by_point(domain, x_point)
 
-# %%
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-7
 
 load_steps = np.concatenate([np.linspace(1.5, 22.3, 100)[:-1]])[:10]
-# load_steps = np.linspace(2, 21, 40)
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
 external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
 
-# %%
 timer = common.Timer("DOLFINx_timer")
 timer_total = common.Timer("Total_timer")
 local_monitor = {}
@@ -781,41 +495,10 @@ timer_total.stop()
 total_time = timer_total.elapsed().total_seconds()
 
 if MPI.COMM_WORLD.rank == 0:
-    print(f"Slope stability factor: {-q.value[-1]*H/c}", flush=True)
     print(f"Total time: {total_time}", flush=True)
-# Load increment #97, load: 22.32070707070707 - OK
-# load: 22.535353535353536 - not OK
 
-
-# %% [markdown]
-# ## Verification
-
-# %% [markdown]
-# ### Critical load
-#
-# According to {cite:t}`chenLimitAnalysisSoil1990`, we can derive analytically the
-# slope stability factor $l_\text{lim}$ for the standard Mohr-Coulomb plasticity
-# model (*without* apex smoothing) under plane strain assumption for associative plastic flow
-#
-# $$
-#     l_\text{lim} = \gamma_\text{lim} H/c,
-# $$
-#
-# where $\gamma_\text{lim}$ is an associated value of the soil self-weight. In
-# particular, for the rectangular slope with the friction angle $\phi$ equal to
-# $30^\circ$, $l_\text{lim} = 6.69$ {cite}`chenLimitAnalysisSoil1990`. Thus, by
-# computing $\gamma_\text{lim}$ from the formula above, we can progressively
-# increase the second component of the gravitational body force
-# $\boldsymbol{q}=[0, -\gamma]^T$, up to the critical value
-# $\gamma_\text{lim}^\text{num}$, when the perfect plasticity plateau is reached
-# on the loading-displacement curve at the $(0, H)$ point and then compare
-# $\gamma_\text{lim}^\text{num}$ against analytical $\gamma_\text{lim}$.
-#
-# By demonstrating the loading-displacement curve on the figure below we approve
-# that the yield strength limit reached for $\gamma_\text{lim}^\text{num}$ is close to $\gamma_\text{lim}$.
-#
 n = MPI.COMM_WORLD.Get_size()
-# %%
+
 if len(points_on_process) > 0:
     l_lim = 6.69
     gamma_lim = l_lim / H * c
@@ -825,10 +508,9 @@ if len(points_on_process) > 0:
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
     plt.grid()
     plt.legend()
-    plt.savefig(f"output_data/mc_mpi_{N}x{N}_n_{n}.png")
+    plt.savefig(f"mc_mpi_{N}x{N}_n_{n}.png")
 
-# %%
 import pickle
 performance_data = {"total_time": total_time, "performance_monitor": performance_monitor}
-with open(f"output_data/performance_data_{N}x{N}_n_{n}.pkl", "wb") as f:
+with open(f"performance_data_{N}x{N}_n_{n}.pkl", "wb") as f:
         pickle.dump(performance_data, f)
