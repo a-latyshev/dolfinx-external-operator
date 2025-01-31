@@ -15,11 +15,6 @@ path_to_src = os.path.join(os.path.dirname(__file__), "../src")
 sys.path.append(path_to_src)
 from benchmark import run_benchmark
 
-import argparse
-parser = argparse.ArgumentParser(description="JAX-CPU-GPU")
-parser.add_argument("--N", type=int, default=50, help="Mesh size")
-args = parser.parse_args()
 N = args.N
-
-params = {"N": N, "d":d, "type": "jax_gpu"}
+params = {"N": N, "d": d, "type": "jax_gpu"}
 run_benchmark(params)

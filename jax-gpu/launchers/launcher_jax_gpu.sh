@@ -3,7 +3,7 @@
 #SBATCH -G 4
 ##SBATCH --mem-per-gpu=16G
 #SBATCH --cpus-per-task=1
-##SBATCH -c 12
+##SBATCH -c 1
 #SBATCH --partition=gpu
 
 #SBATCH --time=0-01:00:00
