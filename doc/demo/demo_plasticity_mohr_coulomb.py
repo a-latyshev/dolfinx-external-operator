@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -668,13 +667,17 @@ petsc_options = {
     "snes_monitor": "",
 }
 
+
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     # Direct access to the external operator values
     sigma.ref_coefficient.x.array[:] = sigma_new
 
-external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, external_callback=constitutive_update)
+
+external_operator_problem = SNESProblem(
+    Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, external_callback=constitutive_update
+)
 
 
 # %%
@@ -704,7 +707,7 @@ for i, load in enumerate(load_steps):
         print(f"Load increment #{i}, load: {load}")
 
     external_operator_problem.solve()
-    
+
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
@@ -712,7 +715,7 @@ for i, load in enumerate(load_steps):
 
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
-        
+
 print(f"Slope stability factor: {-q.value[-1] * H / c}")
 
 # %% [markdown]

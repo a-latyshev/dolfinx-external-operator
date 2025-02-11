@@ -150,19 +150,19 @@
 # ### Preamble
 
 # %%
-from mpi4py import MPI  # noqa: F401
+from mpi4py import MPI
 from petsc4py import PETSc
 
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
+from solvers import NewtonProblem
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
 from dolfinx import fem
-from solvers import NewtonProblem
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx_external_operator import (
     FEMExternalOperator,
@@ -406,6 +406,7 @@ J_form = fem.form(J_replaced)
 #  `C_tang = J_external_operators[0].ref_coefficient`.
 # ```
 
+
 # %% [markdown]
 # ### Variables initialization and compilation
 #
@@ -423,6 +424,7 @@ def constitutive_update():
     # This avoids having to evaluate the external operators of F.
     sigma.ref_coefficient.x.array[:] = sigma_new
     dp.x.array[:] = dp_new
+
 
 problem = NewtonProblem(F_replaced, Du, bcs=bcs, J=J_replaced, external_callback=constitutive_update)
 solver = NewtonSolver(mesh.comm, problem)
@@ -454,7 +456,7 @@ for i, loading_v in enumerate(loadings):
     residual = solver._b.norm()
     if MPI.COMM_WORLD.rank == 0:
         print(f"Load increment #{i}, load: {loading_v:.3f}")
-        
+
     loading.value = loading_v
     Du.x.array[:] = eps
 

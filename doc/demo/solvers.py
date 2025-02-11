@@ -1,80 +1,15 @@
+from typing import Callable, Optional
+
 from petsc4py import PETSc
 
 import dolfinx.fem.petsc  # noqa: F401
 import ufl
 from dolfinx import fem
 from dolfinx.fem.petsc import NonlinearProblem
-# from dolfinx.nls.petsc import NewtonSolver
 
-from typing import List, Union, Dict, Optional, Callable, Tuple
-
-class LinearProblem:
-    def __init__(self, dR: ufl.Form, R: ufl.Form, u: fem.Function, bcs: list[fem.dirichletbc] | None = None):
-        self.u = u
-        self.bcs = bcs if bcs is not None else []
-
-        V = u.function_space
-        domain = V.mesh
-
-        self.R = R
-        self.dR = dR
-        self.b_form = fem.form(R)
-        self.A_form = fem.form(dR)
-        self.b = fem.petsc.create_vector(self.b_form)
-        self.A = fem.petsc.create_matrix(self.A_form)
-
-        self.comm = domain.comm
-
-        self.solver = self.solver_setup()
-
-    def solver_setup(self) -> PETSc.KSP:
-        """Sets the solver parameters."""
-        solver = PETSc.KSP().create(self.comm)
-        solver.setType("preonly")
-        solver.getPC().setType("lu")
-        solver.setOperators(self.A)
-        return solver
-
-    def assemble_vector(self) -> None:
-        with self.b.localForm() as b_local:
-            b_local.set(0.0)
-        fem.petsc.assemble_vector(self.b, self.b_form)
-        self.b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        fem.set_bc(self.b, self.bcs)
-
-    def assemble_matrix(self) -> None:
-        self.A.zeroEntries()
-        fem.petsc.assemble_matrix(self.A, self.A_form, bcs=self.bcs)
-        self.A.assemble()
-
-    def assemble(self) -> None:
-        self.assemble_matrix()
-        self.assemble_vector()
-
-    def solve(
-        self,
-        du: fem.function.Function,
-    ) -> None:
-        """Solves the linear system and saves the solution into the vector `du`
-
-        Args:
-            du: A global vector to be used as a container for the solution of the linear system
-        """
-        self.solver.solve(self.b, du.x.petsc_vec)
-
-    def __del__(self):
-        self.solver.destroy()
-        self.A.destroy()
-        self.b.destroy()
 
 class NewtonProblem(NonlinearProblem):
-    """Problem for the DOLFINx NewtonSolver.
-
-    NewtonProlbem definition:
-    https://github.com/FEniCS/dolfinx/blob/main/python/dolfinx/fem/petsc.py#L966 
-    NewtonSolver definition:
-    https://github.com/FEniCS/dolfinx/blob/main/python/dolfinx/nls/petsc.py#L31 
-    """
+    """Problem for the DOLFINx NewtonSolver with an external callback."""
 
     def __init__(
         self,
@@ -104,6 +39,7 @@ class NewtonProblem(NonlinearProblem):
         # The external operators are evaluated here
         self.external_callback()
 
+
 class SNESProblem:
     """Solves a nonlinear problem via PETSc.SNES.
     F(u) = 0
@@ -112,6 +48,7 @@ class SNESProblem:
     A = assemble(J)
     Ax = b
     """
+
     def __init__(
         self,
         u: fem.function.Function,
@@ -136,7 +73,7 @@ class SNESProblem:
 
         # Give PETSc solver options a unique prefix
         if prefix is None:
-            prefix = "snes_{}".format(str(id(self))[0:4])
+            prefix = f"snes_{str(id(self))[0:4]}"
 
         self.prefix = prefix
         self.petsc_options = petsc_options
@@ -167,7 +104,7 @@ class SNESProblem:
         # snes.setUpdate(self.update)
 
         return snes
-    
+
     def update(self, snes: PETSc.SNES, iter: int) -> None:
         """Call external function at each iteration."""
         self.external_callback()
@@ -186,7 +123,7 @@ class SNESProblem:
         self.u.x.scatter_forward()
 
         self.external_callback()
-        
+
         with b.localForm() as b_local:
             b_local.set(0.0)
         fem.petsc.assemble_vector(b, self.F_form)
@@ -194,7 +131,7 @@ class SNESProblem:
         fem.petsc.apply_lifting(b, [self.J_form], [self.bcs], [x], -1.0)
         b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         fem.petsc.set_bc(b, self.bcs, x, -1.0)
-        
+
     def J(self, snes, x: PETSc.Vec, A: PETSc.Mat, P: PETSc.Mat) -> None:
         """Assemble the Jacobian matrix.
 
@@ -207,7 +144,9 @@ class SNESProblem:
         fem.petsc.assemble_matrix(A, self.J_form, self.bcs)
         A.assemble()
 
-    def solve(self,) -> Tuple[int, int]:
+    def solve(
+        self,
+    ) -> tuple[int, int]:
         self.solver.solve(None, self.u.x.petsc_vec)
         self.u.x.scatter_forward()
         return (self.solver.getIterationNumber(), self.solver.getConvergedReason())
