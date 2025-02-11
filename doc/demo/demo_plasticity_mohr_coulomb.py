@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -84,7 +85,7 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from mpltools import annotation  # for slope markers
-from solvers import LinearProblem
+from solvers import SNESProblem
 from utilities import find_cell_by_point
 
 import basix
@@ -655,7 +656,26 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # applied to other plasticity models.
 
 # %%
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+petsc_options = {
+    "snes_type": "vinewtonrsls",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps",
+    "snes_atol": 1.0e-11,
+    "snes_rtol": 1.0e-11,
+    "snes_max_it": 50,
+    "snes_monitor": "",
+    # "snes_monitor_cancel": "",
+}
+
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # Direct access to the external operator values
+    sigma.ref_coefficient.x.array[:] = sigma_new
+
+external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, system_update=constitutive_update)
+
 
 # %%
 x_point = np.array([[0, H, 0]])
@@ -665,48 +685,25 @@ cells, points_on_process = find_cell_by_point(domain, x_point)
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
 
-load_steps_1 = np.linspace(2, 21, 40)
-load_steps_2 = np.linspace(21, 22.75, 20)[1:]
-load_steps = np.concatenate([load_steps_1, load_steps_2])
+# load_steps_1 = np.linspace(2, 21, 40)
+# load_steps_2 = np.linspace(21, 22.75, 20)[1:]
+# load_steps = np.concatenate([load_steps_1, load_steps_2])
+# load_steps = np.concatenate([np.linspace(1.1, 22.3, 100)[:-1]])
+load_steps = np.concatenate([np.linspace(1.2, 22.3, 150)[:-1]])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
 # %% tags=["scroll-output"]
-
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
-    external_operator_problem.assemble_vector()
 
-    residual_0 = external_operator_problem.b.norm()
-    residual = residual_0
-    Du.x.array[:] = 0
+    # Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+        print(f"Load increment #{i}, load: {load}")
 
-    for iteration in range(0, max_iterations):
-        if residual / residual_0 < relative_tolerance:
-            break
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tOuter Newton iteration #{iteration}")
-        external_operator_problem.assemble_matrix()
-        external_operator_problem.solve(du)
-
-        Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
-        Du.x.scatter_forward()
-
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        # Direct access to the external operator values
-        sigma.ref_coefficient.x.array[:] = sigma_new
-
-        external_operator_problem.assemble_vector()
-        residual = external_operator_problem.b.norm()
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tResidual: {residual}\n")
-
+    external_operator_problem.solve()
+    
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
@@ -714,7 +711,7 @@ for i, load in enumerate(load_steps):
 
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
-
+        
 print(f"Slope stability factor: {-q.value[-1] * H / c}")
 
 # %% [markdown]
