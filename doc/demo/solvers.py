@@ -120,7 +120,7 @@ class SNESProblem:
         bcs: list[fem.bcs.DirichletBC] = [],
         petsc_options: Optional[dict] = {},
         prefix: Optional[str] = None,
-        system_update: Optional[Callable] = None,
+        external_callback: Optional[Callable] = None,
     ):
         self.u = u
         V = self.u.function_space
@@ -140,7 +140,7 @@ class SNESProblem:
 
         self.prefix = prefix
         self.petsc_options = petsc_options
-        self.system_update = system_update
+        self.external_callback = external_callback
 
         self.solver = self.solver_setup()
 
@@ -164,8 +164,13 @@ class SNESProblem:
 
         snes.setFunction(self.F, self.b)
         snes.setJacobian(self.J, self.A)
+        # snes.setUpdate(self.update)
 
         return snes
+    
+    def update(self, snes: PETSc.SNES, iter: int) -> None:
+        """Call external function at each iteration."""
+        self.external_callback()
 
     def F(self, snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
         """Assemble the residual F into the vector b.
@@ -180,9 +185,7 @@ class SNESProblem:
         x.copy(self.u.x.petsc_vec)
         self.u.x.scatter_forward()
 
-        #TODO: SNES makes the iteration #0, where it calculates the b norm.
-        #`system_update()` can be omitted in that case
-        self.system_update()
+        self.external_callback()
         
         with b.localForm() as b_local:
             b_local.set(0.0)
