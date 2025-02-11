@@ -162,7 +162,7 @@ from utilities import build_cylinder_quarter, find_cell_by_point
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.fem.petsc import NonlinearProblem
+from solvers import NewtonProblem
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx_external_operator import (
     FEMExternalOperator,
@@ -394,6 +394,7 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
+
 # %% [markdown]
 # ```{note}
 #  We remind that in the code above we replace `FEMExternalOperator` objects by
@@ -416,40 +417,14 @@ J_form = fem.form(J_replaced)
 # ### Solving the problem
 #
 # %%
-u = fem.Function(V, name="displacement")
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # This avoids having to evaluate the external operators of F.
+    sigma.ref_coefficient.x.array[:] = sigma_new
+    dp.x.array[:] = dp_new
 
-
-class PlasticityProblem(NonlinearProblem):
-    def form(self, x: PETSc.Vec) -> None:
-        """This function is called before the residual or Jacobian is
-        computed. This is usually used to update ghost values, but here
-        we also use it to evaluate the external operators.
-
-        Args:
-           x: The vector containing the latest solution
-        """
-        # The following line is from the standard NonlinearProblem class
-        x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
-
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-        # This avoids having to evaluate the external operators of F.
-        sigma.ref_coefficient.x.array[:] = sigma_new
-        dp.x.array[:] = dp_new
-
-
-problem = PlasticityProblem(F_replaced, Du, bcs=bcs, J=J_replaced)
-
-x_point = np.array([[R_i, 0, 0]])
-cells, points_on_process = find_cell_by_point(mesh, x_point)
-
-q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-num_increments = 20
-load_steps = np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5
-loadings = q_lim * load_steps
-results = np.zeros((num_increments, 2))
-
+problem = NewtonProblem(F_replaced, Du, bcs=bcs, J=J_replaced, external_callback=constitutive_update)
 solver = NewtonSolver(mesh.comm, problem)
 solver.max_it = 200
 solver.rtol = 1e-8
@@ -461,13 +436,30 @@ opts[f"{option_prefix}pc_type"] = "lu"
 opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
 ksp.setFromOptions()
 
+# %%
+u = fem.Function(V, name="displacement")
+
+x_point = np.array([[R_i, 0, 0]])
+cells, points_on_process = find_cell_by_point(mesh, x_point)
+
+q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
+num_increments = 20
+load_steps = np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5
+loadings = q_lim * load_steps
+results = np.zeros((num_increments, 2))
+
 eps = np.finfo(PETSc.ScalarType).eps
 
 for i, loading_v in enumerate(loadings):
+    residual = solver._b.norm()
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"Load increment #{i}, load: {loading_v:.3f}")
+        
     loading.value = loading_v
     Du.x.array[:] = eps
 
-    solver.solve(Du)
+    iters, _ = solver.solve(Du)
+    print(f"\tInner Newton iterations: {iters}")
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()

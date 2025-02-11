@@ -3,6 +3,9 @@ from petsc4py import PETSc
 import dolfinx.fem.petsc  # noqa: F401
 import ufl
 from dolfinx import fem
+from dolfinx.fem.petsc import NonlinearProblem
+# from dolfinx.nls.petsc import NewtonSolver
+
 from typing import List, Union, Dict, Optional, Callable, Tuple
 
 class LinearProblem:
@@ -64,6 +67,43 @@ class LinearProblem:
         self.A.destroy()
         self.b.destroy()
 
+class NewtonProblem(NonlinearProblem):
+    """Problem for the DOLFINx NewtonSolver.
+
+    NewtonProlbem definition:
+    https://github.com/FEniCS/dolfinx/blob/main/python/dolfinx/fem/petsc.py#L966 
+    NewtonSolver definition:
+    https://github.com/FEniCS/dolfinx/blob/main/python/dolfinx/nls/petsc.py#L31 
+    """
+
+    def __init__(
+        self,
+        F: ufl.form.Form,
+        u: fem.function.Function,
+        bcs: list[fem.bcs.DirichletBC] = [],
+        J: ufl.form.Form = None,
+        form_compiler_options: Optional[dict] = None,
+        jit_options: Optional[dict] = None,
+        external_callback: Optional[Callable] = None,
+    ):
+        super().__init__(F, u, bcs, J, form_compiler_options, jit_options)
+
+        self.external_callback = external_callback
+
+    def form(self, x: PETSc.Vec) -> None:
+        """This function is called before the residual or Jacobian is
+        computed. This is usually used to update ghost values, but here
+        we also use it to evaluate the external operators.
+
+        Args:
+           x: The vector containing the latest solution
+        """
+        # The following line is from the standard NonlinearProblem class
+        x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+
+        # The external operators are evaluated here
+        self.external_callback()
+
 class SNESProblem:
     """Solves a nonlinear problem via PETSc.SNES.
     F(u) = 0
@@ -74,12 +114,12 @@ class SNESProblem:
     """
     def __init__(
         self,
-        u: fem.Function,
-        F: ufl.Form,
-        J: ufl.Form,
-        bcs=[],
-        petsc_options={},
-        prefix=None,
+        u: fem.function.Function,
+        F: ufl.form.Form,
+        J: ufl.form.Form,
+        bcs: list[fem.bcs.DirichletBC] = [],
+        petsc_options: Optional[dict] = {},
+        prefix: Optional[str] = None,
         system_update: Optional[Callable] = None,
     ):
         self.u = u
