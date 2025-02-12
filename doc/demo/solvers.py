@@ -75,7 +75,7 @@ class LinearProblem:
         self.b.destroy()
 
 
-class NewtonProblem(NonlinearProblem):
+class NonlinearProblemWithCallback(NonlinearProblem):
     """Problem for the DOLFINx NewtonSolver with an external callback."""
 
     def __init__(

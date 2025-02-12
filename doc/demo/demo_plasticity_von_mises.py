@@ -157,7 +157,7 @@ import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
-from solvers import NewtonProblem
+from solvers import NonlinearProblemWithCallback
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
@@ -426,7 +426,7 @@ def constitutive_update():
     dp.x.array[:] = dp_new
 
 
-problem = NewtonProblem(F_replaced, Du, bcs=bcs, J=J_replaced, external_callback=constitutive_update)
+problem = NonlinearProblemWithCallback(F_replaced, Du, bcs=bcs, J=J_replaced, external_callback=constitutive_update)
 solver = NewtonSolver(mesh.comm, problem)
 solver.max_it = 200
 solver.rtol = 1e-8
