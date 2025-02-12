@@ -1,7 +1,7 @@
 # ---
 # jupyter:
 #   jupytext:
-#     cell_metadata_filter: -all
+#     cell_metadata_filter: tags,-all
 #     custom_cell_magics: kql
 #     text_representation:
 #       extension: .py
@@ -482,7 +482,7 @@ for i, loading_v in enumerate(loadings):
 # presented by the function `plasticity_von_mises_pure_ufl`.
 
 # %%
-results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=False)
+results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=True)
 
 # %% [markdown]
 # Here below we plot the displacement of the inner boundary of the cylinder
