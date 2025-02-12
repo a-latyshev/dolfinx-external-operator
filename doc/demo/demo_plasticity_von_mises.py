@@ -1,7 +1,7 @@
 # ---
 # jupyter:
 #   jupytext:
-#     cell_metadata_filter: -all
+#     cell_metadata_filter: tags,-all
 #     custom_cell_magics: kql
 #     text_representation:
 #       extension: .py
@@ -150,19 +150,19 @@
 # ### Preamble
 
 # %%
-from mpi4py import MPI  # noqa: F401
+from mpi4py import MPI
 from petsc4py import PETSc
 
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
+from solvers import NonlinearProblemWithCallback
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx_external_operator import (
     FEMExternalOperator,
@@ -394,6 +394,7 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
+
 # %% [markdown]
 # ```{note}
 #  We remind that in the code above we replace `FEMExternalOperator` objects by
@@ -405,51 +406,30 @@ J_form = fem.form(J_replaced)
 #  `C_tang = J_external_operators[0].ref_coefficient`.
 # ```
 
+
 # %% [markdown]
-# ### Variables initialization and compilation
-#
-# Before assembling the forms, we have to initialize the external operators. In
-# particular, the tangent matrix should be equal to the elastic one during the
-# first loading step, so to initialize the former, we evaluate external operators
-# for a close-to-zero displacement field.
-#
 # ### Solving the problem
 #
+# Once we prepared the forms containing external operators, we can defind the
+# nonlinear problem and its solver. Here we modified the original DOLFINx
+# `NonlinearProblem` to let it evaluate external operators at each iteration of
+# the Newton solver. For this matter we define the function `constitutive_update`
+# with external operators evaluations and update of the internal variable `dp`.
 # %%
-u = fem.Function(V, name="displacement")
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # This avoids having to evaluate the external operators of F.
+    sigma.ref_coefficient.x.array[:] = sigma_new
+    dp.x.array[:] = dp_new
 
 
-class PlasticityProblem(NonlinearProblem):
-    def form(self, x: PETSc.Vec) -> None:
-        """This function is called before the residual or Jacobian is
-        computed. This is usually used to update ghost values, but here
-        we also use it to evaluate the external operators.
+problem = NonlinearProblemWithCallback(F_replaced, Du, bcs=bcs, J=J_replaced, external_callback=constitutive_update)
 
-        Args:
-           x: The vector containing the latest solution
-        """
-        # The following line is from the standard NonlinearProblem class
-        x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+# %% [markdown]
+# Now we are ready to solve the problem.
 
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-        # This avoids having to evaluate the external operators of F.
-        sigma.ref_coefficient.x.array[:] = sigma_new
-        dp.x.array[:] = dp_new
-
-
-problem = PlasticityProblem(F_replaced, Du, bcs=bcs, J=J_replaced)
-
-x_point = np.array([[R_i, 0, 0]])
-cells, points_on_process = find_cell_by_point(mesh, x_point)
-
-q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
-num_increments = 20
-load_steps = np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5
-loadings = q_lim * load_steps
-results = np.zeros((num_increments, 2))
-
+# %% tags=["scroll-output"]
 solver = NewtonSolver(mesh.comm, problem)
 solver.max_it = 200
 solver.rtol = 1e-8
@@ -461,13 +441,29 @@ opts[f"{option_prefix}pc_type"] = "lu"
 opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
 ksp.setFromOptions()
 
+u = fem.Function(V, name="displacement")
+
+x_point = np.array([[R_i, 0, 0]])
+cells, points_on_process = find_cell_by_point(mesh, x_point)
+
+q_lim = 2.0 / np.sqrt(3.0) * np.log(R_e / R_i) * sigma_0
+num_increments = 20
+load_steps = np.linspace(0, 1.1, num_increments, endpoint=True) ** 0.5
+loadings = q_lim * load_steps
+results = np.zeros((num_increments, 2))
+
 eps = np.finfo(PETSc.ScalarType).eps
 
 for i, loading_v in enumerate(loadings):
+    residual = solver._b.norm()
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"Load increment #{i}, load: {loading_v:.3f}")
+
     loading.value = loading_v
     Du.x.array[:] = eps
 
-    solver.solve(Du)
+    iters, _ = solver.solve(Du)
+    print(f"\tInner Newton iterations: {iters}")
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
@@ -487,8 +483,8 @@ for i, loading_v in enumerate(loadings):
 # the variational setting and so in UFL. Such a performant implementation is
 # presented by the function `plasticity_von_mises_pure_ufl`.
 
-# %%
-results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=False)
+# %% tags=["scroll-output"]
+results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=True)
 
 # %% [markdown]
 # Here below we plot the displacement of the inner boundary of the cylinder
