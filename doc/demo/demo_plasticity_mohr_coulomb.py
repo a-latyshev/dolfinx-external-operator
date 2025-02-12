@@ -465,7 +465,7 @@ drdy = jax.jacfwd(r)
 # return-mapping algorithm numerically via the Newton method.
 
 # %%
-Nitermax, tol = 200, 1e-7
+Nitermax, tol = 200, 1e-8
 
 ZERO_SCALAR = np.array([0.0])
 
@@ -670,12 +670,13 @@ problem = PETScNonlinearProblem(
 
 petsc_options = {
     "snes_type": "vinewtonrsls",
+    "snes_linesearch_type": "basic",
     "ksp_type": "preonly",
     "pc_type": "lu",
     "pc_factor_mat_solver_type": "mumps",
     "snes_atol": 1.0e-8,
     "snes_rtol": 1.0e-8,
-    "snes_max_it": 50,
+    "snes_max_it": 100,
     "snes_monitor": "",
 }
 
@@ -687,17 +688,9 @@ x_point = np.array([[0, H, 0]])
 cells, points_on_process = find_cell_by_point(domain, x_point)
 
 # %%
-# parameters of the manual Newton method
-max_iterations, relative_tolerance = 200, 1e-8
-
-load_steps_1 = np.linspace(2, 21, 40)
-load_steps_2 = np.linspace(21, 22.75, 20)[1:]
-load_steps_1 = np.linspace(1.1, 22.5, 100)
-# load_steps_2 = np.linspace(22.5, 23, 100)[1:]
-load_steps_2 = np.array([22.505])
+load_steps_1 = np.linspace(2, 22.9, 50)
+load_steps_2 = np.array([22.96, 22.99])
 load_steps = np.concatenate([load_steps_1, load_steps_2])
-# load_steps = np.concatenate([np.linspace(1.1, 22.3, 100)[:-1]])
-# load_steps = np.concatenate([np.linspace(1.2, 23.5, 100)[:-1]])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
@@ -751,7 +744,7 @@ print(f"Slope stability factor: {-q.value[-1] * H / c}")
 if len(points_on_process) > 0:
     l_lim = 6.69
     gamma_lim = l_lim / H * c
-    plt.plot(results[:101, 0], results[:101, 1], "o-", label=r"$\gamma$")
+    plt.plot(results[:, 0], results[:, 1], "o-", label=r"$\gamma$")
     plt.axhline(y=gamma_lim, color="r", linestyle="--", label=r"$\gamma_\text{lim}$")
     plt.xlabel(r"Displacement of the slope $u_x$ at $(0, H)$ [mm]")
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
