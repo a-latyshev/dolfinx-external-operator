@@ -2,10 +2,76 @@ from typing import Callable, Optional
 
 from petsc4py import PETSc
 
-import dolfinx.fem.petsc  # noqa: F401
 import ufl
 from dolfinx import fem
 from dolfinx.fem.petsc import NonlinearProblem
+
+
+class LinearProblem:
+    def __init__(
+        self, dR: ufl.Form, R: ufl.Form, u: fem.function.Function, bcs: list[fem.bcs.DirichletBC] | None = None
+    ):
+        self.u = u
+        self.bcs = bcs if bcs is not None else []
+
+        V = u.function_space
+        domain = V.mesh
+
+        self.R = R
+        self.dR = dR
+        self.b_form = fem.form(R)
+        self.A_form = fem.form(dR)
+        self.b = fem.petsc.create_vector(self.b_form)
+        self.A = fem.petsc.create_matrix(self.A_form)
+
+        self.comm = domain.comm
+
+        self.solver = self.solver_setup()
+
+    def solver_setup(self) -> PETSc.KSP:
+        """Sets the solver parameters."""
+        solver = PETSc.KSP().create(self.comm)
+        solver.setType("preonly")
+        solver.getPC().setType("lu")
+        pc = solver.getPC()
+        pc.setType("lu")
+        pc.setFactorSolverType("mumps")
+        solver.setOperators(self.A)
+        return solver
+
+    def assemble_vector(self) -> None:
+        with self.b.localForm() as b_local:
+            b_local.set(0.0)
+        fem.petsc.assemble_vector(self.b, self.b_form)
+        self.b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        fem.petsc.apply_lifting(self.b, [self.A_form], bcs=[self.bcs], x0=[self.u.x.petsc_vec], alpha=-1.0)
+        fem.petsc.set_bc(self.b, self.bcs, self.u.x.petsc_vec, -1.0)
+        self.b.ghostUpdate(addv=PETSc.InsertMode.INSERT_VALUES, mode=PETSc.ScatterMode.FORWARD)
+
+    def assemble_matrix(self) -> None:
+        self.A.zeroEntries()
+        fem.petsc.assemble_matrix(self.A, self.A_form, bcs=self.bcs)
+        self.A.assemble()
+
+    def assemble(self) -> None:
+        self.assemble_matrix()
+        self.assemble_vector()
+
+    def solve(
+        self,
+        du: fem.function.Function,
+    ) -> None:
+        """Solves the linear system and saves the solution into the vector `du`
+
+        Args:
+            du: A global vector to be used as a container for the solution of the linear system
+        """
+        self.solver.solve(self.b, du.x.petsc_vec)
+
+    def __del__(self):
+        self.solver.destroy()
+        self.A.destroy()
+        self.b.destroy()
 
 
 class NewtonProblem(NonlinearProblem):

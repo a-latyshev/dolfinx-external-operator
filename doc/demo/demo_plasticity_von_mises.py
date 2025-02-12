@@ -438,7 +438,7 @@ opts[f"{option_prefix}pc_type"] = "lu"
 opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
 ksp.setFromOptions()
 
-# %%
+# %% tags=["scroll-output"]
 u = fem.Function(V, name="displacement")
 
 x_point = np.array([[R_i, 0, 0]])
