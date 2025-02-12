@@ -1,5 +1,6 @@
 from typing import Callable, Optional
 
+from mpi4py import MPI
 from petsc4py import PETSc
 
 import ufl
@@ -105,75 +106,30 @@ class NewtonProblem(NonlinearProblem):
         # The external operators are evaluated here
         self.external_callback()
 
-
-class SNESProblem:
-    """Solves a nonlinear problem via PETSc.SNES.
+class PETScNonlinearProblem:
+    """Defines a nonlinear problem for PETSc.SNES.
     F(u) = 0
     J = dF/du
     b = assemble(F)
     A = assemble(J)
     Ax = b
     """
-
     def __init__(
         self,
         u: fem.function.Function,
         F: ufl.form.Form,
-        J: ufl.form.Form,
+        J: Optional[ufl.form.Form] = None,
         bcs: list[fem.bcs.DirichletBC] = [],
-        petsc_options: Optional[dict] = {},
-        prefix: Optional[str] = None,
         external_callback: Optional[Callable] = None,
     ):
         self.u = u
-        V = self.u.function_space
-        self.comm = V.mesh.comm
-
         self.F_form = fem.form(F)
-        # J = ufl.derivative(F_form, self.u, ufl.TrialFunction(V))
+        if J is None:
+            V = self.u.function_space
+            J = ufl.derivative(F_form, self.u, ufl.TrialFunction(V))
         self.J_form = fem.form(J)
-        self.b = fem.petsc.create_vector(self.F_form)
-        self.A = fem.petsc.create_matrix(self.J_form)
-
         self.bcs = bcs
-
-        # Give PETSc solver options a unique prefix
-        if prefix is None:
-            prefix = f"snes_{str(id(self))[0:4]}"
-
-        self.prefix = prefix
-        self.petsc_options = petsc_options
         self.external_callback = external_callback
-
-        self.solver = self.solver_setup()
-
-    def set_petsc_options(self):
-        # Set PETSc options
-        opts = PETSc.Options()
-        opts.prefixPush(self.prefix)
-
-        for k, v in self.petsc_options.items():
-            opts[k] = v
-
-        opts.prefixPop()
-
-    def solver_setup(self):
-        # Create nonlinear solver
-        snes = PETSc.SNES().create(self.comm)
-
-        snes.setOptionsPrefix(self.prefix)
-        self.set_petsc_options()
-        snes.setFromOptions()
-
-        snes.setFunction(self.F, self.b)
-        snes.setJacobian(self.J, self.A)
-        # snes.setUpdate(self.update)
-
-        return snes
-
-    def update(self, snes: PETSc.SNES, iter: int) -> None:
-        """Call external function at each iteration."""
-        self.external_callback()
 
     def F(self, snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
         """Assemble the residual F into the vector b.
@@ -188,6 +144,7 @@ class SNESProblem:
         x.copy(self.u.x.petsc_vec)
         self.u.x.scatter_forward()
 
+        # Call external functions, e.g. evaluation of external operators
         self.external_callback()
 
         with b.localForm() as b_local:
@@ -210,11 +167,43 @@ class SNESProblem:
         fem.petsc.assemble_matrix(A, self.J_form, self.bcs)
         A.assemble()
 
-    def solve(
+
+class PETScNonlinearSolver:
+    def __init__(
         self,
-    ) -> tuple[int, int]:
-        self.solver.solve(None, self.u.x.petsc_vec)
-        self.u.x.scatter_forward()
+        comm: MPI.Intracomm,
+        problem: PETScNonlinearProblem,
+        petsc_options: Optional[dict] = {},
+        prefix: Optional[str] = None, 
+    ):
+        self.b = fem.petsc.create_vector(problem.F_form)
+        self.A = fem.petsc.create_matrix(problem.J_form)
+        
+        # Give PETSc solver options a unique prefix
+        if prefix is None:
+            prefix = f"snes_{str(id(self))[0:4]}"
+        self.prefix = prefix
+        self.petsc_options = petsc_options
+
+        self.solver = PETSc.SNES().create(comm)
+        self.solver.setOptionsPrefix(self.prefix)
+        self.solver.setFunction(problem.F, self.b)
+        self.solver.setJacobian(problem.J, self.A)
+        self.set_petsc_options()
+        self.solver.setFromOptions()
+
+    def set_petsc_options(self):
+        opts = PETSc.Options()
+        opts.prefixPush(self.prefix)
+
+        for k, v in self.petsc_options.items():
+            opts[k] = v
+
+        opts.prefixPop()
+
+    def solve(self, u: fem.Function) -> tuple[int, int]:
+        self.solver.solve(None, u.x.petsc_vec)
+        u.x.scatter_forward()
         return (self.solver.getIterationNumber(), self.solver.getConvergedReason())
 
     def __del__(self):

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -84,7 +85,7 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from mpltools import annotation  # for slope markers
-from solvers import SNESProblem
+from solvers import PETScNonlinearProblem, PETScNonlinearSolver
 from utilities import find_cell_by_point
 
 import basix
@@ -646,6 +647,7 @@ sigma_n.x.array[:] = 0.0
 evaluated_operands = evaluate_operands(F_external_operators)
 _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
+
 # %% [markdown]
 # ### Solving the problem
 #
@@ -656,6 +658,16 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # applied to other plasticity models.
 
 # %%
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # Direct access to the external operator values
+    sigma.ref_coefficient.x.array[:] = sigma_new
+
+problem = PETScNonlinearProblem(
+    Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update
+)
+
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "ksp_type": "preonly",
@@ -667,17 +679,7 @@ petsc_options = {
     "snes_monitor": "",
 }
 
-
-def constitutive_update():
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # Direct access to the external operator values
-    sigma.ref_coefficient.x.array[:] = sigma_new
-
-
-external_operator_problem = SNESProblem(
-    Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, external_callback=constitutive_update
-)
+solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)
 
 
 # %%
@@ -706,7 +708,7 @@ for i, load in enumerate(load_steps):
     if MPI.COMM_WORLD.rank == 0:
         print(f"Load increment #{i}, load: {load}")
 
-    external_operator_problem.solve()
+    solver.solve(Du)
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
