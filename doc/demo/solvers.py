@@ -106,6 +106,7 @@ class NonlinearProblemWithCallback(NonlinearProblem):
         # The external operators are evaluated here
         self.external_callback()
 
+
 class PETScNonlinearProblem:
     """Defines a nonlinear problem for PETSc.SNES.
     F(u) = 0
@@ -114,6 +115,7 @@ class PETScNonlinearProblem:
     A = assemble(J)
     Ax = b
     """
+
     def __init__(
         self,
         u: fem.function.Function,
@@ -174,11 +176,11 @@ class PETScNonlinearSolver:
         comm: MPI.Intracomm,
         problem: PETScNonlinearProblem,
         petsc_options: Optional[dict] = {},
-        prefix: Optional[str] = None, 
+        prefix: Optional[str] = None,
     ):
         self.b = fem.petsc.create_vector(problem.F_form)
         self.A = fem.petsc.create_matrix(problem.J_form)
-        
+
         # Give PETSc solver options a unique prefix
         if prefix is None:
             prefix = f"snes_{str(id(self))[0:4]}"
