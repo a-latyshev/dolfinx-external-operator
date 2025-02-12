@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -651,11 +650,13 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # %% [markdown]
 # ### Solving the problem
 #
-# Summing up, we apply the Newton method to solve the main weak problem. On each
-# iteration of the main Newton loop, we solve elastoplastic constitutive equations
-# by using the second (inner) Newton method at each Gauss point. Thanks to the
-# framework and the JAX library, the final interface is general enough to be
-# applied to other plasticity models.
+# Similarly to the von Mises tutorial, we use a Newton solver, but this time we
+# rely on `SNES`, the implementation from the `PETSc` library. We implemented the
+# class `PETScNonlinearProblem` that allows to call an additional routine
+# `external_callback` at each iteration of SNES before the vector and matrix
+# assembly. This functionality is used to solve elastoplastic constitutive
+# equations by using the second (inner) Newton method at each Gauss point.
+
 
 # %%
 def constitutive_update():
@@ -664,9 +665,8 @@ def constitutive_update():
     # Direct access to the external operator values
     sigma.ref_coefficient.x.array[:] = sigma_new
 
-problem = PETScNonlinearProblem(
-    Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update
-)
+
+problem = PETScNonlinearProblem(Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update)
 
 petsc_options = {
     "snes_type": "vinewtonrsls",
@@ -683,18 +683,27 @@ petsc_options = {
 solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)
 
 
-# %%
-x_point = np.array([[0, H, 0]])
-cells, points_on_process = find_cell_by_point(domain, x_point)
+# %% [markdown]
+# ```{note}
+# We demonstrated here the use of `PETSc.SNES` together with external operators
+# through the `PETScNonlinearProblem` and `PETScNonlinearSolver` classes. If the
+# user is more familiar with original DOLFINx `NonlinearProblem`, feel free to
+# use `NonlinearProblemWithCallback` covered in the von Mises tutorial.
+# ```
+#
+# After definition of the nonlinear problem and the Newton solver, we are ready to get
+# the final result.
 
-# %%
+# %% tags=["scroll-output"]
 load_steps_1 = np.linspace(2, 22.9, 50)
 load_steps_2 = np.array([22.96, 22.99])
 load_steps = np.concatenate([load_steps_1, load_steps_2])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %% tags=["scroll-output"]
+x_point = np.array([[0, H, 0]])
+cells, points_on_process = find_cell_by_point(domain, x_point)
+
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
 

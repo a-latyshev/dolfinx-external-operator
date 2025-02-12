@@ -408,15 +408,13 @@ J_form = fem.form(J_replaced)
 
 
 # %% [markdown]
-# ### Variables initialization and compilation
-#
-# Before assembling the forms, we have to initialize the external operators. In
-# particular, the tangent matrix should be equal to the elastic one during the
-# first loading step, so to initialize the former, we evaluate external operators
-# for a close-to-zero displacement field.
-#
 # ### Solving the problem
 #
+# Once we prepared the forms containing external operators, we can defind the
+# nonlinear problem and its solver. Here we modified the original DOLFINx
+# `NonlinearProblem` to let it evaluate external operators at each iteration of
+# the Newton solver. For this matter we define the function `constitutive_update`
+# with external operators evaluations and update of the internal variable `dp`.
 # %%
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
@@ -427,6 +425,11 @@ def constitutive_update():
 
 
 problem = NonlinearProblemWithCallback(F_replaced, Du, bcs=bcs, J=J_replaced, external_callback=constitutive_update)
+
+# %% [markdown]
+# Now we are ready to solve the problem.
+
+# %% tags=["scroll-output"]
 solver = NewtonSolver(mesh.comm, problem)
 solver.max_it = 200
 solver.rtol = 1e-8
@@ -438,7 +441,6 @@ opts[f"{option_prefix}pc_type"] = "lu"
 opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
 ksp.setFromOptions()
 
-# %% tags=["scroll-output"]
 u = fem.Function(V, name="displacement")
 
 x_point = np.array([[R_i, 0, 0]])

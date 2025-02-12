@@ -76,7 +76,13 @@ class LinearProblem:
 
 
 class NonlinearProblemWithCallback(NonlinearProblem):
-    """Problem for the DOLFINx NewtonSolver with an external callback."""
+    """Problem for the DOLFINx NewtonSolver with an external callback.
+
+    It lets `NewtonSolver` to run an additional routine `external_callback`
+    before vector and matrix assembly. This may be useful to perform additional
+    calculations at each Newton iteration. In particular, external operators
+    must be evaluated via this routine.
+    """
 
     def __init__(
         self,
@@ -86,7 +92,7 @@ class NonlinearProblemWithCallback(NonlinearProblem):
         J: ufl.form.Form = None,
         form_compiler_options: Optional[dict] = None,
         jit_options: Optional[dict] = None,
-        external_callback: Optional[Callable] = None,
+        external_callback: Optional[Callable] = lambda: None,
     ):
         super().__init__(F, u, bcs, J, form_compiler_options, jit_options)
 
@@ -108,12 +114,12 @@ class NonlinearProblemWithCallback(NonlinearProblem):
 
 
 class PETScNonlinearProblem:
-    """Defines a nonlinear problem for PETSc.SNES.
-    F(u) = 0
-    J = dF/du
-    b = assemble(F)
-    A = assemble(J)
-    Ax = b
+    """Defines a nonlinear problem for `PETSc.SNES`.
+
+    It lets `PETSc.SNES` to run an additional routine `external_callback`
+    before vector and matrix assembly. This may be useful to perform additional
+    calculations at each Newton iteration. In particular, external operators
+    must be evaluated via this routine.
     """
 
     def __init__(
@@ -122,13 +128,13 @@ class PETScNonlinearProblem:
         F: ufl.form.Form,
         J: Optional[ufl.form.Form] = None,
         bcs: list[fem.bcs.DirichletBC] = [],
-        external_callback: Optional[Callable] = None,
+        external_callback: Optional[Callable] = lambda: None,
     ):
         self.u = u
         self.F_form = fem.form(F)
         if J is None:
             V = self.u.function_space
-            J = ufl.derivative(F_form, self.u, ufl.TrialFunction(V))
+            J = ufl.derivative(self.F_form, self.u, ufl.TrialFunction(V))
         self.J_form = fem.form(J)
         self.bcs = bcs
         self.external_callback = external_callback
