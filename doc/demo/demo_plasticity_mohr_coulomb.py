@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -656,7 +657,6 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # framework and the JAX library, the final interface is general enough to be
 # applied to other plasticity models.
 
-
 # %%
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
@@ -664,8 +664,9 @@ def constitutive_update():
     # Direct access to the external operator values
     sigma.ref_coefficient.x.array[:] = sigma_new
 
-
-problem = PETScNonlinearProblem(Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update)
+problem = PETScNonlinearProblem(
+    Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update
+)
 
 petsc_options = {
     "snes_type": "vinewtonrsls",
@@ -1107,7 +1108,7 @@ Du.x.array[:] = 1e-8
 if MPI.COMM_WORLD.rank == 0:
     print(f"Load increment #{i}, load: {load}")
 
-external_operator_problem.solve()
+solver.solve(Du)
 
 u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
 u.x.scatter_forward()

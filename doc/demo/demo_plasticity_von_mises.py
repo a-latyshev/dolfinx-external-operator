@@ -481,7 +481,7 @@ for i, loading_v in enumerate(loadings):
 # the variational setting and so in UFL. Such a performant implementation is
 # presented by the function `plasticity_von_mises_pure_ufl`.
 
-# %%
+# %% tags=["scroll-output"]
 results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=True)
 
 # %% [markdown]
