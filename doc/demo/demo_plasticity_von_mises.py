@@ -1,19 +1,3 @@
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: tags,-all
-#     custom_cell_magics: kql
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.11.2
-#   kernelspec:
-#     display_name: dolfinx-env
-#     language: python
-#     name: python3
-# ---
-
 # %% [markdown]
 # # Plasticity of von Mises
 #
@@ -198,7 +182,6 @@ C_elas = np.array(
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter()
 
@@ -255,7 +238,6 @@ P = fem.functionspace(mesh, P_element)
 p = fem.Function(P, name="cumulative_plastic_strain")
 dp = fem.Function(P, name="incremental_plastic_strain")
 sigma_n = fem.Function(S, name="stress_n")
-
 
 # %% [markdown]
 # ### Defining the external operator
@@ -394,7 +376,6 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
-
 # %% [markdown]
 # ```{note}
 #  We remind that in the code above we replace `FEMExternalOperator` objects by
@@ -406,15 +387,17 @@ J_form = fem.form(J_replaced)
 #  `C_tang = J_external_operators[0].ref_coefficient`.
 # ```
 
-
 # %% [markdown]
 # ### Solving the problem
 #
 # Once we prepared the forms containing external operators, we can defind the
 # nonlinear problem and its solver. Here we modified the original DOLFINx
-# `NonlinearProblem` to let it evaluate external operators at each iteration of
-# the Newton solver. For this matter we define the function `constitutive_update`
-# with external operators evaluations and update of the internal variable `dp`.
+# `NonlinearProblem` and called it `NonlinearProblemWithCallback` to let the
+# solver evaluate external operators at each iteration. For this matter we define
+# the function `constitutive_update` with external operators evaluations and
+# update of the internal variable `dp`.
+
+
 # %%
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
