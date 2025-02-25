@@ -137,16 +137,7 @@ def evaluate_operands(
                         evaluated_operand = expr.eval(mesh, cells)
                 elif codim == 1:
                     assert entity_maps is not None
-                    # Invert entity map as it goes from parent to sub not sub to parent
-                    inverted_map = np.empty(len(cells), dtype=np.int32)
-                    indices = np.flatnonzero(entity_maps[mesh] >= 0)
-                    inverted_map[entity_maps[mesh][indices]] = indices
-                    integration_entities = fem.compute_integration_domains(
-                        fem.IntegralType.exterior_facet,
-                        operand.function_space.mesh.topology,
-                        inverted_map,
-                    )
-                    evaluated_operand = expr.eval(operand_mesh, integration_entities)
+                    evaluated_operand = expr.eval(operand_mesh, entity_maps[mesh])
                 else:
                     raise NotImplementedError("Only codim 0 and 1 are supported.")
             evaluated_operands[operand] = evaluated_operand

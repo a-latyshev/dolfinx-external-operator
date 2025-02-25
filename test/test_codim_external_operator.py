@@ -60,7 +60,12 @@ def test_external_operator_codim_1(quadrature_degree):
     """Test assembly of codim 1 external operator"""
 
     mesh = dolfinx.mesh.create_unit_square(MPI.COMM_WORLD, 5, 5)
-    mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim, tdim - 1)
+    c_to_f = mesh.topology.connectivity(tdim, tdim - 1)
+    mesh.topology.create_connectivity(tdim - 1, tdim)
+    f_to_c = mesh.topology.connectivity(tdim - 1, tdim)
+
     ext_facets = dolfinx.mesh.exterior_facet_indices(mesh.topology)
 
     V = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
@@ -69,10 +74,19 @@ def test_external_operator_codim_1(quadrature_degree):
 
     submesh, sub_to_parent, _, _ = dolfinx.mesh.create_submesh(mesh, mesh.topology.dim - 1, ext_facets)
     num_entities = mesh.topology.index_map(mesh.topology.dim - 1).size_local
-    parent_to_sub = np.full(num_entities, -1, dtype=np.int32)
-    parent_to_sub[sub_to_parent] = np.arange(len(sub_to_parent), dtype=np.int32)
+    parent_to_sub = np.empty((len(ext_facets), 2), dtype=np.int32)
+    # print(num_entities)
+
+    for i, facet in enumerate(ext_facets):
+        cells = f_to_c.links(facet)
+        cell = cells[0]
+        local_facets = c_to_f.links(cell)
+        local_pos = np.flatnonzero(local_facets == facet)
+        parent_to_sub[i, 0] = cell
+        parent_to_sub[i, 1] = local_pos[0]
     entity_maps = {submesh: parent_to_sub}
 
+    # print(parent_to_sub)
     Qe = basix.ufl.quadrature_element(submesh.basix_cell(), degree=quadrature_degree, value_shape=())
     Q = dolfinx.fem.functionspace(submesh, Qe)
 
@@ -90,7 +104,10 @@ def test_external_operator_codim_1(quadrature_degree):
             J = ufl.algorithms.expand_derivatives(ufl.derivative(g, u) * ds)
 
         J_replaced, J_external_operators = replace_external_operators(J)
-        J_compiled = dolfinx.fem.form(J_replaced, entity_maps=entity_maps)
+        parent_to_sub2 = np.full(num_entities, -1, dtype=np.int32)
+        parent_to_sub2[sub_to_parent] = np.arange(len(sub_to_parent), dtype=np.int32)
+        entity_maps2 = {submesh: parent_to_sub2}
+        J_compiled = dolfinx.fem.form(J_replaced, entity_maps=entity_maps2)
         # Pack coefficients for g
         evaluated_operands = evaluate_operands(J_external_operators, entity_maps=entity_maps)
         _ = evaluate_external_operators(J_external_operators, evaluated_operands)

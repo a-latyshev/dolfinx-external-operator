@@ -161,7 +161,7 @@ ruff format .
 
 ```Shell
 pip install '.[test]'
-py.test -v tests/
+py.test -v test/
 ```
 
 ### Releases
