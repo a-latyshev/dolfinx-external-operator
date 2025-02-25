@@ -1,3 +1,19 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: tags,-all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: dolfinx-env
+#     language: python
+#     name: python3
+# ---
+
 # %% [markdown]
 # # Plasticity of von Mises
 #
@@ -320,8 +336,7 @@ def return_mapping(deps_, sigma_n_, p_):
 
 # %%
 def C_tang_impl(deps):
-    num_cells = deps.shape[0]
-    num_quadrature_points = int(deps.shape[1] / 4)
+    num_cells, num_quadrature_points, _ = deps.shape
 
     deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
     sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
