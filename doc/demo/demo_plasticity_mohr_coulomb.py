@@ -170,7 +170,6 @@ S = fem.functionspace(domain, S_element)
 Du = fem.Function(V, name="Du")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="du")
-# v = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
@@ -654,8 +653,7 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # rely on `SNES`, the implementation from the `PETSc` library. We implemented the
 # class `PETScNonlinearProblem` that allows to call an additional routine
 # `external_callback` at each iteration of SNES before the vector and matrix
-# assembly. This functionality is used to solve elastoplastic constitutive
-# equations by using the second (inner) Newton method at each Gauss point.
+# assembly.
 
 
 # %%
@@ -680,19 +678,13 @@ petsc_options = {
     "snes_monitor": "",
 }
 
-solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)
+
+solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)  # PETSc.SNES wrapper
 
 
 # %% [markdown]
-# ```{note}
-# We demonstrated here the use of `PETSc.SNES` together with external operators
-# through the `PETScNonlinearProblem` and `PETScNonlinearSolver` classes. If the
-# user is more familiar with original DOLFINx `NonlinearProblem`, feel free to
-# use `NonlinearProblemWithCallback` covered in the von Mises tutorial.
-# ```
-#
-# After definition of the nonlinear problem and the Newton solver, we are ready to get
-# the final result.
+# After definition of the nonlinear problem and the Newton solver, we are ready to
+# get the final result.
 
 # %% tags=["scroll-output"]
 load_steps_1 = np.linspace(2, 22.9, 50)
@@ -721,6 +713,14 @@ for i, load in enumerate(load_steps):
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
 
 print(f"Slope stability factor: {-q.value[-1] * H / c}")
+
+# %% [markdown]
+# ```{note}
+# We demonstrated here the use of `PETSc.SNES` together with external operators
+# through the `PETScNonlinearProblem` and `PETScNonlinearSolver` classes. If the
+# user is familiar with original DOLFINx `NonlinearProblem`, feel free to
+# use `NonlinearProblemWithCallback` covered in the [von Mises tutorial](demo_plasticity_von_mises.py).
+# ```
 
 # %% [markdown]
 # ## Verification

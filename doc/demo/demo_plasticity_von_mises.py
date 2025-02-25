@@ -198,7 +198,6 @@ C_elas = np.array(
 deviatoric = np.eye(4, dtype=PETSc.ScalarType)
 deviatoric[:3, :3] -= np.full((3, 3), 1.0 / 3.0, dtype=PETSc.ScalarType)
 
-
 # %%
 mesh, facet_tags, facet_tags_labels = build_cylinder_quarter()
 
@@ -255,7 +254,6 @@ P = fem.functionspace(mesh, P_element)
 p = fem.Function(P, name="cumulative_plastic_strain")
 dp = fem.Function(P, name="incremental_plastic_strain")
 sigma_n = fem.Function(S, name="stress_n")
-
 
 # %% [markdown]
 # ### Defining the external operator
@@ -338,8 +336,7 @@ def return_mapping(deps_, sigma_n_, p_):
 
 # %%
 def C_tang_impl(deps):
-    num_cells = deps.shape[0]
-    num_quadrature_points = int(deps.shape[1] / 4)
+    num_cells, num_quadrature_points, _ = deps.shape
 
     deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
     sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
@@ -412,9 +409,12 @@ J_form = fem.form(J_replaced)
 #
 # Once we prepared the forms containing external operators, we can defind the
 # nonlinear problem and its solver. Here we modified the original DOLFINx
-# `NonlinearProblem` to let it evaluate external operators at each iteration of
-# the Newton solver. For this matter we define the function `constitutive_update`
-# with external operators evaluations and update of the internal variable `dp`.
+# `NonlinearProblem` and called it `NonlinearProblemWithCallback` to let the
+# solver evaluate external operators at each iteration. For this matter we define
+# the function `constitutive_update` with external operators evaluations and
+# update of the internal variable `dp`.
+
+
 # %%
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)

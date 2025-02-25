@@ -142,8 +142,6 @@ class PETScNonlinearProblem:
     def F(self, snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
         """Assemble the residual F into the vector b.
 
-        Parameters
-        ==========
         snes: the snes object
         x: Vector containing the latest solution.
         b: Vector to assemble the residual into.
@@ -166,8 +164,6 @@ class PETScNonlinearProblem:
     def J(self, snes, x: PETSc.Vec, A: PETSc.Mat, P: PETSc.Mat) -> None:
         """Assemble the Jacobian matrix.
 
-        Parameters
-        ==========
         x: Vector containing the latest solution.
         A: Matrix to assemble the Jacobian into.
         """
@@ -177,6 +173,8 @@ class PETScNonlinearProblem:
 
 
 class PETScNonlinearSolver:
+    """Standard wrapper for PETSc.SNES."""
+
     def __init__(
         self,
         comm: MPI.Intracomm,
