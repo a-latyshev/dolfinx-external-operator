@@ -1,28 +1,12 @@
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: tags,-all
-#     custom_cell_magics: kql
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.11.2
-#   kernelspec:
-#     display_name: dolfinx-env
-#     language: python
-#     name: python3
-# ---
-
 # %% [markdown]
 # # Plasticity of von Mises
-#
+# 
 # This tutorial aims to demonstrate an efficient implementation of the plasticity
 # model of von Mises using an external operator defining the elastoplastic
 # constitutive relations written with the help of the 3rd-party package `Numba`.
 # Here we consider a cylinder expansion problem in the two-dimensional case in a
 # symmetric formulation.
-#
+# 
 # This tutorial is based on the
 # [original implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
 # of the problem via legacy FEniCS 2019 and
@@ -31,78 +15,78 @@
 # of the von Mises plastic model in the case of the cylinder expansion problem can
 # be found in {cite}`bonnet2014`. Do not hesitate to visit the mentioned sources
 # for more information.
-#
+# 
 # We assume the knowledge of the return-mapping procedure, commonly used in the
 # solid mechanics community to solve elastoplasticity problems.
-#
+# 
 # ## Notation
-#
+# 
 # Denoting the displacement vector $\boldsymbol{u}$ we define the strain tensor
 # $\boldsymbol{\varepsilon}$ as follows
-#
+# 
 # $$
 #     \boldsymbol{\varepsilon} = \frac{1}{2}\left( \nabla\boldsymbol{u} +
 #     \nabla\boldsymbol{u}^T \right).
 # $$
-#
+# 
 # Throughout the tutorial, we stick to the Mandel-Voigt notation, according to
 # which the stress tensor $\boldsymbol{\sigma}$ and the strain tensor
 # $\boldsymbol{\varepsilon}$ are written as 4-size vectors with the following
 # components
-#
+# 
 # \begin{align*}
 #     & \boldsymbol{\sigma} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz},
 #     \sqrt{2}\sigma_{xy}]^T, \\
 #     & \boldsymbol{\varepsilon} = [\varepsilon_{xx}, \varepsilon_{yy},
 #     \varepsilon_{zz}, \sqrt{2}\varepsilon_{xy}]^T.
 # \end{align*}
-#
+# 
 # Denoting the deviatoric operator $\mathrm{dev}$, we introduce two additional
 # quantities of interest: the cumulative plastic strain $p$ and the equivalent
 # stress $\sigma_\text{eq}$ defined by the following formulas:
-#
+# 
 # \begin{align*}
 #     & p = \sqrt{\frac{2}{3} \boldsymbol{e} \cdot \boldsymbol{e}}, \\
 #     & \sigma_\text{eq} = \sqrt{\frac{3}{2}\boldsymbol{s} \cdot \boldsymbol{s}},
 # \end{align*}
-#
+# 
 # where $\boldsymbol{e} = \mathrm{dev}\boldsymbol{\varepsilon}$ and
 # $\boldsymbol{s} = \mathrm{dev}\boldsymbol{\sigma}$ are deviatoric parts of the
 # stain and stress tensors respectively.
-#
+# 
 # ## Problem formulation
-#
+# 
 # The domain of the problem $\Omega$ represents the first quarter of the hollow
 # cylinder with inner $R_i$ and outer $R_o$ radii, where symmetry conditions
 # are set on the left and bottom sides and pressure is set on the inner wall
 # $\partial\Omega_\text{inner}$. The behaviour of cylinder material is defined
 # by the von Mises yield criterion $f$ with the linear isotropic hardening law
 # {eq}`eq_von_Mises`
-#
+# 
 # $$
 #     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0
 #     - Hp \leq 0,
 # $$ (eq_von_Mises)
-#
+# 
 # where $\sigma_0$ is a uniaxial strength and $H$ is an isotropic hardening
 # modulus, which is defined through the Young modulus $E$ and the tangent elastic
 # modulus $E_t = \frac{EH}{E+H}$.
-#
+# 
 # Let V be the functional space of admissible displacement fields. Then, the weak
 # formulation of this problem can be written as follows:
-#
+# 
 # Find $\boldsymbol{u} \in V$ such that
-#
+# 
 # $$
 #     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
 #     \boldsymbol{\sigma}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot \boldsymbol{\varepsilon(v)}
 #     \,\mathrm{d}\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall
 #     \boldsymbol{v} \in V.
 # $$ (eq_von_Mises_main)
-#
+# 
 # The external force $F_{\text{ext}}(\boldsymbol{v})$ represents the pressure
 # inside the cylinder and is written as the following Neumann condition
-#
+# 
 # $$
 #     F_\text{ext}(\boldsymbol{v}) =
 #     \int\limits_{\partial\Omega_\text{inner}} (-q \boldsymbol{n}) \cdot \boldsymbol{v}
@@ -113,10 +97,10 @@
 # $q_\text{lim} = \frac{2}{\sqrt{3}}\sigma_0\log\left(\frac{R_o}{R_i}\right)$,
 # the analytical collapse load for the perfect plasticity model without
 # hardening.
-#
+# 
 # The modelling is performed under assumptions of the plane strain and
 # an associative plasticity law.
-#
+# 
 # In this tutorial, we treat the stress tensor $\boldsymbol{\sigma}$ as an
 # external operator acting on the strain tensor
 # $\boldsymbol{\varepsilon}(\boldsymbol{u})$ and represent it through a
@@ -125,11 +109,11 @@
 # approach to solve plasticity problems. With the help of this procedure, we
 # compute both values of the stress tensor $\boldsymbol{\sigma}$ and its
 # derivative, so-called the tangent moduli $\boldsymbol{C}_\text{tang}$.
-#
+# 
 # As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main`
 # we need to compute the Gateaux derivative of $F$ in the direction
 # $\boldsymbol{\hat{u}} \in V$:
-#
+# 
 # $$
 #     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) :=
 #     D_{\boldsymbol{u}} [F(\boldsymbol{u};
@@ -139,14 +123,14 @@
 #     \boldsymbol{\varepsilon(v)} \,\mathrm{d}\boldsymbol{x}, \quad \forall \boldsymbol{v}
 #     \in V.
 # $$
-#
+# 
 # The advantage of the von Mises model is that the return-mapping procedure may be
 # performed analytically, so the stress tensor and the tangent moduli may be
 # expressed explicitly using any package. In our case, we the Numba library to
 # define the behaviour of the external operator and its derivative.
-#
+# 
 # ## Implementation
-#
+# 
 # ### Preamble
 
 # %%
@@ -257,10 +241,10 @@ sigma_n = fem.Function(S, name="stress_n")
 
 # %% [markdown]
 # ### Defining the external operator
-#
+# 
 # During the automatic differentiation of the form $F$, the following terms will
 # appear in the Jacobian
-#
+# 
 # $$
 #     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d}
 #     \boldsymbol{\varepsilon}}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot
@@ -268,19 +252,19 @@ sigma_n = fem.Function(S, name="stress_n")
 #     \boldsymbol{C}_\text{tang}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot
 #     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
 # $$
-#
+# 
 # where the "trial" part $\boldsymbol{\varepsilon}(\boldsymbol{\hat{u}})$ will be
 # handled by the framework and the derivative of the operator
 # $\frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}$
 # must be implemented by the user. In this tutorial, we implement the derivative using the Numba package.
-#
+# 
 # First of all, we implement the return-mapping procedure locally in the
 # function `_kernel`. It computes the values of the stress tensor, the tangent
 # moduli and the increment of cumulative plastic strain at a single Gausse
 # node. For more details, visit the [original
 # implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
 # of this problem for the legacy FEniCS 2019.
-#
+# 
 # Then we iterate over each Gauss node and compute the quantities of interest
 # globally in the `return_mapping` function with the `@numba.njit` decorator.
 # This guarantees that the function will be compiled during its first call and
@@ -326,26 +310,38 @@ def return_mapping(deps_, sigma_n_, p_):
 
     return C_tang_, sigma_, dp_
 
-
 # %% [markdown]
 # Now nothing stops us from defining the implementation of the external operator
 # derivative (the tangent tensor $\boldsymbol{C}_\text{tang}$) in the
 # function `C_tang_impl`. It returns global values of the derivative, stress
 # tensor and the cumulative plastic increment.
 
-
 # %%
-def C_tang_impl(deps):
+def sigma_impl(deps):
     num_cells, num_quadrature_points, _ = deps.shape
 
     deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
     sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
     p_ = p.x.array.reshape((num_cells, num_quadrature_points))
 
-    C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+    _, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+    return sigma_.reshape(-1), dp_.reshape(-1)
 
-    return C_tang_.reshape(-1), sigma_.reshape(-1), dp_.reshape(-1)
+global_size = int(sigma.ref_coefficient.x.array.size / 4.0)
+C_elas_ = np.empty((global_size, 4, 4), dtype=PETSc.ScalarType)
+for i in range(global_size):
+    C_elas_[i] = C_elas
 
+def C_tang_impl(deps):
+    # num_cells, num_quadrature_points, _ = deps.shape
+   
+    # deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
+    # sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
+    # p_ = p.x.array.reshape((num_cells, num_quadrature_points))
+
+    # C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+
+    return C_elas_.reshape(-1)
 
 # %% [markdown]
 # It is worth noting that at the time of the derivative evaluation, we compute the
@@ -354,9 +350,10 @@ def C_tang_impl(deps):
 # of the `C_tang_impl` to update values of the external operator further in the
 # Newton loop.
 
-
 # %%
 def sigma_external(derivatives):
+    if derivatives == (0,):
+        return sigma_impl
     if derivatives == (1,):
         return C_tang_impl
     else:
@@ -376,7 +373,7 @@ sigma.external_function = sigma_external
 
 # %% [markdown]
 # ### Form manipulations
-#
+# 
 # As in the previous tutorials before solving the problem we need to perform
 # some transformation of both linear and bilinear forms.
 
@@ -391,7 +388,6 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
-
 # %% [markdown]
 # ```{note}
 #  We remind that in the code above we replace `FEMExternalOperator` objects by
@@ -403,10 +399,9 @@ J_form = fem.form(J_replaced)
 #  `C_tang = J_external_operators[0].ref_coefficient`.
 # ```
 
-
 # %% [markdown]
 # ### Solving the problem
-#
+# 
 # Once we prepared the forms containing external operators, we can defind the
 # nonlinear problem and its solver. Here we modified the original DOLFINx
 # `NonlinearProblem` and called it `NonlinearProblemWithCallback` to let the
@@ -414,54 +409,40 @@ J_form = fem.form(J_replaced)
 # the function `constitutive_update` with external operators evaluations and
 # update of the internal variable `dp`.
 
-
 # %%
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    ((_, dp_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
+    _ = evaluate_external_operators(J_external_operators, evaluated_operands)
     # This avoids having to evaluate the external operators of F.
-    sigma.ref_coefficient.x.array[:] = sigma_new
+    # sigma.ref_coefficient.x.array[:] = sigma_new
     dp.x.array[:] = dp_new
 
 
 problem = PETScNonlinearProblem(Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update)
 
 petsc_options = {
-    "snes_type": "vinewtonrsls",
+    "snes_type": "qn",
+    "snes_qn_type": "lbfgs", #lbfgs broyden, badbroyden
+    "snes_qn_m": 100,
+    "snes_qn_scale_type": "jacobian", #<diagonal,none,scalar,jacobian> 	
+    "snes_qn_restart_type": "none", #<powell,periodic,none> 
+    "pc_type": "cholesky", # cholesky >> hypre > gamg,sor 
     "snes_linesearch_type": "basic",
     "ksp_type": "preonly",
-    "pc_type": "lu",
-    # "pc_factor_mat_solver_type": "mumps",
     "snes_atol": 1.0e-8,
     "snes_rtol": 1.0e-8,
     "snes_max_it": 100,
     "snes_monitor": "",
 }
-# "snes_type": "qn",
-#     "snes_qn_type": "lbfgs", #lbfgs broyden, badbroyden
-#     "snes_qn_m": 100,
-#     "snes_qn_scale_type": "jacobian", #<diagonal,none,scalar,jacobian> 	
-#     "snes_qn_restart_type": "none", #<powell,periodic,none> 
-#     "pc_type": "cholesky", # cholesky >> hypre > gamg,sor ; asm, lu, gas - don't work
-#     "snes_linesearch_type": "basic",
+
 
 solver = PETScNonlinearSolver(mesh.comm, problem, petsc_options=petsc_options)  # PETSc.SNES wrapper
 
 # %% [markdown]
 # Now we are ready to solve the problem.
 
-# %% tags=["scroll-output"]
-# solver = NewtonSolver(mesh.comm, problem)
-# solver.max_it = 200
-# solver.rtol = 1e-8
-# ksp = solver.krylov_solver
-# opts = PETSc.Options()  # type: ignore
-# option_prefix = ksp.getOptionsPrefix()
-# opts[f"{option_prefix}ksp_type"] = "preonly"
-# opts[f"{option_prefix}pc_type"] = "lu"
-# opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-# ksp.setFromOptions()
-
+# %%
 u = fem.Function(V, name="displacement")
 
 x_point = np.array([[R_i, 0, 0]])
@@ -496,14 +477,14 @@ for i, loading_v in enumerate(loadings):
 
 # %% [markdown]
 # ### Post-processing
-#
+# 
 # In order to verify the correctness of obtained results, we perform their
 # comparison against a "pure UFl" implementation. Thanks to simplicity of the von
 # Mises model we can express stress tensor and tangent moduli analytically within
 # the variational setting and so in UFL. Such a performant implementation is
 # presented by the function `plasticity_von_mises_pure_ufl`.
 
-# %% tags=["scroll-output"]
+# %%
 results_pure_ufl = plasticity_von_mises_pure_ufl(verbose=True)
 
 # %% [markdown]
@@ -525,7 +506,9 @@ if len(points_on_process) > 0:
 
 # %% [markdown]
 # ## References
-#
+# 
 # ```{bibliography}
 # :filter: docname in docnames
 # ```
+
+
