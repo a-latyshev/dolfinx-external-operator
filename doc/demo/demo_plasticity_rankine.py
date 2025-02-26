@@ -165,6 +165,8 @@ E, nu = 70e3, 0.3  # elastic parameters
 E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
 sigma_0 = 250.0  # yield strength
+sigt = 250.0 # tensile strength
+sigc = 250.0 # compression strength
 
 lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
 mu = E / 2.0 / (1.0 + nu)
@@ -310,6 +312,176 @@ def return_mapping(deps_, sigma_n_, p_):
 
     return C_tang_, sigma_, dp_
 
+# %%
+import cvxpy as cp
+from scipy.sparse import block_diag
+
+class IsotropicElasticity:
+    """A constitutive law of isotropic elasticity.
+    
+    Attributes: 
+        E: Young's modulus [Pa].
+        nu: Poisson coefficient [-].   
+        lambda: Lame's first parameter [Pa].
+        mu: shear modulus [Pa] .
+    """
+    def __init__(self, E, nu):
+        """Inits an  IsotropicElasticity class."""
+        self.E = E
+        self.nu = nu
+        self.lambda_ = E*nu/(1+nu)/(1-2*nu)
+        self.mu_ = E/2/(1+nu)        
+
+    def C(self):
+        """Returns a 4x4 Voigt elastic tensor."""
+        l, m = self.lambda_, self.mu_
+        return np.array([[l+2*m, l, l, 0],
+                         [l, l+2*m, l, 0],
+                         [l, l, l+2*m, 0],
+                         [0, 0, 0, 2*m]])
+
+class Material:
+    """An abstract 2D material class.
+    
+    Attributes:
+        C: A 4x4 Voigt elastic tensor.
+        yield_criterion: A yield criterion.
+        plane_stress: A boolean flag showing whether we consider a plane stress problem or not.    
+    """
+    def __init__(self, constitutive_law, yield_criterion, plane_stress: bool = False):
+        """Inits Material class."""
+        self.C = constitutive_law.C()
+        self.constitutive_law = constitutive_law
+        self.yield_criterion = yield_criterion
+        self.plane_stress = plane_stress
+        
+class Rankine():
+    def __init__(self, ft: np.float64, fc: np.float64, hardening: np.float64):
+        self.fc = ft
+        self.ft = fc
+        self.H = hardening
+
+    def criterion(self, sig: cp.expressions.variable.Variable, p: cp.expressions.variable.Variable):
+        N = p.size
+
+        ft = np.repeat(self.ft, N)
+        fc = np.repeat(self.fc, N)
+
+        sigma_max = []
+        sigma_min = []
+        for i in range(N):
+            SIG = cp.bmat([[sig[0,i], sig[3,i]/np.sqrt(2), 0],
+                           [sig[3,i]/np.sqrt(2), sig[1,i], 0],
+                           [0, 0, sig[2,i]]])
+            sigma_max.append(cp.lambda_max(SIG))
+            sigma_min.append(cp.lambda_min(SIG))
+
+        return [cp.hstack(sigma_max) <= ft + p * self.H, cp.hstack(sigma_min) >= -fc - p * self.H]
+
+class ReturnMapping:
+    """An implementation of return-mapping procedure via convex problems solving.
+
+    Attributes:
+        deps:
+        sig_old:
+        sig:
+        p_old:
+        p:
+        C_tang:
+        e:
+        opt_problem:
+        solver:
+    """
+    def __init__(self, material:Material, N:int, solver=cp.SCS):
+        """Inits ReturnMapping class.
+        
+        Args:
+            material: An appropriate material.
+            solver: A convex optimization solver
+            
+        Note:
+            We use here `cp.SCS` as it allows to calculate the derivatives of target variables.
+        """
+        self.N = N
+        self.deps = cp.Parameter((4, N), name='deps')
+        self.sig_old = cp.Parameter((4, N), name='sig_old')
+        sig_elas = self.sig_old + material.C @ self.deps
+        self.sig = cp.Variable((4, N), name='sig')
+        
+        self.p_old = cp.Parameter((N,), nonneg=True, name='p_old')
+        self.p = cp.Variable((N,),nonneg=True, name='p')
+
+        self.sig_old.value = np.zeros((4, N))
+        self.deps.value = np.zeros((4, N))
+        self.p_old.value = np.zeros((N,))
+        self.C_tang = np.zeros((N, 4, 4))
+
+        S = np.linalg.inv(material.C)
+        delta_sig = self.sig - sig_elas
+        # energy = []
+        # for i in range(N):
+        #     energy.append(cp.quad_form(delta_sig[:, i], S))
+        # target_expression = cp.sum(cp.hstack(energy)) + material.yield_criterion.H * cp.sum_squares(self.p - self.p_old)
+        
+        # energy = cp.sum(cp.diag(delta_sig.T @ S_sparsed @ delta_sig))
+        
+        S_sparsed = block_diag([S for _ in range(N)])
+        delta_sig_vector = cp.reshape(delta_sig, (N*4))
+
+        elastic_energy = cp.quad_form(delta_sig_vector, S_sparsed, assume_PSD=True)
+        # target_expression = 0.5*elastic_energy + 0.5*material.yield_criterion.H * cp.sum_squares(self.p - self.p_old)
+        D = material.yield_criterion.H * np.eye(N)
+        target_expression = 0.5*elastic_energy + 0.5*cp.quad_form(self.p - self.p_old, D)
+
+        constrains = material.yield_criterion.criterion(self.sig, self.p) 
+
+        if material.plane_stress:
+            constrains.append(self.sig[2] == 0) #TO MODIFY!
+
+        self.opt_problem = cp.Problem(cp.Minimize(target_expression), constrains)
+        self.solver = solver
+    
+    def solve(self, **kwargs):
+        """Solves a minimization problem and calculates the derivative of `sig` variable.
+        
+        Args:
+            **kwargs: additional solver attributes, such as tolerance, etc.
+        """
+        self.opt_problem.solve(solver=self.solver, requires_grad=False, ignore_dpp=False, **kwargs)
+        
+    def solve_and_derivate(self, **kwargs):
+        """Solves a minimization problem and calculates the derivative of `sig` variable.
+        
+        Args:
+            **kwargs: additional solver attributes, such as tolerance, etc.
+        """
+
+        with common.Timer() as t: 
+            self.opt_problem.solve(solver=self.solver, requires_grad=True, **kwargs)
+            self.convex_solving_time = t.elapsed()[0] 
+        
+        with common.Timer() as t: 
+            for i in range(4):
+                for j in range(self.N):
+                    e = np.zeros((4, self.N))
+                    e[i, j] = 1
+                    self.deps.delta = e
+                    self.opt_problem.derivative()
+                    self.C_tang[j, :, i] = self.sig.delta[:, j] 
+            
+            self.differentiation_time = t.elapsed()[0] # time.time() - start
+    
+
+# %%
+rankine = Rankine(sigt, sigc, H)
+material = Material(IsotropicElasticity(E, nu), rankine)
+
+patch_size = 3
+return_mapping_cvxpy = ReturnMapping(material, patch_size, 'SCS')
+tol = 1.0e-13
+scs_params = {'eps': tol, 'eps_abs': tol, 'eps_rel': tol}
+conic_solver_params = scs_params
+
 # %% [markdown]
 # Now nothing stops us from defining the implementation of the external operator
 # derivative (the tangent tensor $\boldsymbol{C}_\text{tang}$) in the
@@ -320,11 +492,46 @@ def return_mapping(deps_, sigma_n_, p_):
 def sigma_impl(deps):
     num_cells, num_quadrature_points, _ = deps.shape
 
-    deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
-    sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
-    p_ = p.x.array.reshape((num_cells, num_quadrature_points))
+    # deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
+    # sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
+    # p_ = p.x.array.reshape((num_cells, num_quadrature_points))
 
-    _, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+    # _, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+    N_patches = int(num_quadrature_points / patch_size)
+    residue_size = num_quadrature_points % patch_size
+    p_values = p.x.array[:num_quadrature_points - residue_size].reshape((-1, patch_size))
+    p_old_values = p_old.x.array[:num_quadrature_points - residue_size].reshape((-1, patch_size))
+    deps_values = deps.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
+    sig_values = sig.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
+    sig_old_values = sig_old.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
+
+    if residue_size != 0:
+        return_mapping_residue = return_mapping_cvxpy(material, residue_size, 'SCS')
+        p_values_residue = p.x.array[num_quadrature_points - residue_size:].reshape((1, residue_size))
+        p_old_values_residue = p_old.x.array[num_quadrature_points - residue_size:].reshape((1, residue_size))
+        deps_values_residue = deps.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+        sig_values_residue = sig.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+        sig_old_values_residue = sig_old.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+    
+    for q in range(N_patches):
+        return_mapping.deps.value[:] = deps_values[q,:].T
+        return_mapping.sig_old.value[:] = sig_old_values[q,:].T
+        return_mapping.p_old.value = p_old_values[q,:]
+        
+        return_mapping.solve(**conic_solver_params)
+
+        sig_values[q,:] = return_mapping.sig.value[:].T
+        p_values[q,:] = return_mapping.p.value
+
+    if residue_size != 0: #how to improve ?
+        return_mapping_residue.deps.value[:] = deps_values_residue[0,:].T
+        return_mapping_residue.sig_old.value[:] = sig_old_values_residue[0,:].T
+        return_mapping_residue.p_old.value = p_old_values_residue[0,:]
+        
+        return_mapping_residue.solve(**conic_solver_params)
+
+        sig_values_residue[0,:] = return_mapping_residue.sig.value[:].T
+        p_values_residue[0,:] = return_mapping_residue.p.value
     return sigma_.reshape(-1), dp_.reshape(-1)
 
 global_size = int(sigma.ref_coefficient.x.array.size / 4.0)
