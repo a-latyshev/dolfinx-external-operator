@@ -93,6 +93,11 @@ class FEMExternalOperator(ufl.ExternalOperator):
             **add_kwargs,
         )
 
+    def filtering_hash(self):
+        return hash((
+            type(self),
+            self.ref_coefficient,
+        ))
 
 def evaluate_operands(
     external_operators: list[FEMExternalOperator], entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None
@@ -190,16 +195,27 @@ def _replace_action(action: ufl.Action):
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
-
 def _replace_form(form: ufl.Form):
     external_operators = form.base_form_operators()
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
     replaced_form = ufl.algorithms.replace(form, ex_ops_map)
     return replaced_form, external_operators
 
+def unique_external_operators(external_operators: list[FEMExternalOperator]):
+    # Use a set to track unique hashes
+    unique_hashes = set()
+    unique_operators = []
+    for ex_op in external_operators:
+        h = ex_op.filtering_hash()
+        if h not in unique_hashes:
+            unique_hashes.add(h)
+            unique_operators.append(ex_op)
+    return unique_operators
 
-def replace_external_operators(form):
-    replaced_form = None
+def replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
+    """Replace external operators in a form with there `fem.Function`
+    counterparts."""
+    replaced_form = 0
     external_operators = []
     if isinstance(form, ufl.Action):
         if isinstance(form.right(), ufl.Action):
@@ -215,15 +231,17 @@ def replace_external_operators(form):
             raise RuntimeError("Expected an ExternalOperator in the right part of the Action.")
     elif isinstance(form, ufl.FormSum):
         components = form.components()
-        # TODO: Modify this loop so it runs from range(0, len(components))
-        replaced_form, ex_ops = replace_external_operators(components[0])
-        external_operators += ex_ops
-        for i in range(1, len(components)):
+        for i in range(0, len(components)):
             replaced_form_term, ex_ops = replace_external_operators(components[i])
             replaced_form += replaced_form_term
             external_operators += ex_ops
     elif isinstance(form, ufl.Form):
-        replaced_form, ex_ops = _replace_form(form)
-        external_operators += ex_ops
-
-    return replaced_form, external_operators
+        if len(form.integrals()) > 1: # for sum of forms
+            for integral in form.integrals():
+                replaced_form_term, ex_ops = replace_external_operators(ufl.Form([integral]))
+                replaced_form += replaced_form_term
+                external_operators += ex_ops
+        else:
+            replaced_form, ex_ops = _replace_form(form)
+            external_operators += ex_ops
+    return replaced_form, list(set(external_operators))
