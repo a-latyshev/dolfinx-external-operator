@@ -8,7 +8,7 @@ from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 
 
-@ufl_type(num_ops="varying", is_differential=True)
+@ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):
     """Finite element external operator.
 
@@ -25,8 +25,9 @@ class FEMExternalOperator(ufl.ExternalOperator):
         self,
         *operands,
         function_space: fem.function.FunctionSpace,
-        external_function=None,
+        external_function = None,
         derivatives: tuple[int, ...] | None = None,
+        name: str = None,
         argument_slots=(),
     ) -> None:
         """Initializes `FEMExternalOperator`.
@@ -40,6 +41,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 respect to operands.
             argument_slots: tuple composed containing expressions with
                 `ufl.Argument` or `ufl.Coefficient` objects.
+            name: Name of the external operator and the associated
+            `fem.Function` coefficient.
         """
         ufl_element = function_space.ufl_element()
         if ufl_element.family_name != "quadrature":
@@ -71,7 +74,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
         else:
             self.ref_function_space = function_space
         # Make the global coefficient associated to the external operator
-        self.ref_coefficient = fem.Function(self.ref_function_space)
+        self.name = name
+        self.ref_coefficient = fem.Function(self.ref_function_space, name=name)
 
         self.external_function = external_function
 
@@ -90,8 +94,28 @@ class FEMExternalOperator(ufl.ExternalOperator):
             external_function=self.external_function,
             derivatives=derivatives or self.derivatives,
             argument_slots=argument_slots or self.argument_slots(),
+            name = "\N{PARTIAL DIFFERENTIAL}" + self.ref_coefficient.name,
             **add_kwargs,
         )
+
+    def __hash__(self):
+        return hash((
+            type(self),
+            self.ref_coefficient,
+        ))
+    
+    def __str__(self):
+        """Default str string for ExternalOperator operators."""
+        d = "\N{PARTIAL DIFFERENTIAL}"
+        operator_name = self.name if self.name is not None else 'e'
+        derivatives = self.derivatives
+        d_ops = "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
+        e = operator_name + "("
+        e += ", ".join(str(op) for op in self.ufl_operands)
+        e += "; "
+        e += ", ".join(str(arg) for arg in reversed(self.argument_slots()))
+        e += ")"
+        return e + "/" + d_ops if sum(derivatives) > 0 else e
 
     def filtering_hash(self):
         return hash((
@@ -177,6 +201,16 @@ def evaluate_external_operators(
 
     return evaluated_operators
 
+def unique_external_operators(external_operators: list[FEMExternalOperator]):
+    # Use a set to track unique hashes
+    unique_hashes = set()
+    unique_operators = []
+    for ex_op in external_operators:
+        h = ex_op.filtering_hash()
+        if h not in unique_hashes:
+            unique_hashes.add(h)
+            unique_operators.append(ex_op)
+    return unique_operators
 
 def _replace_action(action: ufl.Action):
     # Extract the trial function associated with ExternalOperator
@@ -191,7 +225,6 @@ def _replace_action(action: ufl.Action):
     replacement = ufl.as_tensor(
         coefficient[indexes] * external_operator_argument[indexes_contracted], indexes[: coeff_dim - arg_dim]
     )
-
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
@@ -200,17 +233,6 @@ def _replace_form(form: ufl.Form):
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
     replaced_form = ufl.algorithms.replace(form, ex_ops_map)
     return replaced_form, external_operators
-
-def unique_external_operators(external_operators: list[FEMExternalOperator]):
-    # Use a set to track unique hashes
-    unique_hashes = set()
-    unique_operators = []
-    for ex_op in external_operators:
-        h = ex_op.filtering_hash()
-        if h not in unique_hashes:
-            unique_hashes.add(h)
-            unique_operators.append(ex_op)
-    return unique_operators
 
 def replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
     """Replace external operators in a form with there `fem.Function`
