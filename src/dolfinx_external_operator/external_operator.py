@@ -27,7 +27,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
         function_space: fem.function.FunctionSpace,
         external_function = None,
         derivatives: tuple[int, ...] | None = None,
-        name: str = None,
+        name: str | None = None,
+        coefficient: fem.Function | None = None,
         argument_slots=(),
     ) -> None:
         """Initializes `FEMExternalOperator`.
@@ -53,6 +54,9 @@ class FEMExternalOperator(ufl.ExternalOperator):
             if isinstance(operand, FEMExternalOperator):
                 raise TypeError("Use of FEMExternalOperators as operands is not implemented.")
 
+        if coefficient is not None and coefficient.function_space != function_space:
+            raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
+
         super().__init__(
             *operands,
             function_space=function_space,
@@ -73,9 +77,13 @@ class FEMExternalOperator(ufl.ExternalOperator):
             self.ref_function_space = fem.functionspace(mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
-        # Make the global coefficient associated to the external operator
+        
         self.name = name
-        self.ref_coefficient = fem.Function(self.ref_function_space, name=name)
+        # Make the global coefficient associated to the external operator
+        if coefficient is not None:
+            self.ref_coefficient = coefficient
+        else:
+            self.ref_coefficient = fem.Function(self.ref_function_space, name=name)
 
         self.external_function = external_function
 
@@ -88,24 +96,39 @@ class FEMExternalOperator(ufl.ExternalOperator):
         add_kwargs={},
     ):
         """Return a new object of the same type with new operands."""
+        coefficient = None
+        if derivatives is None:
+            coefficient = self.ref_coefficient # prevents additional allocations
+            d_ops = ''
+        else: 
+            d_ops = '/' + "".join("\N{PARTIAL DIFFERENTIAL}o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
+        ex_op_name = "\N{PARTIAL DIFFERENTIAL}" + self.ref_coefficient.name + d_ops
         return type(self)(
             *operands,
             function_space=function_space or self.ref_function_space,
             external_function=self.external_function,
             derivatives=derivatives or self.derivatives,
             argument_slots=argument_slots or self.argument_slots(),
-            name = "\N{PARTIAL DIFFERENTIAL}" + self.ref_coefficient.name,
+            name = ex_op_name,
+            coefficient=coefficient,
             **add_kwargs,
         )
 
     def __hash__(self):
-        return hash((
+        """Hash code for UFL AD."""
+        hashdata = (
             type(self),
+            tuple(hash(op) for op in self.ufl_operands),
+            tuple(hash(arg) for arg in self._argument_slots),
+            self.derivatives,
+            hash(self.ufl_function_space()),
             self.ref_coefficient,
-        ))
-    
+        )
+        output = hash(hashdata) 
+        return output
+
     def __str__(self):
-        """Default str string for ExternalOperator operators."""
+        """Default str string for FEMExternalOperator operators."""
         d = "\N{PARTIAL DIFFERENTIAL}"
         operator_name = self.name if self.name is not None else 'e'
         derivatives = self.derivatives
@@ -229,7 +252,7 @@ def _replace_action(action: ufl.Action):
     return form_replaced, action.right()
 
 def _replace_form(form: ufl.Form):
-    external_operators = form.base_form_operators()
+    external_operators = form.base_form_operators() 
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
     replaced_form = ufl.algorithms.replace(form, ex_ops_map)
     return replaced_form, external_operators
