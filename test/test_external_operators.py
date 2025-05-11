@@ -80,6 +80,7 @@ def test_dimensions_after_differentiation():
     test_f = ufl.grad(ufl.grad(v))
     assert compute_dimensions(operand, u, test_f)
 
+
 def check_replacement(form: ufl.Form, operators: list[FEMExternalOperator], operators_count_after_AD: int):
     V = operators[0].ufl_operands[0].function_space
     u = operators[0].ufl_operands[0]
@@ -99,7 +100,6 @@ def test_replacement_mechanism():
     V = fem.functionspace(domain, ("P", 1))
     u = fem.Function(V)
     v = ufl.TestFunction(V)
-    u_hat = ufl.TrialFunction(V)
     Q_vec = Q_gen(domain, (2,))
     Q_scalar = Q_gen(domain, ())
     n1 = FEMExternalOperator(u, function_space=Q_scalar, external_function=None, name="n1")
@@ -107,9 +107,7 @@ def test_replacement_mechanism():
     N1 = FEMExternalOperator(u, function_space=Q_vec, external_function=None, name="N1")
     N2 = FEMExternalOperator(u, ufl.grad(u), function_space=Q_vec, external_function=None, name="N2")
 
-    dx = ufl.Measure(
-        "dx", domain=domain, metadata={"quadrature_degree": 1, "quadrature_scheme": "default"}
-    )
+    dx = ufl.Measure("dx", domain=domain, metadata={"quadrature_degree": 1, "quadrature_scheme": "default"})
     Fn1 = n1 * v * dx
     Fn2 = n2 * v * dx
     Fn3 = (n1 + n2) * v * dx
@@ -118,14 +116,14 @@ def test_replacement_mechanism():
     FN1 = ufl.inner(N1, ufl.grad(v)) * dx
     FN2 = ufl.inner(N2, ufl.grad(v)) * dx
     FN3 = ufl.inner(N1 + N2, ufl.grad(v)) * dx
-    FN4 = ufl.inner(N1 + N2*u, ufl.grad(v)) * dx
+    FN4 = ufl.inner(N1 + N2 * u, ufl.grad(v)) * dx
 
     check_replacement(Fn1, [n1], operators_count_after_AD=1)
     check_replacement(Fn2, [n2], operators_count_after_AD=2)
     check_replacement(Fn3, [n1, n2], operators_count_after_AD=3)
-    check_replacement(Fn1+Fn2, [n1, n2], operators_count_after_AD=3)
-    check_replacement(Fn1+Fn1, [n1], operators_count_after_AD=1)
-    check_replacement(Fn2+Fn2, [n2], operators_count_after_AD=2)
+    check_replacement(Fn1 + Fn2, [n1, n2], operators_count_after_AD=3)
+    check_replacement(Fn1 + Fn1, [n1], operators_count_after_AD=1)
+    check_replacement(Fn2 + Fn2, [n2], operators_count_after_AD=2)
     check_replacement(FN1, [N1], operators_count_after_AD=1)
     check_replacement(FN2, [N2], operators_count_after_AD=2)
     check_replacement(FN3, [N1, N2], operators_count_after_AD=3)
@@ -135,4 +133,4 @@ def test_replacement_mechanism():
     check_replacement(FN3 + Fn3, [n1, n2, N1, N2], operators_count_after_AD=6)
     check_replacement(Fn4, [n1, n2], operators_count_after_AD=5)
     check_replacement(FN4, [N1, N2], operators_count_after_AD=4)
-    check_replacement(Fn5+Fn1, [n1, n2], operators_count_after_AD=4)
+    check_replacement(Fn5 + Fn1, [n1, n2], operators_count_after_AD=4)

@@ -25,7 +25,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         self,
         *operands,
         function_space: fem.function.FunctionSpace,
-        external_function = None,
+        external_function=None,
         derivatives: tuple[int, ...] | None = None,
         name: str | None = None,
         coefficient: fem.Function | None = None,
@@ -77,7 +77,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             self.ref_function_space = fem.functionspace(mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
-        
+
         self.name = name
         # Make the global coefficient associated to the external operator
         if coefficient is not None:
@@ -97,19 +97,20 @@ class FEMExternalOperator(ufl.ExternalOperator):
     ):
         """Return a new object of the same type with new operands."""
         coefficient = None
+        d = "\N{PARTIAL DIFFERENTIAL}o"
         if derivatives is None:
-            coefficient = self.ref_coefficient # prevents additional allocations
-            d_ops = ''
-        else: 
-            d_ops = '/' + "".join("\N{PARTIAL DIFFERENTIAL}o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
-        ex_op_name = "\N{PARTIAL DIFFERENTIAL}" + self.ref_coefficient.name + d_ops
+            coefficient = self.ref_coefficient  # prevents additional allocations
+            d_ops = ""
+        else:
+            d_ops = "/" + "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
+        ex_op_name = d + self.ref_coefficient.name + d_ops
         return type(self)(
             *operands,
             function_space=function_space or self.ref_function_space,
             external_function=self.external_function,
             derivatives=derivatives or self.derivatives,
             argument_slots=argument_slots or self.argument_slots(),
-            name = ex_op_name,
+            name=ex_op_name,
             coefficient=coefficient,
             **add_kwargs,
         )
@@ -124,13 +125,13 @@ class FEMExternalOperator(ufl.ExternalOperator):
             hash(self.ufl_function_space()),
             self.ref_coefficient,
         )
-        output = hash(hashdata) 
+        output = hash(hashdata)
         return output
 
     def __str__(self):
         """Default str string for FEMExternalOperator operators."""
         d = "\N{PARTIAL DIFFERENTIAL}"
-        operator_name = self.name if self.name is not None else 'e'
+        operator_name = self.name if self.name is not None else "e"
         derivatives = self.derivatives
         d_ops = "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
         e = operator_name + "("
@@ -140,11 +141,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
         e += ")"
         return e + "/" + d_ops if sum(derivatives) > 0 else e
 
-    def filtering_hash(self):
-        return hash((
-            type(self),
-            self.ref_coefficient,
-        ))
 
 def evaluate_operands(
     external_operators: list[FEMExternalOperator], entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None
@@ -224,6 +220,7 @@ def evaluate_external_operators(
 
     return evaluated_operators
 
+
 def unique_external_operators(external_operators: list[FEMExternalOperator]):
     # Use a set to track unique hashes
     unique_hashes = set()
@@ -234,6 +231,7 @@ def unique_external_operators(external_operators: list[FEMExternalOperator]):
             unique_hashes.add(h)
             unique_operators.append(ex_op)
     return unique_operators
+
 
 def _replace_action(action: ufl.Action):
     # Extract the trial function associated with ExternalOperator
@@ -251,11 +249,13 @@ def _replace_action(action: ufl.Action):
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
+
 def _replace_form(form: ufl.Form):
-    external_operators = form.base_form_operators() 
+    external_operators = form.base_form_operators()
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
     replaced_form = ufl.algorithms.replace(form, ex_ops_map)
     return replaced_form, external_operators
+
 
 def replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
     """Replace external operators in a form with there `fem.Function`
@@ -281,7 +281,7 @@ def replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
             replaced_form += replaced_form_term
             external_operators += ex_ops
     elif isinstance(form, ufl.Form):
-        if len(form.integrals()) > 1: # for sum of forms
+        if len(form.integrals()) > 1:  # for sum of forms
             for integral in form.integrals():
                 replaced_form_term, ex_ops = replace_external_operators(ufl.Form([integral]))
                 replaced_form += replaced_form_term
