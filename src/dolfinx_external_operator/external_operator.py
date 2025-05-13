@@ -8,7 +8,7 @@ from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 
 
-@ufl_type(num_ops="varying", is_differential=True)
+@ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):
     """Finite element external operator.
 
@@ -27,6 +27,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
         function_space: fem.function.FunctionSpace,
         external_function=None,
         derivatives: tuple[int, ...] | None = None,
+        name: str | None = None,
+        coefficient: fem.Function | None = None,
         argument_slots=(),
     ) -> None:
         """Initializes `FEMExternalOperator`.
@@ -40,6 +42,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 respect to operands.
             argument_slots: tuple composed containing expressions with
                 `ufl.Argument` or `ufl.Coefficient` objects.
+            name: Name of the external operator and the associated
+            `fem.Function` coefficient.
         """
         ufl_element = function_space.ufl_element()
         if ufl_element.family_name != "quadrature":
@@ -49,6 +53,9 @@ class FEMExternalOperator(ufl.ExternalOperator):
         for operand in self.ufl_operands:
             if isinstance(operand, FEMExternalOperator):
                 raise TypeError("Use of FEMExternalOperators as operands is not implemented.")
+
+        if coefficient is not None and coefficient.function_space != function_space:
+            raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
 
         super().__init__(
             *operands,
@@ -70,8 +77,13 @@ class FEMExternalOperator(ufl.ExternalOperator):
             self.ref_function_space = fem.functionspace(mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
+
+        self.name = name
         # Make the global coefficient associated to the external operator
-        self.ref_coefficient = fem.Function(self.ref_function_space)
+        if coefficient is not None:
+            self.ref_coefficient = coefficient
+        else:
+            self.ref_coefficient = fem.Function(self.ref_function_space, name=name)
 
         self.external_function = external_function
 
@@ -84,18 +96,55 @@ class FEMExternalOperator(ufl.ExternalOperator):
         add_kwargs={},
     ):
         """Return a new object of the same type with new operands."""
+        coefficient = None
+        d = "\N{PARTIAL DIFFERENTIAL}o"
+        if derivatives is None:
+            coefficient = self.ref_coefficient  # prevents additional allocations
+            d_ops = ""
+        else:
+            d_ops = "/" + "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
+        ex_op_name = d + self.ref_coefficient.name + d_ops
         return type(self)(
             *operands,
             function_space=function_space or self.ref_function_space,
             external_function=self.external_function,
             derivatives=derivatives or self.derivatives,
             argument_slots=argument_slots or self.argument_slots(),
+            name=ex_op_name,
+            coefficient=coefficient,
             **add_kwargs,
         )
 
+    def __hash__(self):
+        """Hash code for UFL AD."""
+        hashdata = (
+            type(self),
+            tuple(hash(op) for op in self.ufl_operands),
+            tuple(hash(arg) for arg in self._argument_slots),
+            self.derivatives,
+            hash(self.ufl_function_space()),
+            self.ref_coefficient,
+        )
+        output = hash(hashdata)
+        return output
+
+    def __str__(self):
+        """Default str string for FEMExternalOperator operators."""
+        d = "\N{PARTIAL DIFFERENTIAL}"
+        operator_name = self.name if self.name is not None else "e"
+        derivatives = self.derivatives
+        d_ops = "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
+        e = operator_name + "("
+        e += ", ".join(str(op) for op in self.ufl_operands)
+        e += "; "
+        e += ", ".join(str(arg) for arg in reversed(self.argument_slots()))
+        e += ")"
+        return e + "/" + d_ops if sum(derivatives) > 0 else e
+
 
 def evaluate_operands(
-    external_operators: list[FEMExternalOperator], entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None
+    external_operators: list[FEMExternalOperator],
+    entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None,
 ) -> dict[ufl.core.expr.Expr | int, np.ndarray]:
     """Evaluates operands of external operators.
 
@@ -146,7 +195,8 @@ def evaluate_operands(
 
 
 def evaluate_external_operators(
-    external_operators: list[FEMExternalOperator], evaluated_operands: dict[ufl.core.expr.Expr | int, np.ndarray]
+    external_operators: list[FEMExternalOperator],
+    evaluated_operands: dict[ufl.core.expr.Expr | int, np.ndarray],
 ) -> list[list[np.ndarray]]:
     """Evaluates external operators and updates the associated coefficient.
 
@@ -173,6 +223,18 @@ def evaluate_external_operators(
     return evaluated_operators
 
 
+def unique_external_operators(external_operators: list[FEMExternalOperator]):
+    # Use a set to track unique hashes
+    unique_hashes = set()
+    unique_operators = []
+    for ex_op in external_operators:
+        h = ex_op.filtering_hash()
+        if h not in unique_hashes:
+            unique_hashes.add(h)
+            unique_operators.append(ex_op)
+    return unique_operators
+
+
 def _replace_action(action: ufl.Action):
     # Extract the trial function associated with ExternalOperator
     N_tilde = action.left().arguments()[-1]
@@ -184,9 +246,9 @@ def _replace_action(action: ufl.Action):
     indexes = ufl.indices(coeff_dim)
     indexes_contracted = indexes[coeff_dim - arg_dim :]
     replacement = ufl.as_tensor(
-        coefficient[indexes] * external_operator_argument[indexes_contracted], indexes[: coeff_dim - arg_dim]
+        coefficient[indexes] * external_operator_argument[indexes_contracted],
+        indexes[: coeff_dim - arg_dim],
     )
-
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
@@ -198,8 +260,10 @@ def _replace_form(form: ufl.Form):
     return replaced_form, external_operators
 
 
-def replace_external_operators(form):
-    replaced_form = None
+def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
+    """Replace external operators in a form with there `fem.Function`
+    counterparts."""
+    replaced_form = 0
     external_operators = []
     if isinstance(form, ufl.Action):
         if isinstance(form.right(), ufl.Action):
@@ -215,15 +279,24 @@ def replace_external_operators(form):
             raise RuntimeError("Expected an ExternalOperator in the right part of the Action.")
     elif isinstance(form, ufl.FormSum):
         components = form.components()
-        # TODO: Modify this loop so it runs from range(0, len(components))
-        replaced_form, ex_ops = replace_external_operators(components[0])
-        external_operators += ex_ops
-        for i in range(1, len(components)):
+        for i in range(0, len(components)):
             replaced_form_term, ex_ops = replace_external_operators(components[i])
             replaced_form += replaced_form_term
             external_operators += ex_ops
     elif isinstance(form, ufl.Form):
         replaced_form, ex_ops = _replace_form(form)
         external_operators += ex_ops
+    return replaced_form, list(set(external_operators))
 
+
+def replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
+    """Health check for the form and replace external operators."""
+    replaced_form, external_operators = _replace_external_operators(form)
+    if replaced_form.base_form_operators():
+        raise RuntimeError(
+            "After the replacement of external operators, some still remain in the form. "
+            "This indicates that the original form includes a multiplication of external operators, "
+            "which is not supported by design. You may raise an issue in the GitHub repository to "
+            "discuss this feature in more detail."
+        )
     return replaced_form, external_operators
