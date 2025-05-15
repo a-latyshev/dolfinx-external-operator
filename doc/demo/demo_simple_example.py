@@ -155,7 +155,7 @@ def Ns_external(derivatives):
     elif derivatives == (1,):
         return dNdu_external
     else:
-        return NotImplementedError
+        raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
 
 
 # %% [markdown]

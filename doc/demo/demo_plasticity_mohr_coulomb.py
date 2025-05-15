@@ -602,7 +602,7 @@ def sigma_external(derivatives):
     if derivatives == (1,):
         return C_tang_impl
     else:
-        return NotImplementedError
+        raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
 
 
 sigma.external_function = sigma_external

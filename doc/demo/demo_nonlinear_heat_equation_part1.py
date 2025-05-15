@@ -291,7 +291,7 @@ def k_external(derivatives):
     elif derivatives == (1,):  # the derivative with respect to the operand `T`
         return dkdT_impl
     else:
-        return NotImplementedError
+        raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
 
 
 # %% [markdown]
