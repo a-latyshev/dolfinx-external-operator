@@ -60,8 +60,8 @@ def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.0):
 
     # NOTE: Do not forget to check the leaks produced by the following line of code
     # [WARNING] yaksa: 2 leaked handle pool objects
-    mesh, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, rank=model_rank, gdim=2)
-
+    mesh_data = gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, rank=model_rank, gdim=2)
+    mesh, cell_tags, facet_tags = mesh_data.mesh, mesh_data.cell_tags, mesh_data.facet_tags
     mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
     mesh.name = "quarter_cylinder"
     cell_tags.name = f"{mesh.name}_cells"

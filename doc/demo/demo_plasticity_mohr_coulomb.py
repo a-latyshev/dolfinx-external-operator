@@ -84,12 +84,12 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from mpltools import annotation  # for slope markers
-from solvers import LinearProblem
+from solvers import PETScNonlinearProblem, PETScNonlinearSolver
 from utilities import find_cell_by_point
 
 import basix
 import ufl
-from dolfinx import common, default_scalar_type, fem, mesh
+from dolfinx import default_scalar_type, fem, mesh
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -114,7 +114,7 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 L, H = (1.2, 1.0)
-Nx, Ny = (50, 50)
+Nx, Ny = (25, 25)
 gamma = 1.0
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
@@ -170,7 +170,6 @@ S = fem.functionspace(domain, S_element)
 Du = fem.Function(V, name="Du")
 u = fem.Function(V, name="Total_displacement")
 du = fem.Function(V, name="du")
-# v = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
 
 sigma = FEMExternalOperator(epsilon(Du), function_space=S)
@@ -464,7 +463,7 @@ drdy = jax.jacfwd(r)
 # return-mapping algorithm numerically via the Newton method.
 
 # %%
-Nitermax, tol = 200, 1e-10
+Nitermax, tol = 200, 1e-8
 
 ZERO_SCALAR = np.array([0.0])
 
@@ -581,11 +580,12 @@ def C_tang_impl(deps):
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
-    print("\tInner Newton summary:")
-    print(f"\t\tUnique number of iterations: {unique_iters}")
-    print(f"\t\tCounts of unique number of iterations: {counts}")
-    print(f"\t\tMaximum f: {jnp.max(yielding)}")
-    print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
+    if MPI.COMM_WORLD.rank == 0:
+        print("\tInner Newton summary:")
+        print(f"\t\tUnique number of iterations: {unique_iters}")
+        print(f"\t\tCounts of unique number of iterations: {counts}")
+        print(f"\t\tMaximum f: {jnp.max(yielding)}")
+        print(f"\t\tMaximum residual: {jnp.max(norm_res)}")
 
     return C_tang_global.reshape(-1), sigma_global.reshape(-1)
 
@@ -602,7 +602,7 @@ def sigma_external(derivatives):
     if derivatives == (1,):
         return C_tang_impl
     else:
-        return NotImplementedError
+        raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
 
 
 sigma.external_function = sigma_external
@@ -637,90 +637,72 @@ J_form = fem.form(J_replaced)
 # expect an elastic response only, so it's enough to solve the constitutive
 # equations for a relatively small displacement field at each Gauss point. This
 # results in initializing the consistent tangent moduli with elastic ones.
-#
-# At the same time, we can measure the compilation overhead caused by the first
-# call of JIT-ed JAX functions.
 
 # %%
 Du.x.array[:] = 1.0
 sigma_n.x.array[:] = 0.0
 
-timer = common.Timer("DOLFINx_timer")
-timer.start()
 evaluated_operands = evaluate_operands(F_external_operators)
 _ = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer.stop()
-pass_1 = timer.elapsed()[0]
 
-timer.start()
-evaluated_operands = evaluate_operands(F_external_operators)
-_ = evaluate_external_operators(J_external_operators, evaluated_operands)
-timer.stop()
-pass_2 = timer.elapsed()[0]
-
-print(f"\nJAX's JIT compilation overhead: {pass_1 - pass_2}")
 
 # %% [markdown]
 # ### Solving the problem
 #
-# Summing up, we apply the Newton method to solve the main weak problem. On each
-# iteration of the main Newton loop, we solve elastoplastic constitutive equations
-# by using the second (inner) Newton method at each Gauss point. Thanks to the
-# framework and the JAX library, the final interface is general enough to be
-# applied to other plasticity models.
+# Similarly to the von Mises tutorial, we use a Newton solver, but this time we
+# rely on `SNES`, the implementation from the `PETSc` library. We implemented the
+# class `PETScNonlinearProblem` that allows to call an additional routine
+# `external_callback` at each iteration of SNES before the vector and matrix
+# assembly.
+
 
 # %%
-external_operator_problem = LinearProblem(J_replaced, -F_replaced, Du, bcs=bcs)
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # Direct access to the external operator values
+    sigma.ref_coefficient.x.array[:] = sigma_new
 
-# %%
-x_point = np.array([[0, H, 0]])
-cells, points_on_process = find_cell_by_point(domain, x_point)
 
-# %%
-# parameters of the manual Newton method
-max_iterations, relative_tolerance = 200, 1e-8
+problem = PETScNonlinearProblem(Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update)
 
-load_steps_1 = np.linspace(2, 21, 40)
-load_steps_2 = np.linspace(21, 22.75, 20)[1:]
+petsc_options = {
+    "snes_type": "vinewtonrsls",
+    "snes_linesearch_type": "basic",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps",
+    "snes_atol": 1.0e-8,
+    "snes_rtol": 1.0e-8,
+    "snes_max_it": 100,
+    "snes_monitor": "",
+}
+
+
+solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)  # PETSc.SNES wrapper
+
+
+# %% [markdown]
+# After definition of the nonlinear problem and the Newton solver, we are ready to
+# get the final result.
+
+# %% tags=["scroll-output"]
+load_steps_1 = np.linspace(2, 22.9, 50)
+load_steps_2 = np.array([22.96, 22.99])
 load_steps = np.concatenate([load_steps_1, load_steps_2])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
-# %% tags=["scroll-output"]
+x_point = np.array([[0, H, 0]])
+cells, points_on_process = find_cell_by_point(domain, x_point)
 
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
-    external_operator_problem.assemble_vector()
-
-    residual_0 = external_operator_problem.b.norm()
-    residual = residual_0
-    Du.x.array[:] = 0
 
     if MPI.COMM_WORLD.rank == 0:
-        print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+        print(f"Load increment #{i}, load: {load}")
 
-    for iteration in range(0, max_iterations):
-        if residual / residual_0 < relative_tolerance:
-            break
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tOuter Newton iteration #{iteration}")
-        external_operator_problem.assemble_matrix()
-        external_operator_problem.solve(du)
-
-        Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
-        Du.x.scatter_forward()
-
-        evaluated_operands = evaluate_operands(F_external_operators)
-        ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-        # Direct access to the external operator values
-        sigma.ref_coefficient.x.array[:] = sigma_new
-
-        external_operator_problem.assemble_vector()
-        residual = external_operator_problem.b.norm()
-
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"\tResidual: {residual}\n")
+    solver.solve(Du)
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
@@ -730,7 +712,15 @@ for i, load in enumerate(load_steps):
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
 
-print(f"Slope stability factor: {-q.value[-1]*H/c}")
+print(f"Slope stability factor: {-q.value[-1] * H / c}")
+
+# %% [markdown]
+# ```{note}
+# We demonstrated here the use of `PETSc.SNES` together with external operators
+# through the `PETScNonlinearProblem` and `PETScNonlinearSolver` classes. If the
+# user is familiar with original DOLFINx `NonlinearProblem`, feel free to
+# use `NonlinearProblemWithCallback` covered in the [von Mises tutorial](demo_plasticity_von_mises.py).
+# ```
 
 # %% [markdown]
 # ## Verification
@@ -1122,42 +1112,18 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 i = 0
 load = 2.0
 q.value = load * np.array([0, -gamma])
-external_operator_problem.assemble_vector()
-
-residual_0 = external_operator_problem.b.norm()
-residual = residual_0
-Du.x.array[:] = 0
+Du.x.array[:] = 1e-8
 
 if MPI.COMM_WORLD.rank == 0:
-    print(f"Load increment #{i}, load: {load}, initial residual: {residual_0}")
+    print(f"Load increment #{i}, load: {load}")
 
-for iteration in range(0, max_iterations):
-    if residual / residual_0 < relative_tolerance:
-        break
+solver.solve(Du)
 
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"\tOuter Newton iteration #{iteration}")
-    external_operator_problem.assemble_matrix()
-    external_operator_problem.solve(du)
-
-    Du.x.petsc_vec.axpy(1.0, du.x.petsc_vec)
-    Du.x.scatter_forward()
-
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-
-    sigma.ref_coefficient.x.array[:] = sigma_new
-
-    external_operator_problem.assemble_vector()
-    residual = external_operator_problem.b.norm()
-
-    if MPI.COMM_WORLD.rank == 0:
-        print(f"\tResidual: {residual}\n")
+u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
+u.x.scatter_forward()
 
 sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
-# Initial values of the displacement field and the stress state for the Taylor
-# test
 Du0 = np.copy(Du.x.array)
 sigma_n0 = np.copy(sigma_n.x.array)
 
