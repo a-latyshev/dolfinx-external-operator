@@ -29,33 +29,29 @@ from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 from dolfinx.mesh import CellType
 from dolfinx.io import XDMFFile
+from dolfinx.fem import Expression, Function
+import basix
 
 # %%
 # Geometry and mesh (2D)
 L = 1.0  # Length
 W = 1.0  # Height
 nx, ny = 40, 40
-
-# %%
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [[0.0, 0.0], [L, W]], [nx, ny], cell_type=CellType.quadrilateral)
-
-# %%
 V = fem.functionspace(domain, ("Lagrange", 1, (domain.geometry.dim,)))
 
 
 # %%
 def bottom(x):
     return np.isclose(x[1], 0.0)
+
 def top(x):
     return np.isclose(x[1], W)
 
-
-# %%
 fdim = domain.topology.dim - 1
 bottom_facets = mesh.locate_entities_boundary(domain, fdim, bottom)
 top_facets = mesh.locate_entities_boundary(domain, fdim, top)
 
-# %%
 marked_facets = np.hstack([bottom_facets, top_facets])
 marked_values = np.hstack([np.full_like(bottom_facets, 1), np.full_like(top_facets, 2)])
 sorted_facets = np.argsort(marked_facets)
@@ -93,6 +89,66 @@ psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(J) + (lmbda / 2) * (ufl.ln(J)) ** 2
 P = ufl.diff(psi, F)
 dP = ufl.diff(P, F)
 
+# Define external function for Piola-Kirchhoff stress and its derivative
+import numpy as np
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
+    replace_external_operators,
+)
+from solvers import NonlinearProblemWithCallback
+
+# # Fval: (num_cells, 2, 2)
+# mu_val = float(mu.value)
+# lmbda_val = float(lmbda.value)
+# I = np.eye(2)
+# C = np.matmul(Fval.transpose(0, 2, 1), Fval)
+# Ic = np.trace(C, axis1=1, axis2=2)
+# J = np.linalg.det(Fval)
+# psi = (mu_val / 2) * (Ic - 2) - mu_val * np.log(J) + (lmbda_val / 2) * (np.log(J)) ** 2
+# # dpsi/dF (analytical, as in original code)
+# FinvT = np.linalg.inv(Fval).transpose(0, 2, 1)
+# P = mu_val * (Fval - FinvT) + lmbda_val * np.log(J)[:, None, None] * FinvT
+
+quadrature_degree = 2
+cell_name = domain.topology.cell_name()
+quadrature_points, _ = basix.make_quadrature(getattr(basix.CellType, cell_name), quadrature_degree)
+map_c = domain.topology.index_map(domain.topology.dim)
+num_cells = map_c.size_local + map_c.num_ghosts
+cells = np.arange(num_cells, dtype=np.int32)
+P_expr = Expression(P, quadrature_points, dtype=default_scalar_type)
+dP_expr = Expression(dP, quadrature_points, dtype=default_scalar_type)
+
+def P_impl(Fval):
+    P_eval = P_expr.eval(domain, cells)
+    return P_eval.reshape(-1)
+
+def dP_dF_impl(Fval):
+    dP_eval = dP_expr.eval(domain, cells)
+    return dP_eval.reshape(-1)
+
+
+def P_external(derivatives):
+    if derivatives == (0,):
+        return P_impl
+    elif derivatives == (1,):
+        return dP_dF_impl
+    else:
+        raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
+
+# Create a quadrature element and function space for tensor-valued P
+quadrature_degree = 2
+cell_name = domain.topology.cell_name()
+Qe = basix.ufl.quadrature_element(cell_name, value_shape=(d, d), degree=quadrature_degree, scheme="default")
+Q = fem.functionspace(domain, Qe)
+
+# Replace P with FEMExternalOperator
+P = FEMExternalOperator(F, function_space=Q, external_function=P_external)
+
+# %%
+P_expr.eval(domain, cells).shape
+
 # %%
 # Measures for integration
 metadata = {"quadrature_degree": 2}
@@ -100,17 +156,13 @@ ds = ufl.Measure("ds", domain=domain, subdomain_data=facet_tag, metadata=metadat
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 
 # %%
-# from dolfinx.fem import Expression, functionspace, Function
+# from dolfinx.fem import Expression, Function
 # import basix
 
 # # Choose quadrature degree and get quadrature points for the cell type
 # quadrature_degree = 2
 # cell_name = domain.topology.cell_name()
 # quadrature_points, _ = basix.make_quadrature(getattr(basix.CellType, cell_name), quadrature_degree)
-
-# # Create a quadrature element and function space for tensor-valued P
-# Qe = basix.ufl.quadrature_element(cell_name, value_shape=(d, d), degree=quadrature_degree, scheme="default")
-# Q = functionspace(domain, Qe)
 
 # # Create Expression for P at quadrature points
 # P_expr = Expression(P, quadrature_points, dtype=default_scalar_type)
@@ -125,17 +177,56 @@ dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 # P_func = Function(Q)
 # P_func.x.array[:] = P_eval.flatten()
 
-# %%
-# Residual form (weak form)
-F = ufl.inner(ufl.grad(v), P) * dx
+# # Create Expression for F at quadrature points
+# F_expr = Expression(F, quadrature_points, dtype=default_scalar_type)
+
+# # Evaluate F at all cells (including ghosts)
+# F_eval = F_expr.eval(domain, cells)
+
+# # Optionally, assemble into a Function for visualization/post-processing
+# F_func = Function(Q)
+# F_func.x.array[:] = F_eval.flatten()
 
 # %%
-# Nonlinear problem and Newton solver
-problem = NonlinearProblem(F, u, bcs_u)
+u_hat = ufl.TrialFunction(V)
+F = ufl.inner(ufl.grad(v), P) * dx
+J = ufl.derivative(F, u, u_hat)
+J_expanded = ufl.algorithms.expand_derivatives(J)
+
+F_replaced, F_external_operators = replace_external_operators(F)
+J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+F_form = fem.form(F_replaced)
+J_form = fem.form(J_replaced)
+
+# %%
+from petsc4py import PETSc
+
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    _ = evaluate_external_operators(F_external_operators, evaluated_operands)
+    _ = evaluate_external_operators(J_external_operators, evaluated_operands)
+
+problem = NonlinearProblemWithCallback(F_replaced, u, bcs=bcs_u, J=J_replaced, external_callback=constitutive_update)
 solver = NewtonSolver(domain.comm, problem)
 solver.atol = 1e-8
 solver.rtol = 1e-8
 solver.convergence_criterion = "incremental"
+ksp = solver.krylov_solver
+opts = PETSc.Options()  # type: ignore
+option_prefix = ksp.getOptionsPrefix()
+opts[f"{option_prefix}ksp_type"] = "preonly"
+opts[f"{option_prefix}pc_type"] = "lu"
+opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
+ksp.setFromOptions()
+
+# %%
+# # Nonlinear problem and Newton solver
+# problem = NonlinearProblem(F, u, bcs_u)
+# solver = NewtonSolver(domain.comm, problem)
+# solver.atol = 1e-8
+# solver.rtol = 1e-8
+# solver.convergence_criterion = "incremental"
 
 # %%
 with XDMFFile(domain.comm, "tensile2d_u.xdmf", "w") as xdmf:
