@@ -32,9 +32,9 @@ from dolfinx.io import XDMFFile
 
 # %%
 # Geometry and mesh (2D)
-L = 10.0  # Length
+L = 1.0  # Length
 W = 1.0  # Height
-nx, ny = 80, 8
+nx, ny = 40, 40
 
 # %%
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [[0.0, 0.0], [L, W]], [nx, ny], cell_type=CellType.quadrilateral)
@@ -44,44 +44,37 @@ V = fem.functionspace(domain, ("Lagrange", 1, (domain.geometry.dim,)))
 
 
 # %%
-# Boundary markers for Dirichlet and Neumann BCs
-def left(x):
-    return np.isclose(x[0], 0.0)
-def right(x):
-    return np.isclose(x[0], L)
+def bottom(x):
+    return np.isclose(x[1], 0.0)
+def top(x):
+    return np.isclose(x[1], W)
 
-
-# %%
 
 # %%
 fdim = domain.topology.dim - 1
-left_facets = mesh.locate_entities_boundary(domain, fdim, left)
-right_facets = mesh.locate_entities_boundary(domain, fdim, right)
+bottom_facets = mesh.locate_entities_boundary(domain, fdim, bottom)
+top_facets = mesh.locate_entities_boundary(domain, fdim, top)
 
 # %%
-# Mark facets: 1=left (fixed), 2=right (tension)
-marked_facets = np.hstack([left_facets, right_facets])
-marked_values = np.hstack([np.full_like(left_facets, 1), np.full_like(right_facets, 2)])
+marked_facets = np.hstack([bottom_facets, top_facets])
+marked_values = np.hstack([np.full_like(bottom_facets, 1), np.full_like(top_facets, 2)])
 sorted_facets = np.argsort(marked_facets)
 facet_tag = mesh.meshtags(domain, fdim, marked_facets[sorted_facets], marked_values[sorted_facets])
 
-# %%
-# Dirichlet BC: fix left edge (all dofs)
-u_bc = np.array((0,) * domain.geometry.dim, dtype=default_scalar_type)
-left_dofs = fem.locate_dofs_topological(V, facet_tag.dim, facet_tag.find(1))
-bcs = [fem.dirichletbc(u_bc, left_dofs, V)]
+bottom_dofs = fem.locate_dofs_topological(V, facet_tag.dim, facet_tag.find(1))
+top_dofs = fem.locate_dofs_topological(V.sub(1), facet_tag.dim, facet_tag.find(2))
+u_D_bottom = np.array((0,) * domain.geometry.dim, dtype=default_scalar_type)
+u_D_top = fem.Constant(domain, 0.0)
+
+bcs_u = [
+    fem.dirichletbc(u_D_top, top_dofs, V.sub(1)),
+    fem.dirichletbc(u_D_bottom, bottom_dofs, V),
+]
+
 
 # %%
-# Body force and traction (2D)
-B = fem.Constant(domain, default_scalar_type((0, 0)))
-T = fem.Constant(domain, default_scalar_type((0, 0)))
-
-# %%
-# Solution and test functions
 u = fem.Function(V)
 v = ufl.TestFunction(V)
-
-# %%
 d = len(u)
 I = ufl.variable(ufl.Identity(d))
 F = ufl.variable(I + ufl.grad(u))
@@ -95,11 +88,10 @@ E = default_scalar_type(1.0e4)
 nu = default_scalar_type(0.3)
 mu = fem.Constant(domain, E / (2 * (1 + nu)))
 lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
-
-# %%
 # Strain energy and first Piola-Kirchhoff stress
 psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(J) + (lmbda / 2) * (ufl.ln(J)) ** 2
 P = ufl.diff(psi, F)
+dP = ufl.diff(P, F)
 
 # %%
 # Measures for integration
@@ -108,12 +100,38 @@ ds = ufl.Measure("ds", domain=domain, subdomain_data=facet_tag, metadata=metadat
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 
 # %%
+# from dolfinx.fem import Expression, functionspace, Function
+# import basix
+
+# # Choose quadrature degree and get quadrature points for the cell type
+# quadrature_degree = 2
+# cell_name = domain.topology.cell_name()
+# quadrature_points, _ = basix.make_quadrature(getattr(basix.CellType, cell_name), quadrature_degree)
+
+# # Create a quadrature element and function space for tensor-valued P
+# Qe = basix.ufl.quadrature_element(cell_name, value_shape=(d, d), degree=quadrature_degree, scheme="default")
+# Q = functionspace(domain, Qe)
+
+# # Create Expression for P at quadrature points
+# P_expr = Expression(P, quadrature_points, dtype=default_scalar_type)
+
+# # Evaluate P at all cells (including ghosts)
+# map_c = domain.topology.index_map(domain.topology.dim)
+# num_cells = map_c.size_local + map_c.num_ghosts
+# cells = np.arange(num_cells, dtype=np.int32)
+# P_eval = P_expr.eval(domain, cells)
+
+# # Optionally, assemble into a Function for visualization/post-processing
+# P_func = Function(Q)
+# P_func.x.array[:] = P_eval.flatten()
+
+# %%
 # Residual form (weak form)
-F = ufl.inner(ufl.grad(v), P) * dx - ufl.inner(v, B) * dx - ufl.inner(v, T) * ds(2)
+F = ufl.inner(ufl.grad(v), P) * dx
 
 # %%
 # Nonlinear problem and Newton solver
-problem = NonlinearProblem(F, u, bcs)
+problem = NonlinearProblem(F, u, bcs_u)
 solver = NewtonSolver(domain.comm, problem)
 solver.atol = 1e-8
 solver.rtol = 1e-8
@@ -125,17 +143,17 @@ with XDMFFile(domain.comm, "tensile2d_u.xdmf", "w") as xdmf:
 
 # %%
 # Apply a tensile load by incrementally increasing traction on the right edge
-n_steps = 5
-max_traction = 10.0
+n_steps = 100
+max_traction = 1.0
 u.name = "displacement"
 
 for step in range(1, n_steps + 1):
-    T.value[0] = step * max_traction / n_steps  # Apply in x-direction
+    u_D_top.value = step * max_traction / n_steps
     num_its, converged = solver.solve(u)
     assert converged, f"Newton solver did not converge at step {step}"
     u.x.scatter_forward()
     if domain.comm.rank == 0:
-        print(f"Step {step}: Traction {T.value[0]:.2f}, Newton its: {num_its}")
+        print(f"Step {step}: Traction {u_D_top.value:.2f}, Newton its: {num_its}")
     # Save solution for each step
     with XDMFFile(domain.comm, "tensile2d_u.xdmf", "a") as xdmf:
         xdmf.write_function(u, step)
@@ -153,7 +171,3 @@ for step in range(1, n_steps + 1):
 #     xdmf.write_mesh(domain)
 #     stresses.name = "von_mises"
 #     xdmf.write_function(stresses)
-
-# %%
-if domain.comm.rank == 0:
-    print("2D simulation complete. Displacement and von Mises stress written to XDMF files.")
