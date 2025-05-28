@@ -1258,60 +1258,6 @@ print(f"Plastic phase:\n\tthe 1st order rate = {first_order_rate:.2f}\n\tthe 2nd
 # remainder $r_k^1$ achieves the second-order convergence rate, as expected.
 
 # %% [markdown]
-# ## Performance
-
-# %%
-summary_monitor = external_operator_problem.performance_monitor.copy()
-
-cols = ["matrix_assembling", "vector_assembling", "linear_solver", "constitutive_model_update"]
-summary_monitor["linear_solver"] = summary_monitor["nonlinear_solver"] - summary_monitor["matrix_assembling"] - summary_monitor["vector_assembling"] - summary_monitor["constitutive_model_update"]
-
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(use_index=True, y=cols, kind="bar", stacked=True, ax=ax)
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-for col in cols:
-    summary_monitor[col] = summary_monitor[col] / (summary_monitor["Newton_iterations"]+1)
-summary_monitor.plot(use_index=True, y=cols, kind="bar", stacked=True, ax=ax)
-
-# %%
-summary_monitor = pd.DataFrame({
-    "loading_step": np.array([], dtype=np.int64),
-    "matrix_assembling": np.array([], dtype=np.float64),
-    "vector_assembling": np.array([], dtype=np.float64),
-    "linear_solver": np.array([], dtype=np.float64),
-    "constitutive_model_update": np.array([], dtype=np.float64),
-})
-cols = ["matrix_assembling", "vector_assembling", "linear_solver", "constitutive_model_update"]
-
-# %%
-tmp_monitor = {}
-for i in range(num_increments):
-    tmp_monitor["loading_step"] = i
-    for col in cols:
-        Newton_iters = performance_monitor[performance_monitor["loading_step"]==i]["Newton_iteration"].iloc[-1] + 1
-        tmp_monitor[col] = performance_monitor[performance_monitor["loading_step"]==i][col].sum()/Newton_iters
-    summary_monitor.loc[len(summary_monitor.index)] = tmp_monitor
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
-# 106.37
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True, ax=ax)
-#Total time: 48.410000000000004
-
-# %%
-summary_monitor.plot(x="loading_step", y=cols, kind="bar", stacked=True)
-
-# %% [markdown]
 # ## References
 # ```{bibliography}
 # :filter: docname in docnames
