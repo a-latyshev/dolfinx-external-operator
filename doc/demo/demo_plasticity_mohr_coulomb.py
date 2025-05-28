@@ -9,6 +9,10 @@
 #       format_name: percent
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: dolfinx-env
+#     language: python
+#     name: python3
 # ---
 
 # %% [markdown]
@@ -113,7 +117,7 @@ a = 0.26 * c / np.tan(phi)  # [MPa] tension cuff-off parameter
 
 # %%
 L, H = (1.2, 1.0)
-Nx, Ny = (200, 200)
+Nx, Ny = (25, 25)
 gamma = 1.0 / 6778
 domain = mesh.create_rectangle(MPI.COMM_WORLD, [np.array([0, 0]), np.array([L, H])], [Nx, Ny])
 
@@ -669,10 +673,11 @@ cells, points_on_process = find_cell_by_point(domain, x_point)
 # parameters of the manual Newton method
 max_iterations, relative_tolerance = 200, 1e-8
 
-load_steps_1 = np.linspace(1.5, 21, 40)
-load_steps_2 = np.linspace(21, 22.75, 20)[1:]
+load_steps_1 = np.linspace(2, 22.9, 50)
+load_steps_2 = np.array([22.96, 22.99])
 load_steps = np.concatenate([load_steps_1, load_steps_2])
-load_steps = np.concatenate([np.linspace(1.1, 22.3, 100)[:-1]])
+
+# load_steps = np.concatenate([np.linspace(1.1, 22.3, 100)[:-1]])
 num_increments = len(load_steps)
 results = np.zeros((num_increments + 1, 2))
 
@@ -702,8 +707,6 @@ def constitutive_update():
 external_operator_problem = SNESProblem(Du, F_replaced, J_replaced, bcs=bcs, petsc_options=petsc_options, system_update=constitutive_update)
 
 # %%
-timer_total = common.Timer("Total_timer")
-timer_total.start()
 for i, load in enumerate(load_steps):
     q.value = load * np.array([0, -gamma])
 
@@ -721,14 +724,8 @@ for i, load in enumerate(load_steps):
 
     if len(points_on_process) > 0:
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
-timer_total.stop()
-total_time = timer_total.elapsed()[0]
 
 print(f"Slope stability factor: {-q.value[-1]*H/c}")
-print(f"Total time: {total_time}")
-
-# %%
-external_operator_problem.performance_monitor
 
 # %% [markdown]
 # ## Verification
@@ -767,34 +764,6 @@ if len(points_on_process) > 0:
     plt.ylabel(r"Soil self-weight $\gamma$ [MPa/mm$^3$]")
     plt.grid()
     plt.legend()
-
-# %%
-external_operator_problem.performance_monitor
-
-# %%
-import pickle
-with open("performance_monitor_100_100", "wb") as f:
-        pickle.dump(external_operator_problem.performance_monitor, f)
-
-# %%
-# pickle_file = Path("performance_monitor_200_200") 
-with open("performance_monitor_200_200", 'rb') as f:
-    performance_monitor_200_200 = pickle.load(f)
-
-# %%
-summary_monitor = performance_monitor_200_200.copy()
-
-cols = ["matrix_assembling", "vector_assembling", "linear_solver", "constitutive_model_update"]
-summary_monitor["linear_solver"] = summary_monitor["nonlinear_solver"] - summary_monitor["matrix_assembling"] - summary_monitor["vector_assembling"] - summary_monitor["constitutive_model_update"]
-
-fig, ax = plt.subplots(figsize=(10, 5))
-summary_monitor.plot(use_index=True, y=cols, kind="bar", stacked=True, ax=ax)
-
-# %%
-fig, ax = plt.subplots(figsize=(10, 5))
-for col in cols:
-    summary_monitor[col] = summary_monitor[col] / (summary_monitor["Newton_iterations"]+1)
-summary_monitor.plot(use_index=True, y=cols, kind="bar", stacked=True, ax=ax)
 
 # %% [markdown]
 # The slope profile reaching its stability limit:
