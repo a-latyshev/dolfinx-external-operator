@@ -777,17 +777,20 @@ try:
     u_tmp.interpolate(u)
 
     pyvista.start_xvfb()
-    plotter = pyvista.Plotter(window_size=[600, 400])
+    plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
     topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
     grid = pyvista.UnstructuredGrid(topology, cell_types, x)
     vals = np.zeros((x.shape[0], 3))
     vals[:, : len(u_tmp)] = u_tmp.x.array.reshape((x.shape[0], len(u_tmp)))
     grid["u"] = vals
     warped = grid.warp_by_vector("u", factor=20)
-    plotter.add_text("Displacement field", font_size=11)
-    plotter.add_mesh(warped, show_edges=False, show_scalar_bar=True)
+    plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
     plotter.view_xy()
-    plotter.show()
+    plotter.camera.tight()
+    image = plotter.screenshot(None, transparent_background=True, return_img=True)
+    plt.imshow(image)
+    plt.axis("off")
+
 except ImportError:
     print("pyvista required for this plot")
 
