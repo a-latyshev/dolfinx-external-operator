@@ -76,7 +76,7 @@ I = ufl.variable(ufl.Identity(d))
 F = ufl.variable(I + ufl.grad(u))
 C = ufl.variable(F.T * F)
 Ic = ufl.variable(ufl.tr(C))
-J = ufl.variable(ufl.det(F))
+detF = ufl.variable(ufl.det(F))
 
 # %%
 import torch
@@ -171,15 +171,15 @@ model.load_state_dict(torch.load('ArrudaBoyce_noise=high.pth'))
 model.eval()
 
 # Create dummy deformation gradients based on uniaxial tension
-F = torch.zeros(50, 4)
-gamma = torch.linspace(0,0.5,50)
-for a in range(50):
-    F[a,0] = 1 + gamma[a]
-    F[a,1] = 0
-    F[a,2] = 0
-    F[a,3] = 1
+# F = torch.zeros(50, 4)
+# gamma = torch.linspace(0,0.5,50)
+# for a in range(50):
+#     F[a,0] = 1 + gamma[a]
+#     F[a,1] = 0
+#     F[a,2] = 0
+#     F[a,3] = 1
 
-F.requires_grad = True
+# F.requires_grad = True
 
 # Zero input deformation gradient + track gradients
 F_0 = torch.zeros((1, 4))
@@ -189,36 +189,36 @@ F_0[:, 3] = 1
 F_0.requires_grad = True
 
 # %%
-# Predict strain energy (uncorrected)
-W_NN = model(F)
-# Compute the gradient of W_NN with respect to the entire F tensor
-P_NN = torch.autograd.grad(W_NN, F, torch.ones_like(W_NN), create_graph=True)[0]
+# # Predict strain energy (uncorrected)
+# W_NN = model(F)
+# # Compute the gradient of W_NN with respect to the entire F tensor
+# P_NN = torch.autograd.grad(W_NN, F, torch.ones_like(W_NN), create_graph=True)[0]
 
-W_NN_0 = model(F_0)
-P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
+# W_NN_0 = model(F_0)
+# P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
 
-P_cor = torch.zeros_like(P_NN)
+# P_cor = torch.zeros_like(P_NN)
 
-P_cor[:,0] = F[:,0]*-P_NN_0[0] + F[:,1]*-P_NN_0[2]
-P_cor[:,1] = F[:,0]*-P_NN_0[1] + F[:,1]*-P_NN_0[3]
-P_cor[:,2] = F[:,2]*-P_NN_0[0] + F[:,3]*-P_NN_0[2]
-P_cor[:,3] = F[:,2]*-P_NN_0[1] + F[:,3]*-P_NN_0[3]
+# P_cor[:,0] = F[:,0]*-P_NN_0[0] + F[:,1]*-P_NN_0[2]
+# P_cor[:,1] = F[:,0]*-P_NN_0[1] + F[:,1]*-P_NN_0[3]
+# P_cor[:,2] = F[:,2]*-P_NN_0[0] + F[:,3]*-P_NN_0[2]
+# P_cor[:,3] = F[:,2]*-P_NN_0[1] + F[:,3]*-P_NN_0[3]
 
-P = P_NN + P_cor
+# P = P_NN + P_cor
 
-# Initialize a tensor to store the full Jacobian (second derivative)
-batch_size, num_components = F.shape
-jacobian_rows = []
+# # Initialize a tensor to store the full Jacobian (second derivative)
+# batch_size, num_components = F.shape
+# jacobian_rows = []
 
-# Compute the Jacobian row by row
-for i in range(num_components):
-    grad_output = torch.zeros_like(P)
-    grad_output[:, i] = 1.0  # Select the i-th component
-    jacobian_rows.append(torch.autograd.grad(P, F, grad_output, create_graph=True)[0])
+# # Compute the Jacobian row by row
+# for i in range(num_components):
+#     grad_output = torch.zeros_like(P)
+#     grad_output[:, i] = 1.0  # Select the i-th component
+#     jacobian_rows.append(torch.autograd.grad(P, F, grad_output, create_graph=True)[0])
 
-dP = torch.stack(jacobian_rows, dim=1)  # Shape: (batch_size, num_components, num_components)
+# dP = torch.stack(jacobian_rows, dim=1)  # Shape: (batch_size, num_components, num_components)
 
-print("Jacobian shape:", dP.shape)
+# print("Jacobian shape:", dP.shape)
 
 # %%
 # Material parameters (neo-Hookean)
@@ -227,7 +227,7 @@ nu = default_scalar_type(0.3)
 mu = fem.Constant(domain, E / (2 * (1 + nu)))
 lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
 # Strain energy and first Piola-Kirchhoff stress
-psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(J) + (lmbda / 2) * (ufl.ln(J)) ** 2
+psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF) + (lmbda / 2) * (ufl.ln(detF)) ** 2
 P = ufl.diff(psi, F)
 dP = ufl.diff(P, F)
 
@@ -262,6 +262,8 @@ cells = np.arange(num_cells, dtype=np.int32)
 P_expr = Expression(P, quadrature_points, dtype=default_scalar_type)
 dP_expr = Expression(dP, quadrature_points, dtype=default_scalar_type)
 
+
+
 def P_impl(Fval):
     P_eval = P_expr.eval(domain, cells)
     return P_eval.reshape(-1)
@@ -270,11 +272,52 @@ def dP_dF_impl(Fval):
     dP_eval = dP_expr.eval(domain, cells)
     return dP_eval.reshape(-1)
 
+# Zero input deformation gradient + track gradients
+F_0 = torch.zeros((1, 4))
+F_0[:, 0] = 1
+F_0[:, 3] = 1
+
+F_0.requires_grad = True
+W_NN_0 = model(F_0)
+P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
+# P_cor = torch.zeros_like(P_NN)
+
+def dP_dF_impl(Fvals):
+    F = torch.from_numpy(np.ascontiguousarray(Fvals)).reshape(-1, 4)  # modify a -> t_shared changes
+    F.requires_grad = True
+
+    # Predict strain energy (uncorrected)
+    W_NN = model(F)
+    # Compute the gradient of W_NN with respect to the entire F tensor
+    P_NN = torch.autograd.grad(W_NN, F, torch.ones_like(W_NN), create_graph=True)[0]
+
+    P_cor = torch.zeros_like(P_NN)
+
+    P_cor[:,0] = F[:,0]*-P_NN_0[0] + F[:,1]*-P_NN_0[2]
+    P_cor[:,1] = F[:,0]*-P_NN_0[1] + F[:,1]*-P_NN_0[3]
+    P_cor[:,2] = F[:,2]*-P_NN_0[0] + F[:,3]*-P_NN_0[2]
+    P_cor[:,3] = F[:,2]*-P_NN_0[1] + F[:,3]*-P_NN_0[3]
+
+    P = P_NN + P_cor
+
+    # Initialize a tensor to store the full Jacobian (second derivative)
+    batch_size, num_components = F.shape
+    jacobian_rows = []
+
+    # Compute the Jacobian row by row
+    for i in range(num_components):
+        grad_output = torch.zeros_like(P)
+        grad_output[:, i] = 1.0  # Select the i-th component
+        jacobian_rows.append(torch.autograd.grad(P, F, grad_output, create_graph=True)[0])
+
+    dP = torch.stack(jacobian_rows, dim=1)  # Shape: (batch_size, num_components, num_components)
+
+    return dP.reshape(-1).detach(), P.reshape(-1).detach()
 
 def P_external(derivatives):
-    if derivatives == (0,):
-        return P_impl
-    elif derivatives == (1,):
+    # if derivatives == (0,):
+    #     return P_impl
+    if derivatives == (1,):
         return dP_dF_impl
     else:
         raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
@@ -346,8 +389,10 @@ from petsc4py import PETSc
 
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
-    _ = evaluate_external_operators(F_external_operators, evaluated_operands)
-    _ = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # _ = evaluate_external_operators(F_external_operators, evaluated_operands)
+    # _ = evaluate_external_operators(J_external_operators, evaluated_operands)
+    ((_, P_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    P.ref_coefficient.x.array[:] = P_new
 
 problem = NonlinearProblemWithCallback(F_replaced, u, bcs=bcs_u, J=J_replaced, external_callback=constitutive_update)
 solver = NewtonSolver(domain.comm, problem)
@@ -371,15 +416,15 @@ ksp.setFromOptions()
 # solver.convergence_criterion = "incremental"
 
 # %%
-with XDMFFile(domain.comm, "tensile2d_u.xdmf", "w") as xdmf:
-    xdmf.write_mesh(domain)
+# with XDMFFile(domain.comm, "tensile2d_u.xdmf", "w") as xdmf:
+#     xdmf.write_mesh(domain)
 
 # %%
 # Apply a tensile load by incrementally increasing traction on the right edge
 n_steps = 100
-max_traction = 1.0
+max_traction = 0.5 
 u.name = "displacement"
-
+u.x.array[:] = 0
 for step in range(1, n_steps + 1):
     u_D_top.value = step * max_traction / n_steps
     num_its, converged = solver.solve(u)
@@ -388,8 +433,35 @@ for step in range(1, n_steps + 1):
     if domain.comm.rank == 0:
         print(f"Step {step}: Traction {u_D_top.value:.2f}, Newton its: {num_its}")
     # Save solution for each step
-    with XDMFFile(domain.comm, "tensile2d_u.xdmf", "a") as xdmf:
-        xdmf.write_function(u, step)
+    # with XDMFFile(domain.comm, "tensile2d_u.xdmf", "a") as xdmf:
+    #     xdmf.write_function(u, step)
+
+# %%
+import pyvista
+import dolfinx.plot
+import matplotlib.pyplot as plt
+
+# %%
+# pyvista.start_xvfb()
+plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
+topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
+grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+vals = np.zeros((x.shape[0], 3))
+vals[:, : len(u)] = u.x.array.reshape((x.shape[0], len(u)))
+grid["u"] = vals
+warped = grid.warp_by_vector("u", factor=1)
+plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
+plotter.view_xy()
+plotter.camera.tight()
+image = plotter.screenshot(None, transparent_background=True, return_img=True)
+plt.imshow(image)
+plt.axis("off")
+
+# plotter.add_axes()
+# plotter.show()
+
+# %%
+vals
 
 # %%
 # # Post-processing: compute von Mises stress
