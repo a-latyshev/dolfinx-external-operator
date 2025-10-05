@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
 #   kernelspec:
-#     display_name: dolfinx-env
+#     display_name: dolfinx-env (3.12.3)
 #     language: python
 #     name: python3
 # ---
@@ -77,6 +77,148 @@ F = ufl.variable(I + ufl.grad(u))
 C = ufl.variable(F.T * F)
 Ic = ufl.variable(ufl.tr(C))
 J = ufl.variable(ufl.det(F))
+
+# %%
+import torch
+import numpy as np
+
+class convexLinear(torch.nn.Module):
+    """ Custom linear layer with positive weights and no bias """
+    def __init__(self, size_in, size_out, ):
+        super().__init__()
+        self.size_in, self.size_out = size_in, size_out
+        weights = torch.Tensor(size_out, size_in)
+        self.weights = torch.nn.Parameter(weights)
+
+        # initialize weights
+        torch.nn.init.kaiming_uniform_(self.weights, a=np.sqrt(5))
+
+    def forward(self, x):
+        w_times_x= torch.mm(x, torch.nn.functional.softplus(self.weights.t()))
+        return w_times_x
+
+class ICNN(torch.nn.Module):
+    def __init__(self, n_input, n_hidden, n_output, dropout):
+        super(ICNN, self).__init__()
+        # Create Module dicts for the hidden and skip-connection layers
+        self.layers = torch.nn.ModuleDict()
+        self.skip_layers = torch.nn.ModuleDict()
+        self.depth = len(n_hidden)
+        self.dropout = dropout[0]
+        self.p_dropout = dropout[1]
+
+        self.layers[str(0)] = torch.nn.Linear(n_input, n_hidden[0]).float()
+        # Create create NN with number of elements in n_hidden as depth
+        for i in range(1, self.depth):
+            self.layers[str(i)] = convexLinear(n_hidden[i-1], n_hidden[i]).float()
+            self.skip_layers[str(i)] = torch.nn.Linear(n_input, n_hidden[i]).float()
+
+        self.layers[str(self.depth)] = convexLinear(n_hidden[self.depth-1], n_output).float()
+        self.skip_layers[str(self.depth)] = convexLinear(n_input, n_output).float()
+
+    def forward(self, x):
+
+        # Get F components
+        F11 = x[:,0:1]
+        F12 = x[:,1:2]
+        F21 = x[:,2:3]
+        F22 = x[:,3:4]
+
+        # Compute right Cauchy green strain Tensor
+        C11 = F11**2 + F21**2
+        C12 = F11*F12 + F21*F22
+        C21 = F11*F12 + F21*F22
+        C22 = F12**2 + F22**2
+
+        # Compute computeStrainInvariants
+        I1 = C11 + C22 + 1.0
+        I2 = C11 + C22 - C12*C21 + C11*C22
+        I3 = C11*C22 - C12*C21
+
+        # Apply transformation to invariants
+        K1 = I1 * torch.pow(I3,-1/3) - 3.0
+        K2 = (I1 + I3 - 1) * torch.pow(I3,-2/3) - 3.0
+        J = torch.sqrt(I3)
+        K3 = (J-1)**2
+
+        # Concatenate feature
+        x_input = torch.cat((K1,K2,K3),1).float()
+
+        z = x_input.clone()
+        z = self.layers[str(0)](z)
+        for layer in range(1,self.depth):
+            skip = self.skip_layers[str(layer)](x_input)
+            z = self.layers[str(layer)](z)
+            z += skip
+            z = torch.nn.functional.softplus(z)     
+            z = 1/12.*torch.square(z)
+            if self.training:
+                if self.dropout:
+                    z = torch.nn.functional.dropout(z,p=self.p_dropout)
+        y = self.layers[str(self.depth)](z) + self.skip_layers[str(self.depth)](x_input)
+        return y
+
+n_input = 3
+n_output = 1
+n_hidden = [64,64,64]
+dropout = [True,0.2]
+model = ICNN(n_input=n_input,
+                n_hidden=n_hidden,
+                n_output=n_output,
+                dropout=dropout)
+
+model.load_state_dict(torch.load('ArrudaBoyce_noise=high.pth'))
+model.eval()
+
+# Create dummy deformation gradients based on uniaxial tension
+F = torch.zeros(50, 4)
+gamma = torch.linspace(0,0.5,50)
+for a in range(50):
+    F[a,0] = 1 + gamma[a]
+    F[a,1] = 0
+    F[a,2] = 0
+    F[a,3] = 1
+
+F.requires_grad = True
+
+# Zero input deformation gradient + track gradients
+F_0 = torch.zeros((1, 4))
+F_0[:, 0] = 1
+F_0[:, 3] = 1
+
+F_0.requires_grad = True
+
+# %%
+# Predict strain energy (uncorrected)
+W_NN = model(F)
+# Compute the gradient of W_NN with respect to the entire F tensor
+P_NN = torch.autograd.grad(W_NN, F, torch.ones_like(W_NN), create_graph=True)[0]
+
+W_NN_0 = model(F_0)
+P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
+
+P_cor = torch.zeros_like(P_NN)
+
+P_cor[:,0] = F[:,0]*-P_NN_0[0] + F[:,1]*-P_NN_0[2]
+P_cor[:,1] = F[:,0]*-P_NN_0[1] + F[:,1]*-P_NN_0[3]
+P_cor[:,2] = F[:,2]*-P_NN_0[0] + F[:,3]*-P_NN_0[2]
+P_cor[:,3] = F[:,2]*-P_NN_0[1] + F[:,3]*-P_NN_0[3]
+
+P = P_NN + P_cor
+
+# Initialize a tensor to store the full Jacobian (second derivative)
+batch_size, num_components = F.shape
+jacobian_rows = []
+
+# Compute the Jacobian row by row
+for i in range(num_components):
+    grad_output = torch.zeros_like(P)
+    grad_output[:, i] = 1.0  # Select the i-th component
+    jacobian_rows.append(torch.autograd.grad(P, F, grad_output, create_graph=True)[0])
+
+dP = torch.stack(jacobian_rows, dim=1)  # Shape: (batch_size, num_components, num_components)
+
+print("Jacobian shape:", dP.shape)
 
 # %%
 # Material parameters (neo-Hookean)
