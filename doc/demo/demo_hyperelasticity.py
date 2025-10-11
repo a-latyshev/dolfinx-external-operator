@@ -32,12 +32,22 @@ from dolfinx.io import XDMFFile
 from dolfinx.fem import Expression, Function
 import basix
 
+# Define external function for Piola-Kirchhoff stress and its derivative
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
+    replace_external_operators,
+)
+from solvers import NonlinearProblemWithCallback
+from utilities import build_square_with_elliptic_holes
+
 # %%
 # Geometry and mesh (2D)
 L = 1.0  # Length
 W = 1.0  # Height
-nx, ny = 40, 40
-domain = mesh.create_rectangle(MPI.COMM_WORLD, [[0.0, 0.0], [L, W]], [nx, ny], cell_type=CellType.quadrilateral)
+
+domain, facet_tags, facet_tags_labels = build_square_with_elliptic_holes(L=L, lc=0.05)
 V = fem.functionspace(domain, ("Lagrange", 1, (domain.geometry.dim,)))
 
 
@@ -67,16 +77,6 @@ bcs_u = [
     fem.dirichletbc(u_D_bottom, bottom_dofs, V),
 ]
 
-
-# %%
-u = fem.Function(V)
-v = ufl.TestFunction(V)
-d = len(u)
-I = ufl.variable(ufl.Identity(d))
-F = ufl.variable(I + ufl.grad(u))
-C = ufl.variable(F.T * F)
-Ic = ufl.variable(ufl.tr(C))
-detF = ufl.variable(ufl.det(F))
 
 # %%
 import torch
@@ -170,76 +170,25 @@ model = ICNN(n_input=n_input,
 model.load_state_dict(torch.load('ArrudaBoyce_noise=high.pth'))
 model.eval()
 
-# Create dummy deformation gradients based on uniaxial tension
-# F = torch.zeros(50, 4)
-# gamma = torch.linspace(0,0.5,50)
-# for a in range(50):
-#     F[a,0] = 1 + gamma[a]
-#     F[a,1] = 0
-#     F[a,2] = 0
-#     F[a,3] = 1
-
-# F.requires_grad = True
-
-# Zero input deformation gradient + track gradients
-F_0 = torch.zeros((1, 4))
-F_0[:, 0] = 1
-F_0[:, 3] = 1
-
-F_0.requires_grad = True
-
 # %%
-# # Predict strain energy (uncorrected)
-# W_NN = model(F)
-# # Compute the gradient of W_NN with respect to the entire F tensor
-# P_NN = torch.autograd.grad(W_NN, F, torch.ones_like(W_NN), create_graph=True)[0]
+u = fem.Function(V)
+v = ufl.TestFunction(V)
+d = len(u)
+I = ufl.variable(ufl.Identity(d))
+gradU = ufl.variable(I + ufl.grad(u))
+# C = ufl.variable(F.T * F)
+# Ic = ufl.variable(ufl.tr(C))
+# detF = ufl.variable(ufl.det(F))
 
-# W_NN_0 = model(F_0)
-# P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
-
-# P_cor = torch.zeros_like(P_NN)
-
-# P_cor[:,0] = F[:,0]*-P_NN_0[0] + F[:,1]*-P_NN_0[2]
-# P_cor[:,1] = F[:,0]*-P_NN_0[1] + F[:,1]*-P_NN_0[3]
-# P_cor[:,2] = F[:,2]*-P_NN_0[0] + F[:,3]*-P_NN_0[2]
-# P_cor[:,3] = F[:,2]*-P_NN_0[1] + F[:,3]*-P_NN_0[3]
-
-# P = P_NN + P_cor
-
-# # Initialize a tensor to store the full Jacobian (second derivative)
-# batch_size, num_components = F.shape
-# jacobian_rows = []
-
-# # Compute the Jacobian row by row
-# for i in range(num_components):
-#     grad_output = torch.zeros_like(P)
-#     grad_output[:, i] = 1.0  # Select the i-th component
-#     jacobian_rows.append(torch.autograd.grad(P, F, grad_output, create_graph=True)[0])
-
-# dP = torch.stack(jacobian_rows, dim=1)  # Shape: (batch_size, num_components, num_components)
-
-# print("Jacobian shape:", dP.shape)
-
-# %%
-# Material parameters (neo-Hookean)
-E = default_scalar_type(1.0e4)
-nu = default_scalar_type(0.3)
-mu = fem.Constant(domain, E / (2 * (1 + nu)))
-lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
-# Strain energy and first Piola-Kirchhoff stress
-psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF) + (lmbda / 2) * (ufl.ln(detF)) ** 2
-P = ufl.diff(psi, F)
-dP = ufl.diff(P, F)
-
-# Define external function for Piola-Kirchhoff stress and its derivative
-import numpy as np
-from dolfinx_external_operator import (
-    FEMExternalOperator,
-    evaluate_external_operators,
-    evaluate_operands,
-    replace_external_operators,
-)
-from solvers import NonlinearProblemWithCallback
+# # Material parameters (neo-Hookean)
+# E = default_scalar_type(1.0e4)
+# nu = default_scalar_type(0.3)
+# mu = fem.Constant(domain, E / (2 * (1 + nu)))
+# lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
+# # Strain energy and first Piola-Kirchhoff stress
+# psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF) + (lmbda / 2) * (ufl.ln(detF)) ** 2
+# P = ufl.diff(psi, F)
+# dP = ufl.diff(P, F)
 
 # # Fval: (num_cells, 2, 2)
 # mu_val = float(mu.value)
@@ -253,24 +202,22 @@ from solvers import NonlinearProblemWithCallback
 # FinvT = np.linalg.inv(Fval).transpose(0, 2, 1)
 # P = mu_val * (Fval - FinvT) + lmbda_val * np.log(J)[:, None, None] * FinvT
 
-quadrature_degree = 2
-cell_name = domain.topology.cell_name()
-quadrature_points, _ = basix.make_quadrature(getattr(basix.CellType, cell_name), quadrature_degree)
-map_c = domain.topology.index_map(domain.topology.dim)
-num_cells = map_c.size_local + map_c.num_ghosts
-cells = np.arange(num_cells, dtype=np.int32)
-P_expr = Expression(P, quadrature_points, dtype=default_scalar_type)
-dP_expr = Expression(dP, quadrature_points, dtype=default_scalar_type)
+# quadrature_degree = 2
+# cell_name = domain.topology.cell_name()
+# quadrature_points, _ = basix.make_quadrature(getattr(basix.CellType, cell_name), quadrature_degree)
+# map_c = domain.topology.index_map(domain.topology.dim)
+# num_cells = map_c.size_local + map_c.num_ghosts
+# cells = np.arange(num_cells, dtype=np.int32)
+# P_expr = Expression(P, quadrature_points, dtype=default_scalar_type)
+# dP_expr = Expression(dP, quadrature_points, dtype=default_scalar_type)
 
+# def P_impl(Fval):
+#     P_eval = P_expr.eval(domain, cells)
+#     return P_eval.reshape(-1)
 
-
-def P_impl(Fval):
-    P_eval = P_expr.eval(domain, cells)
-    return P_eval.reshape(-1)
-
-def dP_dF_impl(Fval):
-    dP_eval = dP_expr.eval(domain, cells)
-    return dP_eval.reshape(-1)
+# def dP_dF_impl(Fval):
+#     dP_eval = dP_expr.eval(domain, cells)
+#     return dP_eval.reshape(-1)
 
 # Zero input deformation gradient + track gradients
 F_0 = torch.zeros((1, 4))
@@ -315,8 +262,6 @@ def dP_dF_impl(Fvals):
     return dP.reshape(-1).detach(), P.reshape(-1).detach()
 
 def P_external(derivatives):
-    # if derivatives == (0,):
-    #     return P_impl
     if derivatives == (1,):
         return dP_dF_impl
     else:
@@ -329,10 +274,7 @@ Qe = basix.ufl.quadrature_element(cell_name, value_shape=(d, d), degree=quadratu
 Q = fem.functionspace(domain, Qe)
 
 # Replace P with FEMExternalOperator
-P = FEMExternalOperator(F, function_space=Q, external_function=P_external)
-
-# %%
-P_expr.eval(domain, cells).shape
+P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 
 # %%
 # Measures for integration
@@ -374,7 +316,7 @@ dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 
 # %%
 u_hat = ufl.TrialFunction(V)
-F = ufl.inner(ufl.grad(v), P) * dx
+F = ufl.inner(ufl.grad(v), P) * ufl.dx
 J = ufl.derivative(F, u, u_hat)
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
@@ -389,8 +331,6 @@ from petsc4py import PETSc
 
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
-    # _ = evaluate_external_operators(F_external_operators, evaluated_operands)
-    # _ = evaluate_external_operators(J_external_operators, evaluated_operands)
     ((_, P_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     P.ref_coefficient.x.array[:] = P_new
 
@@ -439,6 +379,7 @@ for step in range(1, n_steps + 1):
 # %%
 import pyvista
 import dolfinx.plot
+
 import matplotlib.pyplot as plt
 
 # %%
@@ -461,7 +402,28 @@ plt.axis("off")
 # plotter.show()
 
 # %%
-vals
+import pyvista
+import dolfinx.plot
+import matplotlib.pyplot as plt
+
+# %%
+# pyvista.start_xvfb()
+plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
+topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
+grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+vals = np.zeros((x.shape[0], 3))
+vals[:, : len(u)] = u.x.array.reshape((x.shape[0], len(u)))
+grid["u"] = vals
+warped = grid.warp_by_vector("u", factor=1)
+plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
+plotter.view_xy()
+plotter.camera.tight()
+image = plotter.screenshot(None, transparent_background=True, return_img=True)
+plt.imshow(image)
+plt.axis("off")
+
+# plotter.add_axes()
+# plotter.show()
 
 # %%
 # # Post-processing: compute von Mises stress
@@ -476,3 +438,5 @@ vals
 #     xdmf.write_mesh(domain)
 #     stresses.name = "von_mises"
 #     xdmf.write_function(stresses)
+
+# %%
