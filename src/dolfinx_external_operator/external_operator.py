@@ -267,7 +267,7 @@ def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
     external_operators = []
     if isinstance(form, ufl.Action):
         if isinstance(form.right(), ufl.Action):
-            replaced_right_part, ex_ops = replace_external_operators(form.right())
+            replaced_right_part, ex_ops = replace_external_operators(form.right()) # TODO: double check the recursion
             external_operators += ex_ops
             interim_form = ufl.Action(form.left(), replaced_right_part)
             replaced_form, ex_ops = replace_external_operators(interim_form)
