@@ -24,6 +24,7 @@ Author: Adapted from FEniCSx/dolfinx and jorgensd/dolfinx-tutorial
 import numpy as np
 import ufl
 from mpi4py import MPI
+from petsc4py import PETSc
 from dolfinx import mesh, fem, log, default_scalar_type
 from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
@@ -41,6 +42,8 @@ from dolfinx_external_operator import (
 )
 from solvers import NonlinearProblemWithCallback
 from utilities import build_square_with_elliptic_holes
+from dolfinx.fem.petsc import NewtonSolverNonlinearProblem
+from solvers import PETScNonlinearProblem, PETScNonlinearSolver
 
 
 import pyvista
@@ -53,8 +56,8 @@ import matplotlib.pyplot as plt
 L = 1.0  # Length
 W = 1.0  # Height
 
-domain, facet_tags, facet_tags_labels = build_square_with_elliptic_holes(L=L, lc=0.05)
-V = fem.functionspace(domain, ("Lagrange", 1, (domain.geometry.dim,)))
+domain, facet_tags, facet_tags_labels = build_square_with_elliptic_holes(L=L, lc=0.02)
+V = fem.functionspace(domain, ("Lagrange", 2, (domain.geometry.dim,)))
 
 
 # %%
@@ -74,15 +77,20 @@ sorted_facets = np.argsort(marked_facets)
 facet_tag = mesh.meshtags(domain, fdim, marked_facets[sorted_facets], marked_values[sorted_facets])
 
 bottom_dofs = fem.locate_dofs_topological(V, facet_tag.dim, facet_tag.find(1))
-top_dofs = fem.locate_dofs_topological(V.sub(1), facet_tag.dim, facet_tag.find(2))
+top_dofs_uy = fem.locate_dofs_topological(V.sub(1), facet_tag.dim, facet_tag.find(2))
+top_dofs_ux = fem.locate_dofs_topological(V.sub(0), facet_tag.dim, facet_tag.find(2))
 u_D_bottom = np.array((0,) * domain.geometry.dim, dtype=default_scalar_type)
 u_D_top = fem.Constant(domain, 0.0)
 
 bcs_u = [
-    fem.dirichletbc(u_D_top, top_dofs, V.sub(1)),
+    fem.dirichletbc(u_D_top, top_dofs_uy, V.sub(1)),
+    fem.dirichletbc(fem.Constant(domain, 0.0), top_dofs_ux, V.sub(0)),
     fem.dirichletbc(u_D_bottom, bottom_dofs, V),
 ]
 
+
+# %% [markdown]
+# ### Ex ops
 
 # %%
 import torch
@@ -173,7 +181,9 @@ model = ICNN(n_input=n_input,
                 n_output=n_output,
                 dropout=dropout)
 
-model.load_state_dict(torch.load('ArrudaBoyce_noise=high.pth'))
+# model.load_state_dict(torch.load('ArrudaBoyce_noise=high.pth'))
+# model.load_state_dict(torch.load('Isihara_noise=high.pth'))
+model.load_state_dict(torch.load('NeoHookean_noise=high.pth'))
 model.eval()
 
 # %%
@@ -321,8 +331,11 @@ dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 # F_func.x.array[:] = F_eval.flatten()
 
 # %%
+metadata = {"quadrature_degree": 6}
+dx = ufl.Measure("dx", domain=domain, metadata=metadata)
+
 u_hat = ufl.TrialFunction(V)
-F = ufl.inner(ufl.grad(v), P) * ufl.dx
+F = ufl.inner(ufl.grad(v), P) * dx
 J = ufl.derivative(F, u, u_hat)
 J_expanded = ufl.algorithms.expand_derivatives(J)
 
@@ -332,26 +345,40 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
-# %%
-from petsc4py import PETSc
 
+# %%
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
     ((_, P_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     P.ref_coefficient.x.array[:] = P_new
 
-problem = NonlinearProblemWithCallback(F_replaced, u, bcs=bcs_u, J=J_replaced, external_callback=constitutive_update)
-solver = NewtonSolver(domain.comm, problem)
-solver.atol = 1e-8
-solver.rtol = 1e-8
-solver.convergence_criterion = "incremental"
-ksp = solver.krylov_solver
-opts = PETSc.Options()  # type: ignore
-option_prefix = ksp.getOptionsPrefix()
-opts[f"{option_prefix}ksp_type"] = "preonly"
-opts[f"{option_prefix}pc_type"] = "lu"
-opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-ksp.setFromOptions()
+# problem = NonlinearProblemWithCallback(F_replaced, u, bcs=bcs_u, J=J_replaced, external_callback=constitutive_update)
+# solver = NewtonSolver(domain.comm, problem)
+# solver.atol = 1e-8
+# solver.rtol = 1e-8
+# solver.convergence_criterion = "incremental"
+# ksp = solver.krylov_solver
+# opts = PETSc.Options()  # type: ignore
+# option_prefix = ksp.getOptionsPrefix()
+# opts[f"{option_prefix}ksp_type"] = "preonly"
+# opts[f"{option_prefix}pc_type"] = "lu"
+# opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
+# ksp.setFromOptions()
+
+problem = PETScNonlinearProblem(u, F_replaced, J_replaced, bcs=bcs_u, external_callback=constitutive_update)
+petsc_options = {
+    "snes_type": "vinewtonrsls",
+    "snes_linesearch_type": "basic",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps",
+    "snes_atol": 1.0e-7,
+    "snes_rtol": 1.0e-7,
+    "snes_max_it": 50,
+    "snes_monitor": "",
+}
+
+solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)
 
 # %%
 # # Nonlinear problem and Newton solver
@@ -360,10 +387,6 @@ ksp.setFromOptions()
 # solver.atol = 1e-8
 # solver.rtol = 1e-8
 # solver.convergence_criterion = "incremental"
-
-# %%
-# with XDMFFile(domain.comm, "tensile2d_u.xdmf", "w") as xdmf:
-#     xdmf.write_mesh(domain)
 
 # %%
 # Apply a tensile load by incrementally increasing traction on the right edge
@@ -378,11 +401,6 @@ for step in range(1, n_steps + 1):
     u.x.scatter_forward()
     if domain.comm.rank == 0:
         print(f"Step {step}: Traction {u_D_top.value:.2f}, Newton its: {num_its}")
-    # Save solution for each step
-    # with XDMFFile(domain.comm, "tensile2d_u.xdmf", "a") as xdmf:
-    #     xdmf.write_function(u, step)
-
-# %%
 
 # %%
 # pyvista.start_xvfb()
@@ -409,42 +427,79 @@ plt.axis("off")
 # %%
 u_UFL = fem.Function(V)
 v = ufl.TestFunction(V)
-d = len(u)
+d = len(u_UFL)
 I = ufl.variable(ufl.Identity(d))
 # Deformation gradient
-gradU = ufl.variable(I + ufl.grad(u_UFL))
+F_ = ufl.variable(I + ufl.grad(u_UFL))
 
-C = ufl.variable(gradU.T * gradU)
-Ic = ufl.variable(ufl.tr(C))
-detF = ufl.variable(ufl.det(gradU))
+C = ufl.variable(F_.T * F_)
+I1 = ufl.variable(ufl.tr(C))
+J_ = ufl.variable(ufl.det(F_))
 
 # Material parameters (neo-Hookean)
-E = default_scalar_type(1.0e4)
-nu = default_scalar_type(0.3)
-mu = fem.Constant(domain, E / (2 * (1 + nu)))
-lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
+# E = default_scalar_type(1.0e4)
+# nu = default_scalar_type(0.3)
+# mu = fem.Constant(domain, E / (2 * (1 + nu)))
+# lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
 # Strain energy and first Piola-Kirchhoff stress
-psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF) + (lmbda / 2) * (ufl.ln(detF)) ** 2
-P = ufl.diff(psi, gradU)
+# psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF) 
+# psi = (mu / 2) * (I1 - 2) - mu * ufl.ln(J_) + (lmbda / 2) * (ufl.ln(J_)) ** 2
+I2 = ufl.variable(ufl.tr(C)*ufl.tr(C) - ufl.tr(C * C)) / 2.0
+I1_tilde = ufl.variable(J_ ** (-2.0/3.0) * I1)
+I2_tilde = ufl.variable(J_ ** (-4.0/3.0) * I2)
+
+# W = 0.5 * (I1_tilde - 3.0) + (I2_tilde - 3.0) + (I1_tilde - 3.0)**2 + 1.5 * (J_ - 1.0)**2
+W = 0.5 * (I1_tilde - 3.0) + 1.5 * (J_ - 1.0)**2
+# W = (
+#     0.5 * (I1_tilde - 3.0)
+#     + (I2_tilde - 3.0)
+#     + 0.7 * (I1_tilde - 3.0) * (I2_tilde - 3.0)
+#     + 0.2 * (I1_tilde - 3.0) ** 3
+#     + 1.5 * (J_ - 1.0) ** 2
+# )
+# W = 0.5 * (I1_tilde - 3.0) + ufl.ln(I2_tilde / 3.0) + 1.5 * (J_ - 1.0)**2
+
+# P = ufl.diff(psi, F_)
+P = ufl.diff(W, F_)
 
 # %%
-metadata = {"quadrature_degree": 4}
+metadata = {"quadrature_degree": 6}
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 F = ufl.inner(ufl.grad(v), P) * dx
 
 # %%
 # Nonlinear problem and Newton solver
-from dolfinx.fem.petsc import NewtonSolverNonlinearProblem
-problem = NewtonSolverNonlinearProblem(F, u_UFL, bcs_u)
-solver = NewtonSolver(domain.comm, problem)
-solver.atol = 1e-8
-solver.rtol = 1e-8
-solver.convergence_criterion = "incremental"
+
+problem = PETScNonlinearProblem(u_UFL, F, bcs=bcs_u)
+# petsc_options = {
+#     "snes_type": "vinewtonrsls",
+#     "snes_linesearch_type": "basic",
+#     "ksp_type": "preonly",
+#     "pc_type": "lu",
+#     "pc_factor_mat_solver_type": "mumps",
+#     "snes_atol": 1.0e-4,
+#     "snes_rtol": 1.0e-4,
+#     "snes_max_it": 100,
+#     "snes_monitor": "",
+# }
+
+solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)
+# solver.atol = 1e-4
+# solver.rtol = 1e-4
+# # solver.convergence_criterion = "incremental"
+# solver.max_it = 500
+# ksp = solver.krylov_solver
+# opts = PETSc.Options()  # type: ignore
+# option_prefix = ksp.getOptionsPrefix()
+# opts[f"{option_prefix}ksp_type"] = "preonly"
+# opts[f"{option_prefix}pc_type"] = "lu"
+# opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
+# ksp.setFromOptions()
 
 # %%
 # Apply a tensile load by incrementally increasing traction on the right edge
 n_steps = 100
-max_traction = 0.5 
+max_traction = 0.5
 u_UFL.name = "displacement"
 u_UFL.x.array[:] = 0
 for step in range(1, n_steps + 1):
@@ -453,7 +508,7 @@ for step in range(1, n_steps + 1):
     assert converged, f"Newton solver did not converge at step {step}"
     u_UFL.x.scatter_forward()
     if domain.comm.rank == 0:
-        print(f"Step {step}: Traction {u_D_top.value:.2f}, Newton its: {num_its}")
+        print(f"Step {step}: Traction {u_D_top.value:.3f}, Newton its: {num_its}")
 
 # %%
 # pyvista.start_xvfb()
@@ -461,8 +516,10 @@ plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
 topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
 grid = pyvista.UnstructuredGrid(topology, cell_types, x)
 vals = np.zeros((x.shape[0], 3))
-u_diff = u_UFL.x.array - u.x.array
+u_diff = u.x.array[:] - u_UFL.x.array[:]
 vals[:, : len(u)] = u_diff.reshape((x.shape[0], len(u)))
+# vals[:, : len(u_UFL)] = u_UFL.x.array.reshape((x.shape[0], len(u_UFL)))
+
 grid["u"] = vals
 warped = grid.warp_by_vector("u", factor=1)
 plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
@@ -474,6 +531,13 @@ plt.axis("off")
 
 # plotter.add_axes()
 # plotter.show()
+
+# %%
+np.abs(u.x.array[:] - u_UFL.x.array[:]).max()/np.abs(u_UFL.x.array[:]).max()
+
+
+# %%
+# MPI.COMM_WORLD.allreduce(fem.assemble_scalar(fem.form((u - u_UFL)**2), op=MPI.SUM))
 
 # %%
 # # Post-processing: compute von Mises stress
@@ -488,5 +552,3 @@ plt.axis("off")
 #     xdmf.write_mesh(domain)
 #     stresses.name = "von_mises"
 #     xdmf.write_function(stresses)
-
-# %%
