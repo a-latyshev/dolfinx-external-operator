@@ -1,12 +1,28 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: dolfinx-env (3.12.3)
+#     language: python
+#     name: python3
+# ---
+
 # %% [markdown]
 # # Plasticity of von Mises
-# 
+#
 # This tutorial aims to demonstrate an efficient implementation of the plasticity
 # model of von Mises using an external operator defining the elastoplastic
 # constitutive relations written with the help of the 3rd-party package `Numba`.
 # Here we consider a cylinder expansion problem in the two-dimensional case in a
 # symmetric formulation.
-# 
+#
 # This tutorial is based on the
 # [original implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
 # of the problem via legacy FEniCS 2019 and
@@ -15,78 +31,78 @@
 # of the von Mises plastic model in the case of the cylinder expansion problem can
 # be found in {cite}`bonnet2014`. Do not hesitate to visit the mentioned sources
 # for more information.
-# 
+#
 # We assume the knowledge of the return-mapping procedure, commonly used in the
 # solid mechanics community to solve elastoplasticity problems.
-# 
+#
 # ## Notation
-# 
+#
 # Denoting the displacement vector $\boldsymbol{u}$ we define the strain tensor
 # $\boldsymbol{\varepsilon}$ as follows
-# 
+#
 # $$
 #     \boldsymbol{\varepsilon} = \frac{1}{2}\left( \nabla\boldsymbol{u} +
 #     \nabla\boldsymbol{u}^T \right).
 # $$
-# 
+#
 # Throughout the tutorial, we stick to the Mandel-Voigt notation, according to
 # which the stress tensor $\boldsymbol{\sigma}$ and the strain tensor
 # $\boldsymbol{\varepsilon}$ are written as 4-size vectors with the following
 # components
-# 
+#
 # \begin{align*}
 #     & \boldsymbol{\sigma} = [\sigma_{xx}, \sigma_{yy}, \sigma_{zz},
 #     \sqrt{2}\sigma_{xy}]^T, \\
 #     & \boldsymbol{\varepsilon} = [\varepsilon_{xx}, \varepsilon_{yy},
 #     \varepsilon_{zz}, \sqrt{2}\varepsilon_{xy}]^T.
 # \end{align*}
-# 
+#
 # Denoting the deviatoric operator $\mathrm{dev}$, we introduce two additional
 # quantities of interest: the cumulative plastic strain $p$ and the equivalent
 # stress $\sigma_\text{eq}$ defined by the following formulas:
-# 
+#
 # \begin{align*}
 #     & p = \sqrt{\frac{2}{3} \boldsymbol{e} \cdot \boldsymbol{e}}, \\
 #     & \sigma_\text{eq} = \sqrt{\frac{3}{2}\boldsymbol{s} \cdot \boldsymbol{s}},
 # \end{align*}
-# 
+#
 # where $\boldsymbol{e} = \mathrm{dev}\boldsymbol{\varepsilon}$ and
 # $\boldsymbol{s} = \mathrm{dev}\boldsymbol{\sigma}$ are deviatoric parts of the
 # stain and stress tensors respectively.
-# 
+#
 # ## Problem formulation
-# 
+#
 # The domain of the problem $\Omega$ represents the first quarter of the hollow
 # cylinder with inner $R_i$ and outer $R_o$ radii, where symmetry conditions
 # are set on the left and bottom sides and pressure is set on the inner wall
 # $\partial\Omega_\text{inner}$. The behaviour of cylinder material is defined
 # by the von Mises yield criterion $f$ with the linear isotropic hardening law
 # {eq}`eq_von_Mises`
-# 
+#
 # $$
 #     f(\boldsymbol{\sigma}) = \sigma_\text{eq}(\boldsymbol{\sigma}) - \sigma_0
 #     - Hp \leq 0,
 # $$ (eq_von_Mises)
-# 
+#
 # where $\sigma_0$ is a uniaxial strength and $H$ is an isotropic hardening
 # modulus, which is defined through the Young modulus $E$ and the tangent elastic
 # modulus $E_t = \frac{EH}{E+H}$.
-# 
+#
 # Let V be the functional space of admissible displacement fields. Then, the weak
 # formulation of this problem can be written as follows:
-# 
+#
 # Find $\boldsymbol{u} \in V$ such that
-# 
+#
 # $$
 #     F(\boldsymbol{u}; \boldsymbol{v}) = \int\limits_\Omega
 #     \boldsymbol{\sigma}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot \boldsymbol{\varepsilon(v)}
 #     \,\mathrm{d}\boldsymbol{x} - F_\text{ext}(\boldsymbol{v}) = 0, \quad \forall
 #     \boldsymbol{v} \in V.
 # $$ (eq_von_Mises_main)
-# 
+#
 # The external force $F_{\text{ext}}(\boldsymbol{v})$ represents the pressure
 # inside the cylinder and is written as the following Neumann condition
-# 
+#
 # $$
 #     F_\text{ext}(\boldsymbol{v}) =
 #     \int\limits_{\partial\Omega_\text{inner}} (-q \boldsymbol{n}) \cdot \boldsymbol{v}
@@ -97,10 +113,10 @@
 # $q_\text{lim} = \frac{2}{\sqrt{3}}\sigma_0\log\left(\frac{R_o}{R_i}\right)$,
 # the analytical collapse load for the perfect plasticity model without
 # hardening.
-# 
+#
 # The modelling is performed under assumptions of the plane strain and
 # an associative plasticity law.
-# 
+#
 # In this tutorial, we treat the stress tensor $\boldsymbol{\sigma}$ as an
 # external operator acting on the strain tensor
 # $\boldsymbol{\varepsilon}(\boldsymbol{u})$ and represent it through a
@@ -109,11 +125,11 @@
 # approach to solve plasticity problems. With the help of this procedure, we
 # compute both values of the stress tensor $\boldsymbol{\sigma}$ and its
 # derivative, so-called the tangent moduli $\boldsymbol{C}_\text{tang}$.
-# 
+#
 # As before, in order to solve the nonlinear equation {eq}`eq_von_Mises_main`
 # we need to compute the Gateaux derivative of $F$ in the direction
 # $\boldsymbol{\hat{u}} \in V$:
-# 
+#
 # $$
 #     J(\boldsymbol{u}; \boldsymbol{\hat{u}},\boldsymbol{v}) :=
 #     D_{\boldsymbol{u}} [F(\boldsymbol{u};
@@ -123,14 +139,14 @@
 #     \boldsymbol{\varepsilon(v)} \,\mathrm{d}\boldsymbol{x}, \quad \forall \boldsymbol{v}
 #     \in V.
 # $$
-# 
+#
 # The advantage of the von Mises model is that the return-mapping procedure may be
 # performed analytically, so the stress tensor and the tangent moduli may be
 # expressed explicitly using any package. In our case, we the Numba library to
 # define the behaviour of the external operator and its derivative.
-# 
+#
 # ## Implementation
-# 
+#
 # ### Preamble
 
 # %%
@@ -238,15 +254,17 @@ P_element = basix.ufl.quadrature_element(mesh.topology.cell_name(), degree=k_str
 P = fem.functionspace(mesh, P_element)
 
 p = fem.Function(P, name="cumulative_plastic_strain")
+p_n = fem.Function(P, name="cumulative_plastic_strain_n")
 dp = fem.Function(P, name="incremental_plastic_strain")
 sigma_n = fem.Function(S, name="stress_n")
 
+
 # %% [markdown]
 # ### Defining the external operator
-# 
+#
 # During the automatic differentiation of the form $F$, the following terms will
 # appear in the Jacobian
-# 
+#
 # $$
 #     \frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d}
 #     \boldsymbol{\varepsilon}}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot
@@ -254,19 +272,19 @@ sigma_n = fem.Function(S, name="stress_n")
 #     \boldsymbol{C}_\text{tang}(\boldsymbol{\varepsilon}(\boldsymbol{u})) \cdot
 #     \boldsymbol{\varepsilon}(\boldsymbol{\hat{u}}),
 # $$
-# 
+#
 # where the "trial" part $\boldsymbol{\varepsilon}(\boldsymbol{\hat{u}})$ will be
 # handled by the framework and the derivative of the operator
 # $\frac{\mathrm{d} \boldsymbol{\sigma}}{\mathrm{d} \boldsymbol{\varepsilon}}$
 # must be implemented by the user. In this tutorial, we implement the derivative using the Numba package.
-# 
+#
 # First of all, we implement the return-mapping procedure locally in the
 # function `_kernel`. It computes the values of the stress tensor, the tangent
 # moduli and the increment of cumulative plastic strain at a single Gausse
 # node. For more details, visit the [original
 # implementation](https://comet-fenics.readthedocs.io/en/latest/demo/2D_plasticity/vonMises_plasticity.py.html)
 # of this problem for the legacy FEniCS 2019.
-# 
+#
 # Then we iterate over each Gauss node and compute the quantities of interest
 # globally in the `return_mapping` function with the `@numba.njit` decorator.
 # This guarantees that the function will be compiled during its first call and
@@ -378,7 +396,7 @@ class Rankine():
 
         return [cp.hstack(sigma_max) <= ft + p * self.H, cp.hstack(sigma_min) >= -fc - p * self.H]
 
-class ReturnMapping:
+class ConvexPlasticity:
     """An implementation of return-mapping procedure via convex problems solving.
 
     Attributes:
@@ -393,7 +411,7 @@ class ReturnMapping:
         solver:
     """
     def __init__(self, material:Material, N:int, solver=cp.SCS):
-        """Inits ReturnMapping class.
+        """Inits ConvexPlasticity class.
         
         Args:
             material: An appropriate material.
@@ -436,7 +454,7 @@ class ReturnMapping:
         constrains = material.yield_criterion.criterion(self.sig, self.p) 
 
         if material.plane_stress:
-            constrains.append(self.sig[2] == 0) #TO MODIFY!
+            constrains.append(self.sig[2] == 0) #TODO: MODIFY!
 
         self.opt_problem = cp.Problem(cp.Minimize(target_expression), constrains)
         self.solver = solver
@@ -470,14 +488,14 @@ class ReturnMapping:
                     self.C_tang[j, :, i] = self.sig.delta[:, j] 
             
             self.differentiation_time = t.elapsed()[0] # time.time() - start
-    
+
 
 # %%
 rankine = Rankine(sigt, sigc, H)
 material = Material(IsotropicElasticity(E, nu), rankine)
 
 patch_size = 3
-return_mapping_cvxpy = ReturnMapping(material, patch_size, 'SCS')
+return_mapping = ConvexPlasticity(material, patch_size, 'SCS')
 tol = 1.0e-13
 scs_params = {'eps': tol, 'eps_abs': tol, 'eps_rel': tol}
 conic_solver_params = scs_params
@@ -489,30 +507,46 @@ conic_solver_params = scs_params
 # tensor and the cumulative plastic increment.
 
 # %%
+stress_dim = 4
+sigma_n.x.array[:] = 0.0
+p_n.x.array[:] = 0.0
+
+# %%
+num_quadrature_points = int(sigma_n.x.array.size / stress_dim)
+
+# deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
+# sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
+# p_ = p.x.array.reshape((num_cells, num_quadrature_points))
+
+# _, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
+N_patches = int(num_quadrature_points / patch_size)
+residue_size = num_quadrature_points % patch_size
+p_vals = np.empty_like(p.x.array)
+# p_values = p.x.array[:num_quadrature_points - residue_size].reshape((-1, patch_size))
+p_values = p_vals[:num_quadrature_points - residue_size].reshape((-1, patch_size))
+p_old_values = p_n.x.array[:num_quadrature_points - residue_size].reshape((-1, patch_size))
+# deps_values = deps.x.array[:4*(num_quadrature_points -
+# residue_size)].reshape((-1, patch_size, 4))
+
+sigma_vals = np.empty_like(sigma.ref_coefficient.x.array)
+sig_values = sigma_vals[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
+sig_old_values = sigma_n.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
+
+if residue_size != 0:
+    return_mapping_residue = ConvexPlasticity(material, residue_size, 'SCS')
+    # p_values_residue = p.x.array[num_quadrature_points - residue_size:].reshape((1, residue_size))
+    p_values_residue = p_vals[num_quadrature_points - residue_size:].reshape((1, residue_size))
+    p_old_values_residue = p_n.x.array[num_quadrature_points - residue_size:].reshape((1, residue_size))
+    deps_values_residue = deps.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+    sig_values_residue = sigma_vals[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+    sig_old_values_residue = sigma_n.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+
 def sigma_impl(deps):
-    num_cells, num_quadrature_points, _ = deps.shape
+    deps_values = deps[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
+    # if residue_size != 0:
+        # sig_values_residue = sig.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+        # sig_old_values_residue = sig_old.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
 
-    # deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
-    # sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
-    # p_ = p.x.array.reshape((num_cells, num_quadrature_points))
-
-    # _, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
-    N_patches = int(num_quadrature_points / patch_size)
-    residue_size = num_quadrature_points % patch_size
-    p_values = p.x.array[:num_quadrature_points - residue_size].reshape((-1, patch_size))
-    p_old_values = p_old.x.array[:num_quadrature_points - residue_size].reshape((-1, patch_size))
-    deps_values = deps.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
-    sig_values = sig.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
-    sig_old_values = sig_old.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
-
-    if residue_size != 0:
-        return_mapping_residue = return_mapping_cvxpy(material, residue_size, 'SCS')
-        p_values_residue = p.x.array[num_quadrature_points - residue_size:].reshape((1, residue_size))
-        p_old_values_residue = p_old.x.array[num_quadrature_points - residue_size:].reshape((1, residue_size))
-        deps_values_residue = deps.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
-        sig_values_residue = sig.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
-        sig_old_values_residue = sig_old.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
-    
     for q in range(N_patches):
         return_mapping.deps.value[:] = deps_values[q,:].T
         return_mapping.sig_old.value[:] = sig_old_values[q,:].T
@@ -524,6 +558,7 @@ def sigma_impl(deps):
         p_values[q,:] = return_mapping.p.value
 
     if residue_size != 0: #how to improve ?
+        deps_values_residue = deps[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
         return_mapping_residue.deps.value[:] = deps_values_residue[0,:].T
         return_mapping_residue.sig_old.value[:] = sig_old_values_residue[0,:].T
         return_mapping_residue.p_old.value = p_old_values_residue[0,:]
@@ -532,7 +567,7 @@ def sigma_impl(deps):
 
         sig_values_residue[0,:] = return_mapping_residue.sig.value[:].T
         p_values_residue[0,:] = return_mapping_residue.p.value
-    return sigma_.reshape(-1), dp_.reshape(-1)
+    return sigma_vals.reshape(-1), p_vals.reshape(-1)
 
 global_size = int(sigma.ref_coefficient.x.array.size / 4.0)
 C_elas_ = np.empty((global_size, 4, 4), dtype=PETSc.ScalarType)
@@ -549,6 +584,8 @@ def C_tang_impl(deps):
     # C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
 
     return C_elas_.reshape(-1)
+
+# %%
 
 # %% [markdown]
 # It is worth noting that at the time of the derivative evaluation, we compute the
@@ -580,7 +617,7 @@ sigma.external_function = sigma_external
 
 # %% [markdown]
 # ### Form manipulations
-# 
+#
 # As in the previous tutorials before solving the problem we need to perform
 # some transformation of both linear and bilinear forms.
 
@@ -608,7 +645,7 @@ J_form = fem.form(J_replaced)
 
 # %% [markdown]
 # ### Solving the problem
-# 
+#
 # Once we prepared the forms containing external operators, we can defind the
 # nonlinear problem and its solver. Here we modified the original DOLFINx
 # `NonlinearProblem` and called it `NonlinearProblemWithCallback` to let the
@@ -619,11 +656,11 @@ J_form = fem.form(J_replaced)
 # %%
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, dp_new),) = evaluate_external_operators(F_external_operators, evaluated_operands)
+    ((_, p_vals),) = evaluate_external_operators(F_external_operators, evaluated_operands)
     _ = evaluate_external_operators(J_external_operators, evaluated_operands)
     # This avoids having to evaluate the external operators of F.
     # sigma.ref_coefficient.x.array[:] = sigma_new
-    dp.x.array[:] = dp_new
+    p.x.array[:] = p_vals
 
 
 problem = PETScNonlinearProblem(Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update)
@@ -676,7 +713,8 @@ for i, loading_v in enumerate(loadings):
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
 
-    p.x.petsc_vec.axpy(1.0, dp.x.petsc_vec)
+    # p.x.petsc_vec.axpy(1.0, dp.x.petsc_vec)
+    p_n.x.array[:] = p.x.array
     sigma_n.x.array[:] = sigma.ref_coefficient.x.array
 
     if len(points_on_process) > 0:
@@ -684,7 +722,7 @@ for i, loading_v in enumerate(loadings):
 
 # %% [markdown]
 # ### Post-processing
-# 
+#
 # In order to verify the correctness of obtained results, we perform their
 # comparison against a "pure UFl" implementation. Thanks to simplicity of the von
 # Mises model we can express stress tensor and tangent moduli analytically within
@@ -713,7 +751,7 @@ if len(points_on_process) > 0:
 
 # %% [markdown]
 # ## References
-# 
+#
 # ```{bibliography}
 # :filter: docname in docnames
 # ```
