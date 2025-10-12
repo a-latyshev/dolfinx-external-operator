@@ -42,6 +42,12 @@ from dolfinx_external_operator import (
 from solvers import NonlinearProblemWithCallback
 from utilities import build_square_with_elliptic_holes
 
+
+import pyvista
+import dolfinx.plot
+
+import matplotlib.pyplot as plt
+
 # %%
 # Geometry and mesh (2D)
 L = 1.0  # Length
@@ -377,10 +383,6 @@ for step in range(1, n_steps + 1):
     #     xdmf.write_function(u, step)
 
 # %%
-import pyvista
-import dolfinx.plot
-
-import matplotlib.pyplot as plt
 
 # %%
 # pyvista.start_xvfb()
@@ -401,10 +403,57 @@ plt.axis("off")
 # plotter.add_axes()
 # plotter.show()
 
+# %% [markdown]
+# ### Standard hyper-elasticity
+
 # %%
-import pyvista
-import dolfinx.plot
-import matplotlib.pyplot as plt
+u_UFL = fem.Function(V)
+v = ufl.TestFunction(V)
+d = len(u)
+I = ufl.variable(ufl.Identity(d))
+# Deformation gradient
+gradU = ufl.variable(I + ufl.grad(u_UFL))
+
+C = ufl.variable(gradU.T * gradU)
+Ic = ufl.variable(ufl.tr(C))
+detF = ufl.variable(ufl.det(gradU))
+
+# Material parameters (neo-Hookean)
+E = default_scalar_type(1.0e4)
+nu = default_scalar_type(0.3)
+mu = fem.Constant(domain, E / (2 * (1 + nu)))
+lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
+# Strain energy and first Piola-Kirchhoff stress
+psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF) + (lmbda / 2) * (ufl.ln(detF)) ** 2
+P = ufl.diff(psi, gradU)
+
+# %%
+metadata = {"quadrature_degree": 4}
+dx = ufl.Measure("dx", domain=domain, metadata=metadata)
+F = ufl.inner(ufl.grad(v), P) * dx
+
+# %%
+# Nonlinear problem and Newton solver
+from dolfinx.fem.petsc import NewtonSolverNonlinearProblem
+problem = NewtonSolverNonlinearProblem(F, u_UFL, bcs_u)
+solver = NewtonSolver(domain.comm, problem)
+solver.atol = 1e-8
+solver.rtol = 1e-8
+solver.convergence_criterion = "incremental"
+
+# %%
+# Apply a tensile load by incrementally increasing traction on the right edge
+n_steps = 100
+max_traction = 0.5 
+u_UFL.name = "displacement"
+u_UFL.x.array[:] = 0
+for step in range(1, n_steps + 1):
+    u_D_top.value = step * max_traction / n_steps
+    num_its, converged = solver.solve(u_UFL)
+    assert converged, f"Newton solver did not converge at step {step}"
+    u_UFL.x.scatter_forward()
+    if domain.comm.rank == 0:
+        print(f"Step {step}: Traction {u_D_top.value:.2f}, Newton its: {num_its}")
 
 # %%
 # pyvista.start_xvfb()
@@ -412,7 +461,8 @@ plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
 topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
 grid = pyvista.UnstructuredGrid(topology, cell_types, x)
 vals = np.zeros((x.shape[0], 3))
-vals[:, : len(u)] = u.x.array.reshape((x.shape[0], len(u)))
+u_diff = u_UFL.x.array - u.x.array
+vals[:, : len(u)] = u_diff.reshape((x.shape[0], len(u)))
 grid["u"] = vals
 warped = grid.warp_by_vector("u", factor=1)
 plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
