@@ -137,7 +137,7 @@ class PETScNonlinearProblem:
         self.F_form = fem.form(F)
         if J is None:
             V = self.u.function_space
-            J = ufl.derivative(self.F_form, self.u, ufl.TrialFunction(V))
+            J = ufl.derivative(F, self.u, ufl.TrialFunction(V))
         self.J_form = fem.form(J)
         self.bcs = bcs
         self.external_callback = external_callback
