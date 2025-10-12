@@ -5,7 +5,10 @@ from petsc4py import PETSc
 
 import ufl
 from dolfinx import fem
-from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.fem.petsc import NewtonSolverNonlinearProblem
+
+# TODO: NewtonSolverNonlinearProblem is deprecated, solvers have to be adapted
+# accordingly
 
 
 class LinearProblem:
@@ -75,7 +78,7 @@ class LinearProblem:
         self.b.destroy()
 
 
-class NonlinearProblemWithCallback(NonlinearProblem):
+class NonlinearProblemWithCallback(NewtonSolverNonlinearProblem):
     """Problem for the DOLFINx NewtonSolver with an external callback.
 
     It lets `NewtonSolver` to run an additional routine `external_callback`
@@ -134,7 +137,7 @@ class PETScNonlinearProblem:
         self.F_form = fem.form(F)
         if J is None:
             V = self.u.function_space
-            J = ufl.derivative(self.F_form, self.u, ufl.TrialFunction(V))
+            J = ufl.derivative(F, self.u, ufl.TrialFunction(V))
         self.J_form = fem.form(J)
         self.bcs = bcs
         self.external_callback = external_callback

@@ -16,7 +16,7 @@ inverse problems.
 Implementations of external operators can be written in any library that
 supports the [array interface
 protocol](https://numpy.org/doc/stable/reference/arrays.interface.html) e.g. 
-[numpy](https://numpy.org/), [JAX](https://github.com/google/jax) and
+[NumPy](https://numpy.org/), [JAX](https://github.com/google/jax) and
 [Numba](http://numba.pydata.org).
 
 When using a library that supports program level automatic differentiation
@@ -60,12 +60,27 @@ mechanics, including:
 * von Mises plasticity using [Numba](https://numba.pydata.org/),
 * Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest).
 
+Introduction to External Operators — FEniCS 2024 Conference:
+
+<iframe width="700" height="400" src="https://www.youtube.com/embed/y8goeapqfsw?si=BQwDcdwqS3EF5rwW" frameborder="0" allowfullscreen></iframe>
+
 ## Citations 
 
 If you use `dolfinx-external-operator` in your research we ask that you cite
 the following references:
 
 ```
+@preprint{latyshev:hal-04735022,
+  TITLE = {{Expressing general constitutive models in FEniCSx using external operators and algorithmic automatic differentiation}},
+  AUTHOR = {Latyshev, Andrey and Bleyer, J{\'e}r{\'e}my and Maurini, Corrado and Hale, Jack S},
+  URL = {https://hal.science/hal-04735022},
+  NOTE = {working paper or preprint},
+  YEAR = {2024},
+  MONTH = Oct,
+  KEYWORDS = {constitutive models ; automated finite element solvers ; algorithmic automatic differentiation ; external operators ; FEniCSx ; JAX ; Numba},
+  HAL_VERSION = {v2},
+}
+
 @inproceedings{latyshev_2024_external_paper,
   author = {Latyshev, Andrey and Bleyer, Jérémy and Hale, Jack and Maurini, Corrado},
   title = {A framework for expressing general constitutive models in FEniCSx},

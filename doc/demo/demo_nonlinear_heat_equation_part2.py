@@ -281,7 +281,7 @@ def q_external(derivatives):
     elif derivatives == (0, 1):
         return dqdsigma_impl
     else:
-        return NotImplementedError
+        raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
 
 
 # %% [markdown]

@@ -48,7 +48,7 @@ jobs:
 
       - name: Run demos (MPI, np=3)
         run: |
-          python3 -m pytest -m mpi -v --num-proc=3 doc/demo
+          python3 -m pytest -m mpi -v --num-proc=2 doc/demo
 
       - name: Build book
         working-directory: doc/
