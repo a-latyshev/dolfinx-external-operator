@@ -20,3 +20,10 @@ build/
 *.core
 *.msh
 *.geo_unrolled
+*.rs
+*.h
+*.c
+*.cpp
+*.hpp
+*.pickle
+**/CMakeList*

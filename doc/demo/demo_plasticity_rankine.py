@@ -171,18 +171,22 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
+from cvxpylayers.jax import CvxpyLayer
+import jax
+
+
 # %% [markdown]
 # Here we define geometrical and material parameters of the problem as well as some useful constants.
 
 # %%
 R_e, R_i = 1.3, 1.0  # external/internal radius
-
-E, nu = 70e3, 0.3  # elastic parameters
+E0 = 70e3
+E, nu = 70e3/E0, 0.3  # elastic parameters
 E_tangent = E / 100.0  # tangent modulus
 H = E * E_tangent / (E - E_tangent)  # hardening modulus
-sigma_0 = 250.0  # yield strength
-sigt = 250.0 # tensile strength
-sigc = 250.0 # compression strength
+sigma_0 = 250.0/E0  # yield strength
+sigt = 250.0/E0 # tensile strength
+sigc = 250.0/E0 # compression strength
 
 lmbda = E * nu / (1.0 + nu) / (1.0 - 2.0 * nu)
 mu = E / 2.0 / (1.0 + nu)
@@ -458,14 +462,27 @@ class ConvexPlasticity:
 
         self.opt_problem = cp.Problem(cp.Minimize(target_expression), constrains)
         self.solver = solver
-    
+        # cvxpylayer = CvxpyLayer(problem, parameters=[self.deps, self.sig_old, self.p_old], variables=[x])
+
+        self.cvxpylayer = CvxpyLayer(self.opt_problem, parameters=[self.deps, self.sig_old, self.p_old], variables=[self.sig, self.p])
+
+
+
     def solve(self, **kwargs):
         """Solves a minimization problem and calculates the derivative of `sig` variable.
         
         Args:
             **kwargs: additional solver attributes, such as tolerance, etc.
         """
-        self.opt_problem.solve(solver=self.solver, requires_grad=False, ignore_dpp=False, **kwargs)
+        # self.opt_problem.solve(solver=self.solver, requires_grad=False,
+        # ignore_dpp=False, **kwargs)
+        result = self.cvxpylayer(self.deps.value, self.sig_old.value, self.p_old.value)
+        # print(result)
+        # self.sig.value = result[0]
+        # self.p.value = result[1]
+        self.sig_vals = result[0]
+        self.p_vals = result[1]
+
         
     def solve_and_derivate(self, **kwargs):
         """Solves a minimization problem and calculates the derivative of `sig` variable.
@@ -474,31 +491,28 @@ class ConvexPlasticity:
             **kwargs: additional solver attributes, such as tolerance, etc.
         """
 
-        with common.Timer() as t: 
-            self.opt_problem.solve(solver=self.solver, requires_grad=True, **kwargs)
-            self.convex_solving_time = t.elapsed()[0] 
+        self.opt_problem.solve(solver=self.solver, requires_grad=True, **kwargs)
+        self.convex_solving_time = t.elapsed()[0] 
+    
+        for i in range(4):
+            for j in range(self.N):
+                e = np.zeros((4, self.N))
+                e[i, j] = 1
+                self.deps.delta = e
+                self.opt_problem.derivative()
+                self.C_tang[j, :, i] = self.sig.delta[:, j] 
         
-        with common.Timer() as t: 
-            for i in range(4):
-                for j in range(self.N):
-                    e = np.zeros((4, self.N))
-                    e[i, j] = 1
-                    self.deps.delta = e
-                    self.opt_problem.derivative()
-                    self.C_tang[j, :, i] = self.sig.delta[:, j] 
-            
-            self.differentiation_time = t.elapsed()[0] # time.time() - start
-
+        self.differentiation_time = t.elapsed()[0] # time.time() - start
 
 # %%
 rankine = Rankine(sigt, sigc, H)
 material = Material(IsotropicElasticity(E, nu), rankine)
 
 patch_size = 3
-return_mapping = ConvexPlasticity(material, patch_size, 'SCS')
+return_mapping = ConvexPlasticity(material, patch_size, 'CLARABEL')
 tol = 1.0e-13
 scs_params = {'eps': tol, 'eps_abs': tol, 'eps_rel': tol}
-conic_solver_params = scs_params
+conic_solver_params = {}
 
 # %% [markdown]
 # Now nothing stops us from defining the implementation of the external operator
@@ -512,6 +526,92 @@ sigma_n.x.array[:] = 0.0
 p_n.x.array[:] = 0.0
 
 # %%
+sigma_n.x.array.shape
+
+# %%
+# sigma_n.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
+
+# %%
+# import cvxpy as cp
+# from cvxpylayers.jax import CvxpyLayer
+
+# n, m = 2, 3
+# x = cp.Variable(n)
+# A = cp.Parameter((m, n))
+# b = cp.Parameter(m)
+# constraints = [x >= 0]
+# objective = cp.Minimize(0.5 * cp.pnorm(A @ x - b, p=1))
+# problem = cp.Problem(objective, constraints)
+# assert problem.is_dpp()
+
+# cvxpylayer = CvxpyLayer(problem, parameters=[A, b], variables=[x])
+# key = jax.random.PRNGKey(0)
+# key, k1, k2 = jax.random.split(key, 3)
+# A_jax = jax.random.normal(k1, shape=(m, n))
+# b_jax = jax.random.normal(k2, shape=(m,))
+
+# solution, = cvxpylayer(A_jax, b_jax)
+
+# # compute the gradient of the summed solution with respect to A, b
+# dcvxpylayer = jax.jacobian(lambda b: cvxpylayer(A_jax, b)[0][0])
+# gradb = dcvxpylayer(b_jax)
+# gradb
+
+# %%
+# dcvxpylayer = jax.grad(lambda b: cvxpylayer(A_jax, b)[0][1])
+# gradb = dcvxpylayer(b_jax)
+# gradb
+
+# %%
+# import sys
+# sys.path.append("./")
+# code_dir = 'code_dir3'
+# # code_dir = '/mnt/external_operators/code/dolfinx-external-operator/demo/code_dir2'
+# sys.path.append(code_dir)
+# from cvxpygen import cpg
+# cpg.generate_code(return_mapping.opt_problem, code_dir=code_dir, solver='OSQP', gradient=True)
+
+
+# %%
+return_mapping.opt_problem.is_dgp()
+
+# %%
+return_mapping.opt_problem.is_dpp()
+
+# %%
+return_mapping.opt_problem.is_dcp()
+
+
+# %%
+print("Is QP:", return_mapping.opt_problem.is_qp())
+
+# %%
+print(cp.installed_solvers())
+
+# %%
+# import cvxpy as cp
+
+# m, n = 3, 2
+# x = cp.Variable(n, name='x')
+# A = cp.Parameter((m, n), name='A', sparsity=((0, 0, 1), (0, 1, 1)))
+# b = cp.Parameter(m, name='b')
+# problem = cp.Problem(cp.Minimize(cp.sum_squares(A @ x - b)), [x >= 0])
+
+# import numpy as np
+
+# np.random.seed(0)
+# A.value = np.zeros((m, n))
+# A.value[0, 0] = np.random.randn()
+# A.value[0, 1] = np.random.randn()
+# A.value[1, 1] = np.random.randn()
+# b.value = np.random.randn(m)
+# problem.solve()
+
+# from cvxpygen import cpg
+
+# cpg.generate_code(problem, code_dir='nonneg_LS', solver='OSQP', gradient=True)
+
+# %%
 num_quadrature_points = int(sigma_n.x.array.size / stress_dim)
 
 # deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
@@ -519,7 +619,7 @@ num_quadrature_points = int(sigma_n.x.array.size / stress_dim)
 # p_ = p.x.array.reshape((num_cells, num_quadrature_points))
 
 # _, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
-N_patches = int(num_quadrature_points / patch_size)
+N_patches = int(num_quadrature_points / patch_size) # TODO: scalar vs vector patches
 residue_size = num_quadrature_points % patch_size
 p_vals = np.empty_like(p.x.array)
 # p_values = p.x.array[:num_quadrature_points - residue_size].reshape((-1, patch_size))
@@ -532,16 +632,55 @@ sigma_vals = np.empty_like(sigma.ref_coefficient.x.array)
 sig_values = sigma_vals[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
 sig_old_values = sigma_n.x.array[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
 
+C_tang_vals = np.empty(sigma.ref_coefficient.x.array.size*4)
+C_tang_values = C_tang_vals[:4*4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4, 4))
+
 if residue_size != 0:
-    return_mapping_residue = ConvexPlasticity(material, residue_size, 'SCS')
+    return_mapping_residue = ConvexPlasticity(material, residue_size, 'CLARABEL')
     # p_values_residue = p.x.array[num_quadrature_points - residue_size:].reshape((1, residue_size))
     p_values_residue = p_vals[num_quadrature_points - residue_size:].reshape((1, residue_size))
     p_old_values_residue = p_n.x.array[num_quadrature_points - residue_size:].reshape((1, residue_size))
-    deps_values_residue = deps.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+    # deps_values_residue = deps.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
     sig_values_residue = sigma_vals[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
     sig_old_values_residue = sigma_n.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+    C_tang_values = C_tang_vals[4*4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4, 4))
 
 def sigma_impl(deps):
+    # print(num_quadrature_points, residue_size)
+    deps_values = deps[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
+    # if residue_size != 0:
+        # sig_values_residue = sig.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+        # sig_old_values_residue = sig_old.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+
+    for q in range(N_patches):
+        return_mapping.deps.value[:] = deps_values[q,:].T
+        return_mapping.sig_old.value[:] = sig_old_values[q,:].T
+        return_mapping.p_old.value = p_old_values[q,:]
+        
+        return_mapping.solve(**conic_solver_params)
+
+        sig_values[q,:] = return_mapping.sig_vals[:].T
+        p_values[q,:] = return_mapping.p_vals[:]
+
+    if residue_size != 0: #how to improve ?
+        deps_values_residue = deps[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
+        return_mapping_residue.deps.value[:] = deps_values_residue[0,:].T
+        return_mapping_residue.sig_old.value[:] = sig_old_values_residue[0,:].T
+        return_mapping_residue.p_old.value = p_old_values_residue[0,:]
+        
+        return_mapping_residue.solve(**conic_solver_params)
+
+        sig_values_residue[0,:] = return_mapping_residue.sig_vals[:].T
+        p_values_residue[0,:] = return_mapping_residue.p.value
+    return sigma_vals.reshape(-1), p_vals.reshape(-1)
+
+global_size = int(sigma.ref_coefficient.x.array.size / 4.0)
+C_elas_ = np.empty((global_size, 4, 4), dtype=PETSc.ScalarType)
+for i in range(global_size):
+    C_elas_[i] = C_elas
+
+def C_tang_impl(deps):
+     # print(num_quadrature_points, residue_size)
     deps_values = deps[:4*(num_quadrature_points - residue_size)].reshape((-1, patch_size, 4))
     # if residue_size != 0:
         # sig_values_residue = sig.x.array[4*(num_quadrature_points - residue_size):].reshape((1, residue_size, 4))
@@ -567,23 +706,9 @@ def sigma_impl(deps):
 
         sig_values_residue[0,:] = return_mapping_residue.sig.value[:].T
         p_values_residue[0,:] = return_mapping_residue.p.value
-    return sigma_vals.reshape(-1), p_vals.reshape(-1)
-
-global_size = int(sigma.ref_coefficient.x.array.size / 4.0)
-C_elas_ = np.empty((global_size, 4, 4), dtype=PETSc.ScalarType)
-for i in range(global_size):
-    C_elas_[i] = C_elas
-
-def C_tang_impl(deps):
-    # num_cells, num_quadrature_points, _ = deps.shape
-   
-    # deps_ = deps.reshape((num_cells, num_quadrature_points, 4))
-    # sigma_n_ = sigma_n.x.array.reshape((num_cells, num_quadrature_points, 4))
-    # p_ = p.x.array.reshape((num_cells, num_quadrature_points))
-
-    # C_tang_, sigma_, dp_ = return_mapping(deps_, sigma_n_, p_)
-
-    return C_elas_.reshape(-1)
+    
+    return C_elas_.reshape(-1), sigma_vals.reshape(-1), p_vals.reshape(-1)
+    # return C_tang_vals.reshape(-1), sigma_vals.reshape(-1), p_vals.reshape(-1)
 
 # %%
 
@@ -657,7 +782,7 @@ J_form = fem.form(J_replaced)
 def constitutive_update():
     evaluated_operands = evaluate_operands(F_external_operators)
     ((_, p_vals),) = evaluate_external_operators(F_external_operators, evaluated_operands)
-    _ = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # ((_, sigma_new, p_vals),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     # This avoids having to evaluate the external operators of F.
     # sigma.ref_coefficient.x.array[:] = sigma_new
     p.x.array[:] = p_vals
