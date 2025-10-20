@@ -69,16 +69,17 @@ Introduction to External Operators — FEniCS 2024 Conference:
 If you use `dolfinx-external-operator` in your research we ask that you cite
 the following references:
 
-```
-@preprint{latyshev:hal-04735022,
-  TITLE = {{Expressing general constitutive models in FEniCSx using external operators and algorithmic automatic differentiation}},
-  AUTHOR = {Latyshev, Andrey and Bleyer, J{\'e}r{\'e}my and Maurini, Corrado and Hale, Jack S},
-  URL = {https://hal.science/hal-04735022},
-  NOTE = {working paper or preprint},
-  YEAR = {2024},
-  MONTH = Oct,
-  KEYWORDS = {constitutive models ; automated finite element solvers ; algorithmic automatic differentiation ; external operators ; FEniCSx ; JAX ; Numba},
-  HAL_VERSION = {v2},
+```bibtex
+@article{jtcam:14449,
+    title      = {Expressing general constitutive models in FEniCSx using external operators and algorithmic automatic differentiation},
+    author     = {Andrey Latyshev and Jérémy Bleyer and Corrado Maurini and Jack Hale},
+    url        = {https://jtcam.episciences.org/14449},
+    doi        = {10.46298/jtcam.14449},
+    journal    = {Journal of Theoretical, Computational and Applied Mechanics},
+    issn       = {2726-6141},
+    year       = {2025},
+    month      = {Sep},
+    keywords   = {automated finite element solvers, Numba, JAX, FEniCSx, external operators, algorithmic automatic differentiation, constitutive models}
 }
 
 @inproceedings{latyshev_2024_external_paper,
@@ -91,9 +92,7 @@ the following references:
   address = {Giens, France},
   url = {https://hal.science/hal-04610881}
 }
-```
 
-```
 @software{latyshev_2024_external_code,
   title = {a-latyshev/dolfinx-external-operator},
   author = {Latyshev, Andrey and Hale, Jack},
