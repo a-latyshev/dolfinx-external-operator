@@ -43,7 +43,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          apt update && apt install -y libxrender1 libgl1-mesa-dev mesa-utils
+          apt update && apt install -y libxrender1 libgl1-mesa-dev mesa-utils xvfb
 
       - name: Run demos (serial)
         run: |
