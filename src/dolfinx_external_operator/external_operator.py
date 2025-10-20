@@ -144,23 +144,33 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
 def evaluate_operands(
     external_operators: list[FEMExternalOperator],
-    entity_maps: dict[_mesh.Mesh, np.ndarray] | None = None,
+    entities: np.ndarray | None = None,
 ) -> dict[ufl.core.expr.Expr | int, np.ndarray]:
     """Evaluates operands of external operators.
 
     Args:
         external_operators: A list with external operators required to be updated.
-        entity_maps: A dictionary mapping between parent mesh and sub mesh entities.
+        entities: A dictionary mapping between parent mesh and sub mesh
+        entities with respect to `eval` function of `fem.Expression`.
     Returns:
-        A map between UFL operand and the `ndarray`, the evaluation of the operand.
+        A map between UFL operand and the `ndarray`, the evaluation of the
+        operand.
+        
+    Note: 
+        User is responsible to ensure that `entities` are correctly constructed
+        with respect to the codimension of the external operator.
     """
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
     quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree)[0]
-    map_c = mesh.topology.index_map(mesh.topology.dim)
-    num_cells = map_c.size_local + map_c.num_ghosts
-    cells = np.arange(0, num_cells, dtype=np.int32)
+
+    # If no entity map is provided, assume that there is no sub-meshing
+    if entities is None:
+        map_c = mesh.topology.index_map(mesh.topology.dim)
+        num_cells = map_c.size_local + map_c.num_ghosts
+        cells = np.arange(0, num_cells, dtype=np.int32)
+        entities = cells
 
     # Evaluate unique operands in external operators
     evaluated_operands = {}
@@ -174,23 +184,11 @@ def evaluate_operands(
                 operand_domain = ufl.domain.extract_unique_domain(operand)
                 operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
                 codim = operand_mesh.topology.dim - mesh.topology.dim
+                # TODO: Stop recreating the expression every time
                 expr = fem.Expression(operand, quadrature_points)
                 # NOTE: Using expression eval might be expensive
-                if codim == 0:
-                    if operand_mesh._cpp_object != mesh._cpp_object:
-                        inverted_map = np.empty(len(cells), dtype=np.int32)
-                        indices = np.flatnonzero(entity_maps[mesh] >= 0)
-                        inverted_map[entity_maps[mesh][indices]] = indices
-                        evaluated_operand = expr.eval(operand_mesh, inverted_map)
-                    else:
-                        evaluated_operand = expr.eval(mesh, cells)
-                elif codim == 1:
-                    assert entity_maps is not None
-                    evaluated_operand = expr.eval(operand_mesh, entity_maps[mesh])
-                else:
-                    raise NotImplementedError("Only codim 0 and 1 are supported.")
+                evaluated_operand = expr.eval(operand_mesh, entities)
             evaluated_operands[operand] = evaluated_operand
-
     return evaluated_operands
 
 

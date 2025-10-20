@@ -72,10 +72,8 @@ def test_external_operator_codim_1(quadrature_degree):
     u = dolfinx.fem.Function(V)
     u.interpolate(lambda x: x[0] + x[1])
 
-    submesh, sub_to_parent, _, _ = dolfinx.mesh.create_submesh(mesh, mesh.topology.dim - 1, ext_facets)
-    num_entities = mesh.topology.index_map(mesh.topology.dim - 1).size_local
+    submesh, entity_map, _, _ = dolfinx.mesh.create_submesh(mesh, mesh.topology.dim - 1, ext_facets)
     parent_to_sub = np.empty((len(ext_facets), 2), dtype=np.int32)
-    # print(num_entities)
 
     for i, facet in enumerate(ext_facets):
         cells = f_to_c.links(facet)
@@ -84,9 +82,10 @@ def test_external_operator_codim_1(quadrature_degree):
         local_pos = np.flatnonzero(local_facets == facet)
         parent_to_sub[i, 0] = cell
         parent_to_sub[i, 1] = local_pos[0]
-    entity_maps = {submesh: parent_to_sub}
+    tdim = mesh.topology.dim
+    
+    ext_facets = dolfinx.mesh.exterior_facet_indices(mesh.topology)
 
-    # print(parent_to_sub)
     Qe = basix.ufl.quadrature_element(submesh.basix_cell(), degree=quadrature_degree, value_shape=())
     Q = dolfinx.fem.functionspace(submesh, Qe)
 
@@ -104,12 +103,10 @@ def test_external_operator_codim_1(quadrature_degree):
             J = ufl.algorithms.expand_derivatives(ufl.derivative(g, u) * ds)
 
         J_replaced, J_external_operators = replace_external_operators(J)
-        parent_to_sub2 = np.full(num_entities, -1, dtype=np.int32)
-        parent_to_sub2[sub_to_parent] = np.arange(len(sub_to_parent), dtype=np.int32)
-        entity_maps2 = {submesh: parent_to_sub2}
-        J_compiled = dolfinx.fem.form(J_replaced, entity_maps=entity_maps2)
+  
+        J_compiled = dolfinx.fem.form(J_replaced, entity_maps=[entity_map])
         # Pack coefficients for g
-        evaluated_operands = evaluate_operands(J_external_operators, entity_maps=entity_maps)
+        evaluated_operands = evaluate_operands(J_external_operators, entities=parent_to_sub)
         _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
         Jh = dolfinx.fem.assemble_scalar(J_compiled)
@@ -142,14 +139,8 @@ def test_external_operator_codim_0(quadrature_degree):
 
     cells = dolfinx.mesh.locate_entities(mesh, mesh.topology.dim, bottom)
     ct = dolfinx.mesh.meshtags(mesh, mesh.topology.dim, cells, np.full_like(cells, 1))
-    submesh, sub_to_parent, _, _ = dolfinx.mesh.create_submesh(mesh, mesh.topology.dim, ct.find(1))
+    submesh, entity_map, _, _ = dolfinx.mesh.create_submesh(mesh, mesh.topology.dim, ct.find(1))
 
-    num_entities = (
-        mesh.topology.index_map(mesh.topology.dim).size_local + mesh.topology.index_map(mesh.topology.dim).num_ghosts
-    )
-    parent_to_sub = np.full(num_entities, -1, dtype=np.int32)
-    parent_to_sub[sub_to_parent] = np.arange(len(sub_to_parent), dtype=np.int32)
-    entity_maps = {submesh: parent_to_sub}
     Qe = basix.ufl.quadrature_element(submesh.basix_cell(), degree=quadrature_degree, value_shape=())
     Q = dolfinx.fem.functionspace(submesh, Qe)
 
@@ -168,11 +159,15 @@ def test_external_operator_codim_0(quadrature_degree):
             J = ufl.algorithms.expand_derivatives(ufl.derivative(f, u) * dx)
 
         J_replaced, J_external_operators = replace_external_operators(J)
+        map_c = submesh.topology.index_map(submesh.topology.dim)
+        num_cells = map_c.size_local + map_c.num_ghosts
+        cells = np.arange(0, num_cells, dtype=np.int32)
+        submesh_cells_to_parent = entity_map.sub_topology_to_topology(cells, inverse=False)
         # Pack coefficients for g
-        evaluated_operands = evaluate_operands(J_external_operators, entity_maps=entity_maps)
+        evaluated_operands = evaluate_operands(J_external_operators, entities=submesh_cells_to_parent)
         _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
-        J_compiled = dolfinx.fem.form(J_replaced, entity_maps=entity_maps)
+        J_compiled = dolfinx.fem.form(J_replaced, entity_maps=[entity_map])
         Jh = dolfinx.fem.assemble_scalar(J_compiled)
         Jh = mesh.comm.allreduce(Jh, op=MPI.SUM)
 
