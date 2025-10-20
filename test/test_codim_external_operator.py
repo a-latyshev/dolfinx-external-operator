@@ -83,7 +83,7 @@ def test_external_operator_codim_1(quadrature_degree):
         parent_to_sub[i, 0] = cell
         parent_to_sub[i, 1] = local_pos[0]
     tdim = mesh.topology.dim
-    
+
     ext_facets = dolfinx.mesh.exterior_facet_indices(mesh.topology)
 
     Qe = basix.ufl.quadrature_element(submesh.basix_cell(), degree=quadrature_degree, value_shape=())
@@ -103,7 +103,7 @@ def test_external_operator_codim_1(quadrature_degree):
             J = ufl.algorithms.expand_derivatives(ufl.derivative(g, u) * ds)
 
         J_replaced, J_external_operators = replace_external_operators(J)
-  
+
         J_compiled = dolfinx.fem.form(J_replaced, entity_maps=[entity_map])
         # Pack coefficients for g
         evaluated_operands = evaluate_operands(J_external_operators, entities=parent_to_sub)

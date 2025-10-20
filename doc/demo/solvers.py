@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -25,7 +25,7 @@ class LinearProblem:
         self.dR = dR
         self.b_form = fem.form(R)
         self.A_form = fem.form(dR)
-        self.b = fem.petsc.create_vector(self.b_form)
+        self.b = fem.petsc.create_vector(V)
         self.A = fem.petsc.create_matrix(self.A_form)
 
         self.comm = domain.comm
@@ -93,9 +93,9 @@ class NonlinearProblemWithCallback(NewtonSolverNonlinearProblem):
         u: fem.function.Function,
         bcs: list[fem.bcs.DirichletBC] = [],
         J: ufl.form.Form = None,
-        form_compiler_options: Optional[dict] = None,
-        jit_options: Optional[dict] = None,
-        external_callback: Optional[Callable] = lambda: None,
+        form_compiler_options: dict | None = None,
+        jit_options: dict | None = None,
+        external_callback: Callable | None = lambda: None,
     ):
         super().__init__(F, u, bcs, J, form_compiler_options, jit_options)
 
@@ -129,9 +129,9 @@ class PETScNonlinearProblem:
         self,
         u: fem.function.Function,
         F: ufl.form.Form,
-        J: Optional[ufl.form.Form] = None,
+        J: ufl.form.Form | None = None,
         bcs: list[fem.bcs.DirichletBC] = [],
-        external_callback: Optional[Callable] = lambda: None,
+        external_callback: Callable | None = lambda: None,
     ):
         self.u = u
         self.F_form = fem.form(F)
@@ -182,10 +182,11 @@ class PETScNonlinearSolver:
         self,
         comm: MPI.Intracomm,
         problem: PETScNonlinearProblem,
-        petsc_options: Optional[dict] = {},
-        prefix: Optional[str] = None,
+        petsc_options: dict | None = {},
+        prefix: str | None = None,
     ):
-        self.b = fem.petsc.create_vector(problem.F_form)
+        V = problem.u.function_space
+        self.b = fem.petsc.create_vector(V)
         self.A = fem.petsc.create_matrix(problem.J_form)
 
         # Give PETSc solver options a unique prefix

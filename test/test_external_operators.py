@@ -30,7 +30,7 @@ def compute_dimensions(operand, u, test_f):
     F = ufl.inner(N, test_f) * dx
     J = ufl.derivative(F, u, u_hat)
     J_expanded = ufl.algorithms.expand_derivatives(J)
-    J_replaced, J_ex_ops_list = replace_external_operators(J_expanded)
+    _J_replaced, J_ex_ops_list = replace_external_operators(J_expanded)
     dNdu = J_ex_ops_list[0]
 
     shape_dNdu = dNdu.ref_coefficient.ufl_shape

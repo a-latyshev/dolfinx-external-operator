@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
 #   kernelspec:
-#     display_name: dolfinx-env
+#     display_name: dolfinx-env (3.12.3)
 #     language: python
 #     name: python3
 # ---
@@ -576,7 +576,7 @@ def C_tang_impl(deps):
     sigma_n_ = sigma_n.x.array.reshape((-1, stress_dim))
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    sigma_global, niter, yielding, norm_res, dlambda = state
+    sigma_global, niter, yielding, norm_res, _dlambda = state
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 

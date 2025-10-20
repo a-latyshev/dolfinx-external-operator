@@ -155,8 +155,8 @@ def evaluate_operands(
     Returns:
         A map between UFL operand and the `ndarray`, the evaluation of the
         operand.
-        
-    Note: 
+
+    Note:
         User is responsible to ensure that `entities` are correctly constructed
         with respect to the codimension of the external operator.
     """
@@ -183,7 +183,6 @@ def evaluate_operands(
                 # Check if we have a sub-mesh with different codim
                 operand_domain = ufl.domain.extract_unique_domain(operand)
                 operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
-                codim = operand_mesh.topology.dim - mesh.topology.dim
                 # TODO: Stop recreating the expression every time
                 expr = fem.Expression(operand, quadrature_points)
                 # NOTE: Using expression eval might be expensive
