@@ -406,23 +406,13 @@ J_form = fem.form(J_replaced)
 # %% [markdown]
 # ### Solving the problem
 #
-# Once we prepared the forms containing external operators, we can defind the
-# nonlinear problem and its solver. Here we modified the original DOLFINx
-# `NonlinearProblem` and called it `NonlinearProblemWithCallback` to let the
-# solver evaluate external operators at each iteration. For this matter we define
-# the function `constitutive_update` with external operators evaluations and
-# update of the internal variable `dp`.
+# Once we prepared the forms containing external operators, we can apply the
+# Newton method to solve the nonlinear problem that is based on that forms. For
+# this matter, we use `NonlinearProblem`, which is a high-level interface of
+# DOLFINx based on PETSc SNES.
 
 
 # %%
-def constitutive_update():
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # This avoids having to evaluate the external operators of F.
-    sigma.ref_coefficient.x.array[:] = sigma_new
-    dp.x.array[:] = dp_new
-
-
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "snes_linesearch_type": "basic",
@@ -435,21 +425,32 @@ petsc_options = {
 }
 
 problem = NonlinearProblem(
-    F_replaced,
-    Du,
-    J=J_replaced,
-    bcs=bcs,
-    petsc_options_prefix="demo_von_mises_",
-    petsc_options=petsc_options,
+    F_replaced, Du, J=J_replaced, bcs=bcs, petsc_options_prefix="demo_von_mises_", petsc_options=petsc_options
 )
+
+
+# %% [markdown]
+# To update external operators at each iteration of the Newton method, we provide
+# SNES of `problem` with the function `constitutive_update` that evaluates
+# external operators and updates the internal variable `dp`.
+
+
+# %%
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # This avoids having to evaluate the external operators of F.
+    sigma.ref_coefficient.x.array[:] = sigma_new
+    dp.x.array[:] = dp_new
 
 
 def assemble_residual_with_callback(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
     """Assemble the residual F into the vector b with a callback to external functions.
 
-    snes: the snes object
-    x: Vector containing the latest solution.
-    b: Vector to assemble the residual into.
+    Args:
+        snes: the snes object
+        x: Vector containing the latest solution.
+        b: Vector to assemble the residual into.
     """
     x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
     x.copy(Du.x.petsc_vec)
@@ -467,6 +468,8 @@ def assemble_residual_with_callback(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec
     fem.petsc.set_bc(b, bcs, x, -1.0)
 
 
+# Set the custom residual assembly function with the one that calls
+# `constitutive_update`
 problem.solver.setFunction(assemble_residual_with_callback, problem.b)
 
 # %% [markdown]

@@ -73,6 +73,8 @@
 # ### Preamble
 
 # %%
+from functools import partial
+
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -84,7 +86,7 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from mpltools import annotation  # for slope markers
-from utilities import find_cell_by_point
+from utilities import assemble_residual_with_callback, find_cell_by_point
 
 import basix
 import ufl
@@ -649,21 +651,13 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # %% [markdown]
 # ### Solving the problem
 #
-# Similarly to the von Mises tutorial, we use a Newton solver, but this time we
-# rely on `SNES`, the implementation from the `PETSc` library. We implemented the
-# class `PETScNonlinearProblem` that allows to call an additional routine
-# `external_callback` at each iteration of SNES before the vector and matrix
-# assembly.
+# Similarly to the von Mises tutorial, we use `NonlinearProblem` to solve the
+# global problem with SNES. To enable the external operators update at each
+# iteration of SNES before the vector and matrix assembly, we wrote a simple
+# wrapper `assemble_residual_with_callback` (see {file}`./utilities.py`)
 
 
 # %%
-def constitutive_update():
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # Direct access to the external operator values
-    sigma.ref_coefficient.x.array[:] = sigma_new
-
-
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "snes_linesearch_type": "basic",
@@ -681,30 +675,17 @@ problem = NonlinearProblem(
 )
 
 
-def assemble_residual_with_callback(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
-    """Assemble the residual F into the vector b with a callback to external functions.
-
-    snes: the snes object
-    x: Vector containing the latest solution.
-    b: Vector to assemble the residual into.
-    """
-    x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
-    x.copy(Du.x.petsc_vec)
-    Du.x.scatter_forward()
-
-    # Call external functions, e.g. evaluation of external operators
-    constitutive_update()
-
-    with b.localForm() as b_local:
-        b_local.set(0.0)
-    fem.petsc.assemble_vector(b, problem._F)
-
-    fem.petsc.apply_lifting(b, [problem._J], [bcs], [x], -1.0)
-    b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-    fem.petsc.set_bc(b, bcs, x, -1.0)
+def constitutive_update():
+    evaluated_operands = evaluate_operands(F_external_operators)
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # Direct access to the external operator values
+    sigma.ref_coefficient.x.array[:] = sigma_new
 
 
-problem.solver.setFunction(assemble_residual_with_callback, problem.b)
+assemble_residual_with_callback_ = partial(
+    assemble_residual_with_callback, problem.u, problem._F, problem._J, bcs, constitutive_update
+)
+problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
 
 # %% [markdown]
@@ -738,14 +719,6 @@ for i, load in enumerate(load_steps):
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
 
 print(f"Slope stability factor: {-q.value[-1] * H / c}")
-
-# %% [markdown]
-# ```{note}
-# We demonstrated here the use of `PETSc.SNES` together with external operators
-# through the `PETScNonlinearProblem` and `PETScNonlinearSolver` classes. If the
-# user is familiar with original DOLFINx `NonlinearProblem`, feel free to
-# use `NonlinearProblemWithCallback` covered in the [von Mises tutorial](demo_plasticity_von_mises.py).
-# ```
 
 # %% [markdown]
 # ## Verification
