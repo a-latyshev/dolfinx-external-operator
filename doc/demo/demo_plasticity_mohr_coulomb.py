@@ -85,12 +85,12 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from mpltools import annotation  # for slope markers
-from solvers import PETScNonlinearProblem, PETScNonlinearSolver
 from utilities import find_cell_by_point
 
 import basix
 import ufl
 from dolfinx import default_scalar_type, fem, mesh
+from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -676,30 +676,10 @@ petsc_options = {
     "snes_monitor": "",
 }
 
-from dolfinx.fem.petsc import NonlinearProblem
 problem = NonlinearProblem(F_replaced, Du, petsc_options_prefix="demo_mohr-coulomb_", J=J_replaced, bcs=bcs, petsc_options=petsc_options)
 
-from functools import partial
-from dolfinx.fem.petsc import assemble_residual
-from dolfinx.la.petsc import _ghost_update
-from dolfinx.fem.petsc import assign
-
-assemble_residual_ = partial(assemble_residual, Du, problem._F, problem._J, bcs)
-
-def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
-    _ghost_update(x, PETSc.InsertMode.INSERT, PETSc.ScatterMode.FORWARD)
-    assign(x, Du)
-    constitutive_update()
-    assemble_residual_(snes, x, b)
-
-problem.solver.setFunction(my_assemble_residual, problem.b)
-
-
-# %%
-F_replaced_form = fem.form(F_replaced)
-J_replaced_form = fem.form(J_replaced)
-def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
-    """Assemble the residual F into the vector b.
+def assemble_residual_with_callback(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
+    """Assemble the residual F into the vector b with a callback to external functions.
 
     snes: the snes object
     x: Vector containing the latest solution.
@@ -708,7 +688,7 @@ def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
     x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
     x.copy(Du.x.petsc_vec)
     Du.x.scatter_forward()
-    
+
     # Call external functions, e.g. evaluation of external operators
     constitutive_update()
 
@@ -720,20 +700,8 @@ def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
     fem.petsc.set_bc(b, bcs, x, -1.0)
 
-from functools import partial
-from dolfinx.fem.petsc import assemble_residual
-from dolfinx.la.petsc import _ghost_update
-from dolfinx.fem.petsc import assign
+problem.solver.setFunction(assemble_residual_with_callback, problem.b)
 
-assemble_residual_ = partial(assemble_residual, Du, problem._F, problem._J, bcs)
-
-def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
-    _ghost_update(x, PETSc.InsertMode.INSERT, PETSc.ScatterMode.FORWARD)
-    assign(x, Du)
-    constitutive_update()
-    assemble_residual_(snes, x, b)
-
-problem.solver.setFunction(my_assemble_residual, problem.b)
 
 # %% [markdown]
 # After definition of the nonlinear problem and the Newton solver, we are ready to

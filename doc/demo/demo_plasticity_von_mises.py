@@ -427,7 +427,6 @@ petsc_options = {
     "snes_linesearch_type": "basic",
     "ksp_type": "preonly",
     "pc_type": "lu",
-    # "pc_factor_mat_solver_type": "mumps",
     "snes_atol": 1.0e-8,
     "snes_rtol": 1.0e-8,
     "snes_max_it": 100,
@@ -436,21 +435,29 @@ petsc_options = {
 
 problem = NonlinearProblem(F_replaced, Du, J=J_replaced, bcs=bcs, petsc_options_prefix="demo_von_mises_", petsc_options=petsc_options)
 
+def assemble_residual_with_callback(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
+    """Assemble the residual F into the vector b with a callback to external functions.
 
-from functools import partial
-from dolfinx.fem.petsc import assemble_residual
-from dolfinx.la.petsc import _ghost_update
-from dolfinx.fem.petsc import assign
+    snes: the snes object
+    x: Vector containing the latest solution.
+    b: Vector to assemble the residual into.
+    """
+    x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+    x.copy(Du.x.petsc_vec)
+    Du.x.scatter_forward()
 
-assemble_residual_ = partial(assemble_residual, Du, problem._F, problem._J, bcs)
-
-def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
-    _ghost_update(x, PETSc.InsertMode.INSERT, PETSc.ScatterMode.FORWARD)
-    assign(x, Du)
+    # Call external functions, e.g. evaluation of external operators
     constitutive_update()
-    assemble_residual_(snes, x, b)
 
-problem.solver.setFunction(my_assemble_residual, problem.b)
+    with b.localForm() as b_local:
+        b_local.set(0.0)
+    fem.petsc.assemble_vector(b, problem._F)
+
+    fem.petsc.apply_lifting(b, [problem._J], [bcs], [x], -1.0)
+    b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+    fem.petsc.set_bc(b, bcs, x, -1.0)
+
+problem.solver.setFunction(assemble_residual_with_callback, problem.b)
 
 # %% [markdown]
 # Now we are ready to solve the problem.
