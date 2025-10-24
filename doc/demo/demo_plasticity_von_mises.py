@@ -157,13 +157,12 @@ import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
-from solvers import NonlinearProblemWithCallback
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.nls.petsc import NewtonSolver
+from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -423,24 +422,40 @@ def constitutive_update():
     sigma.ref_coefficient.x.array[:] = sigma_new
     dp.x.array[:] = dp_new
 
+petsc_options = {
+    "snes_type": "vinewtonrsls",
+    "snes_linesearch_type": "basic",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    # "pc_factor_mat_solver_type": "mumps",
+    "snes_atol": 1.0e-8,
+    "snes_rtol": 1.0e-8,
+    "snes_max_it": 100,
+    "snes_monitor": "",
+}
 
-problem = NonlinearProblemWithCallback(F_replaced, Du, bcs=bcs, J=J_replaced, external_callback=constitutive_update)
+problem = NonlinearProblem(F_replaced, Du, J=J_replaced, bcs=bcs, petsc_options_prefix="demo_von_mises_", petsc_options=petsc_options)
+
+
+from functools import partial
+from dolfinx.fem.petsc import assemble_residual
+from dolfinx.la.petsc import _ghost_update
+from dolfinx.fem.petsc import assign
+
+assemble_residual_ = partial(assemble_residual, Du, problem._F, problem._J, bcs)
+
+def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
+    _ghost_update(x, PETSc.InsertMode.INSERT, PETSc.ScatterMode.FORWARD)
+    assign(x, Du)
+    constitutive_update()
+    assemble_residual_(snes, x, b)
+
+problem.solver.setFunction(my_assemble_residual, problem.b)
 
 # %% [markdown]
 # Now we are ready to solve the problem.
 
 # %% tags=["scroll-output"]
-solver = NewtonSolver(mesh.comm, problem)
-solver.max_it = 200
-solver.rtol = 1e-8
-ksp = solver.krylov_solver
-opts = PETSc.Options()  # type: ignore
-option_prefix = ksp.getOptionsPrefix()
-opts[f"{option_prefix}ksp_type"] = "preonly"
-opts[f"{option_prefix}pc_type"] = "lu"
-opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-ksp.setFromOptions()
-
 u = fem.Function(V, name="displacement")
 
 x_point = np.array([[R_i, 0, 0]])
@@ -455,14 +470,14 @@ results = np.zeros((num_increments, 2))
 eps = np.finfo(PETSc.ScalarType).eps
 
 for i, loading_v in enumerate(loadings):
-    residual = solver._b.norm()
     if MPI.COMM_WORLD.rank == 0:
         print(f"Load increment #{i}, load: {loading_v:.3f}")
 
     loading.value = loading_v
     Du.x.array[:] = eps
 
-    iters, _ = solver.solve(Du)
+    _ = problem.solve()
+    iters = problem.solver.getIterationNumber()
     print(f"\tInner Newton iterations: {iters}")
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)

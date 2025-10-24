@@ -7,7 +7,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import numpy as np
-from solvers import LinearProblem
+from dolfinx.fem.petsc import NonlinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point, interpolate_quadrature
 
 import basix
@@ -128,44 +128,40 @@ def plasticity_von_mises_pure_ufl(verbose=True):
     residual = ufl.inner(as_3D_tensor(sig) + sigma(eps(Du) - deps_p), eps(v)) * dx - F_ext(v)
     J = ufl.derivative(ufl.inner(sigma(eps(Du) - deps_p), eps(v)) * dx, Du, v_)
 
-    von_mises_problem = LinearProblem(J, -residual, Du, bcs)
+    petsc_options = {
+        "snes_type": "vinewtonrsls",
+        "snes_linesearch_type": "basic",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        # "pc_factor_mat_solver_type": "mumps",
+        "snes_atol": 1.0e-8,
+        "snes_rtol": 1.0e-8,
+        "snes_max_it": 100,
+        "snes_monitor": "",
+    }
 
+    von_mises_problem = NonlinearProblem(residual, Du, petsc_options_prefix="von_mises_pure_ufl_", J=J, bcs=bcs, petsc_options=petsc_options)
+    
     x_point = np.array([[R_i, 0, 0]])
     cells, points_on_proc = find_cell_by_point(mesh, x_point)
 
     TPV = np.finfo(PETSc.ScalarType).eps  # très petite value
     sig.x.array[:] = TPV
 
-    Nitermax, tol = 200, 1e-8  # parameters of the manual Newton method
+    Nitermax = 200
     Nincr = 20
     load_steps = (np.linspace(0, 1.1, Nincr, endpoint=True) ** 0.5)[1:]
     results = np.zeros((Nincr, 2))
 
     for i, t in enumerate(load_steps):
         loading.value = t * q_lim
-        von_mises_problem.assemble_vector()
+        
+        if MPI.COMM_WORLD.rank == 0:
+            print(f"Load increment #{i}, load: {loading.value:.3f}")
 
-        nRes0 = von_mises_problem.b.norm()
-        nRes = nRes0
-
-        if MPI.COMM_WORLD.rank == 0 and verbose:
-            print(f"\nIncrement#{i + 1!s}: load = {t * q_lim:.3f}, Residual0 = {nRes0:.2e}")
-        niter = 0
-
-        while nRes / nRes0 > tol and niter < Nitermax:
-            von_mises_problem.assemble_matrix()
-            von_mises_problem.solve(du)
-
-            Du.x.petsc_vec.axpy(1, du.x.petsc_vec)  # Du = Du + 1*du
-            Du.x.scatter_forward()
-
-            von_mises_problem.assemble_vector()
-
-            nRes = von_mises_problem.b.norm()
-
-            if MPI.COMM_WORLD.rank == 0 and verbose:
-                print(f"\tit#{niter} Residual: {nRes:.2e}")
-            niter += 1
+        _ = von_mises_problem.solve()
+        iters = von_mises_problem.solver.getIterationNumber()
+        print(f"\tInner Newton iterations: {iters}")
 
         # Update main variables
         interpolate_quadrature(sig_, sig)

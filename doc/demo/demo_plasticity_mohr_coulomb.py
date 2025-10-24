@@ -664,9 +664,6 @@ def constitutive_update():
     # Direct access to the external operator values
     sigma.ref_coefficient.x.array[:] = sigma_new
 
-
-problem = PETScNonlinearProblem(Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update)
-
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "snes_linesearch_type": "basic",
@@ -679,9 +676,64 @@ petsc_options = {
     "snes_monitor": "",
 }
 
+from dolfinx.fem.petsc import NonlinearProblem
+problem = NonlinearProblem(F_replaced, Du, petsc_options_prefix="demo_mohr-coulomb_", J=J_replaced, bcs=bcs, petsc_options=petsc_options)
 
-solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)  # PETSc.SNES wrapper
+from functools import partial
+from dolfinx.fem.petsc import assemble_residual
+from dolfinx.la.petsc import _ghost_update
+from dolfinx.fem.petsc import assign
 
+assemble_residual_ = partial(assemble_residual, Du, problem._F, problem._J, bcs)
+
+def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
+    _ghost_update(x, PETSc.InsertMode.INSERT, PETSc.ScatterMode.FORWARD)
+    assign(x, Du)
+    constitutive_update()
+    assemble_residual_(snes, x, b)
+
+problem.solver.setFunction(my_assemble_residual, problem.b)
+
+
+# %%
+F_replaced_form = fem.form(F_replaced)
+J_replaced_form = fem.form(J_replaced)
+def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
+    """Assemble the residual F into the vector b.
+
+    snes: the snes object
+    x: Vector containing the latest solution.
+    b: Vector to assemble the residual into.
+    """
+    x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+    x.copy(Du.x.petsc_vec)
+    Du.x.scatter_forward()
+    
+    # Call external functions, e.g. evaluation of external operators
+    constitutive_update()
+
+    with b.localForm() as b_local:
+        b_local.set(0.0)
+    fem.petsc.assemble_vector(b, problem._F)
+
+    fem.petsc.apply_lifting(b, [problem._J], [bcs], [x], -1.0)
+    b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+    fem.petsc.set_bc(b, bcs, x, -1.0)
+
+from functools import partial
+from dolfinx.fem.petsc import assemble_residual
+from dolfinx.la.petsc import _ghost_update
+from dolfinx.fem.petsc import assign
+
+assemble_residual_ = partial(assemble_residual, Du, problem._F, problem._J, bcs)
+
+def my_assemble_residual(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
+    _ghost_update(x, PETSc.InsertMode.INSERT, PETSc.ScatterMode.FORWARD)
+    assign(x, Du)
+    constitutive_update()
+    assemble_residual_(snes, x, b)
+
+problem.solver.setFunction(my_assemble_residual, problem.b)
 
 # %% [markdown]
 # After definition of the nonlinear problem and the Newton solver, we are ready to
@@ -703,7 +755,7 @@ for i, load in enumerate(load_steps):
     if MPI.COMM_WORLD.rank == 0:
         print(f"Load increment #{i}, load: {load}")
 
-    solver.solve(Du)
+    problem.solve()
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
@@ -1118,7 +1170,7 @@ Du.x.array[:] = 1e-8
 if MPI.COMM_WORLD.rank == 0:
     print(f"Load increment #{i}, load: {load}")
 
-solver.solve(Du)
+problem.solve()
 
 u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
 u.x.scatter_forward()
