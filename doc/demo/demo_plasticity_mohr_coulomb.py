@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -770,13 +771,10 @@ try:
     print(pyvista.global_theme.jupyter_backend)
     import dolfinx.plot
 
-    pyvista.start_xvfb(0.1)
-
     W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
     u_tmp = fem.Function(W, name="Displacement")
     u_tmp.interpolate(u)
 
-    pyvista.start_xvfb()
     plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
     topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
     grid = pyvista.UnstructuredGrid(topology, cell_types, x)
