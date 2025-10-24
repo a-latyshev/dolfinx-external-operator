@@ -97,7 +97,7 @@ the following references:
   title = {a-latyshev/dolfinx-external-operator},
   author = {Latyshev, Andrey and Hale, Jack},
   date = {2024},
-  doi = {10.5281/zenodo.10907417}
+  doi = {10.5281/zenodo.10907417},
   organization = {Zenodo}
 }
 ```

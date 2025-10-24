@@ -14,7 +14,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    container: ghcr.io/fenics/dolfinx/lab:nightly
+    container: ghcr.io/fenics/dolfinx/lab:v0.10.0
     
     env:
       PYVISTA_OFF_SCREEN: true
@@ -41,13 +41,8 @@ jobs:
         run: |
           mpirun -n 3 python3 -m pytest test/
       
-      - name: Install pyvista dependencies
-        run: |
-          apt-get update && apt install -y libxrender1 libgl1-mesa-dev mesa-utils xvfb
-
       - name: Run demos (serial)
         run: |
-          python3 -c "from pyvista import start_xvfb; start_xvfb(0.1)"
           python3 -m pytest -m mpi -v --num-proc=1 doc/demo
 
       - name: Run demos (MPI, np=3)
