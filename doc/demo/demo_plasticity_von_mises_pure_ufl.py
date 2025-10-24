@@ -7,12 +7,12 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import numpy as np
-from dolfinx.fem.petsc import NonlinearProblem
 from utilities import build_cylinder_quarter, find_cell_by_point, interpolate_quadrature
 
 import basix
 import ufl
 from dolfinx import fem
+from dolfinx.fem.petsc import NonlinearProblem
 
 
 def plasticity_von_mises_pure_ufl(verbose=True):
@@ -52,7 +52,7 @@ def plasticity_von_mises_pure_ufl(verbose=True):
     sig = fem.Function(W, name="Stress_vector")
     dp = fem.Function(W0, name="Cumulative_plastic_strain_increment")
     u = fem.Function(V, name="Total_displacement")
-    du = fem.Function(V, name="Iteration_correction")
+    fem.Function(V, name="Iteration_correction")
     Du = fem.Function(V, name="Current_increment")
     v_ = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
@@ -140,22 +140,23 @@ def plasticity_von_mises_pure_ufl(verbose=True):
         "snes_monitor": "",
     }
 
-    von_mises_problem = NonlinearProblem(residual, Du, petsc_options_prefix="von_mises_pure_ufl_", J=J, bcs=bcs, petsc_options=petsc_options)
-    
+    von_mises_problem = NonlinearProblem(
+        residual, Du, J=J, bcs=bcs, petsc_options_prefix="von_mises_pure_ufl_", petsc_options=petsc_options
+    )
+
     x_point = np.array([[R_i, 0, 0]])
     cells, points_on_proc = find_cell_by_point(mesh, x_point)
 
     TPV = np.finfo(PETSc.ScalarType).eps  # très petite value
     sig.x.array[:] = TPV
 
-    Nitermax = 200
     Nincr = 20
     load_steps = (np.linspace(0, 1.1, Nincr, endpoint=True) ** 0.5)[1:]
     results = np.zeros((Nincr, 2))
 
     for i, t in enumerate(load_steps):
         loading.value = t * q_lim
-        
+
         if MPI.COMM_WORLD.rank == 0:
             print(f"Load increment #{i}, load: {loading.value:.3f}")
 

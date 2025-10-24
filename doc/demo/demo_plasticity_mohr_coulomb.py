@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -664,6 +663,7 @@ def constitutive_update():
     # Direct access to the external operator values
     sigma.ref_coefficient.x.array[:] = sigma_new
 
+
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "snes_linesearch_type": "basic",
@@ -676,7 +676,10 @@ petsc_options = {
     "snes_monitor": "",
 }
 
-problem = NonlinearProblem(F_replaced, Du, petsc_options_prefix="demo_mohr-coulomb_", J=J_replaced, bcs=bcs, petsc_options=petsc_options)
+problem = NonlinearProblem(
+    F_replaced, Du, J=J_replaced, bcs=bcs, petsc_options_prefix="demo_mohr-coulomb_", petsc_options=petsc_options
+)
+
 
 def assemble_residual_with_callback(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
     """Assemble the residual F into the vector b with a callback to external functions.
@@ -699,6 +702,7 @@ def assemble_residual_with_callback(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec
     fem.petsc.apply_lifting(b, [problem._J], [bcs], [x], -1.0)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
     fem.petsc.set_bc(b, bcs, x, -1.0)
+
 
 problem.solver.setFunction(assemble_residual_with_callback, problem.b)
 
