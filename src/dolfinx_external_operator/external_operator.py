@@ -194,7 +194,7 @@ def evaluate_operands(
 def evaluate_external_operators(
     external_operators: list[FEMExternalOperator],
     evaluated_operands: dict[ufl.core.expr.Expr | int, np.ndarray],
-) -> list[list[np.ndarray]]:
+) -> list[list[np.ndarray]]: 
     """Evaluates external operators and updates the associated coefficient.
 
     Args:

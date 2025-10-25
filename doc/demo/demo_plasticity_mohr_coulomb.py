@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -73,8 +74,6 @@
 # ### Preamble
 
 # %%
-from functools import partial
-
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -86,7 +85,9 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from mpltools import annotation  # for slope markers
-from utilities import assemble_residual_with_callback, find_cell_by_point
+from utilities import find_cell_by_point, assemble_residual_with_callback
+from functools import partial
+from typing import List
 
 import basix
 import ufl
@@ -654,7 +655,7 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # Similarly to the von Mises tutorial, we use `NonlinearProblem` to solve the
 # global problem with SNES. To enable the external operators update at each
 # iteration of SNES before the vector and matrix assembly, we wrote a simple
-# wrapper `assemble_residual_with_callback` (see {file}`./utilities.py`)
+# wrapper `assemble_residual_with_callback`.
 
 
 # %%
@@ -674,16 +675,24 @@ problem = NonlinearProblem(
     F_replaced, Du, J=J_replaced, bcs=bcs, petsc_options_prefix="demo_mohr-coulomb_", petsc_options=petsc_options
 )
 
-
-def constitutive_update():
+def constitutive_update(
+    F_external_operators: List[FEMExternalOperator], 
+    J_external_operators: List[FEMExternalOperator], 
+):
+    """Update the constitutive model by evaluating the external operators."""
     evaluated_operands = evaluate_operands(F_external_operators)
+    # Call `C_tang_impl`
     ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     # Direct access to the external operator values
     sigma.ref_coefficient.x.array[:] = sigma_new
 
-
-assemble_residual_with_callback_ = partial(
-    assemble_residual_with_callback, problem.u, problem._F, problem._J, bcs, constitutive_update
+assemble_residual_with_callback_ = partial(assemble_residual_with_callback, 
+    problem.u, 
+    problem.F, 
+    problem.J, 
+    bcs, 
+    constitutive_update, # external callback with respect to SNES
+    [F_external_operators, J_external_operators] # input arguments of the callback
 )
 problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 

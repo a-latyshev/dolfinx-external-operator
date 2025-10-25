@@ -170,6 +170,13 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
+from dolfinx.fem.bcs import DirichletBC
+from dolfinx.fem.forms import Form
+from dolfinx.fem.function import Function
+from collections.abc import Callable, Sequence
+from typing import List
+from dolfinx.fem.petsc import apply_lifting, assemble_vector, set_bc
+
 # %% [markdown]
 # Here we define geometrical and material parameters of the problem as well as some useful constants.
 
@@ -436,41 +443,94 @@ problem = NonlinearProblem(
 
 
 # %%
-def constitutive_update():
+def constitutive_update(
+    F_external_operators: List[FEMExternalOperator], 
+    J_external_operators: List[FEMExternalOperator], 
+    dp: Function
+):
+    """Update the constitutive model by evaluating the external operators."""
     evaluated_operands = evaluate_operands(F_external_operators)
+    # Call `C_tang_impl` that returns additional arrays `sigma_new` and `dp_new`
     ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # This avoids having to evaluate the external operators of F.
+    # Update external operator `sigma` via explicit copy
+    sigma = F_external_operators[0]
     sigma.ref_coefficient.x.array[:] = sigma_new
+    # Update history variable
     dp.x.array[:] = dp_new
 
+def assemble_residual_with_callback(
+    u: Function,
+    F: Form,
+    J: Form,
+    bcs: Sequence[DirichletBC],
+    external_callback: Callable,
+    args_external_callback: Sequence,
+    snes: PETSc.SNES,
+    x: PETSc.Vec,
+    b: PETSc.Vec,
+) -> None:
+    """Assemble the residual at ``x`` into the vector ``b`` with a callback to
+    external functions.
 
-def assemble_residual_with_callback(snes: PETSc.SNES, x: PETSc.Vec, b: PETSc.Vec) -> None:
-    """Assemble the residual F into the vector b with a callback to external functions.
+    Prior to assembling the residual and after updating the solution ``u``, the
+    function ``external_callback`` with input arguments ``args_external_callback``
+    is called.
+
+    A function conforming to the interface expected by ``SNES.setFunction`` can
+    be created by fixing the first 5 arguments, e.g. (cf.
+    ``dolfinx.fem.petsc.assemble_residual``):
+
+    Example::
+
+        snes = PETSc.SNES().create(mesh.comm)
+        assemble_residual = functools.partial(
+            dolfinx.fem.petsc.assemble_residual, u, F, J, bcs,
+            external_callback, args_external_callback)
+        snes.setFunction(assemble_residual, b)
 
     Args:
-        snes: the snes object
-        x: Vector containing the latest solution.
+        u: Function tied to the solution vector within the residual and
+           Jacobian.
+        F: Form of the residual.
+        J: Form of the Jacobian.
+        bcs: List of Dirichlet boundary conditions to lift the residual.
+        external_callback: A callback function to call prior to assembling the
+                           residual.
+        args_external_callback: Arguments to pass to the external callback
+                                function.
+        snes: The solver instance.
+        x: The vector containing the point to evaluate the residual at.
         b: Vector to assemble the residual into.
     """
     x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
-    x.copy(Du.x.petsc_vec)
-    Du.x.scatter_forward()
+    x.copy(u.x.petsc_vec)
+    u.x.scatter_forward()
 
     # Call external functions, e.g. evaluation of external operators
-    constitutive_update()
+    external_callback(*args_external_callback)
 
     with b.localForm() as b_local:
         b_local.set(0.0)
-    fem.petsc.assemble_vector(b, problem._F)
+    assemble_vector(b, F)
 
-    fem.petsc.apply_lifting(b, [problem._J], [bcs], [x], -1.0)
+    apply_lifting(b, [J], [bcs], [x], -1.0)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-    fem.petsc.set_bc(b, bcs, x, -1.0)
+    set_bc(b, bcs, x, -1.0)
 
+from functools import partial
+assemble_residual_with_callback_ = partial(
+    assemble_residual_with_callback, 
+    problem.u, 
+    problem.F, 
+    problem.J, 
+    bcs, 
+    constitutive_update, # external callback with respect to SNES
+    [F_external_operators, J_external_operators, dp] # input arguments of the callback
+)
 
 # Set the custom residual assembly function with the one that calls
 # `constitutive_update`
-problem.solver.setFunction(assemble_residual_with_callback, problem.b)
+problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
 # %% [markdown]
 # Now we are ready to solve the problem.
