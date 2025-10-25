@@ -150,6 +150,9 @@
 # ### Preamble
 
 # %%
+from collections.abc import Callable, Sequence
+from functools import partial
+
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -162,20 +165,16 @@ from utilities import build_cylinder_quarter, find_cell_by_point
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.fem.bcs import DirichletBC
+from dolfinx.fem.forms import Form
+from dolfinx.fem.function import Function
+from dolfinx.fem.petsc import NonlinearProblem, apply_lifting, assemble_vector, set_bc
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
 )
-
-from dolfinx.fem.bcs import DirichletBC
-from dolfinx.fem.forms import Form
-from dolfinx.fem.function import Function
-from collections.abc import Callable, Sequence
-from typing import List
-from dolfinx.fem.petsc import apply_lifting, assemble_vector, set_bc
 
 # %% [markdown]
 # Here we define geometrical and material parameters of the problem as well as some useful constants.
@@ -444,9 +443,7 @@ problem = NonlinearProblem(
 
 # %%
 def constitutive_update(
-    F_external_operators: List[FEMExternalOperator], 
-    J_external_operators: List[FEMExternalOperator], 
-    dp: Function
+    F_external_operators: list[FEMExternalOperator], J_external_operators: list[FEMExternalOperator], dp: Function
 ):
     """Update the constitutive model by evaluating the external operators."""
     evaluated_operands = evaluate_operands(F_external_operators)
@@ -457,6 +454,7 @@ def constitutive_update(
     sigma.ref_coefficient.x.array[:] = sigma_new
     # Update history variable
     dp.x.array[:] = dp_new
+
 
 def assemble_residual_with_callback(
     u: Function,
@@ -517,15 +515,15 @@ def assemble_residual_with_callback(
     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
     set_bc(b, bcs, x, -1.0)
 
-from functools import partial
+
 assemble_residual_with_callback_ = partial(
-    assemble_residual_with_callback, 
-    problem.u, 
-    problem.F, 
-    problem.J, 
-    bcs, 
-    constitutive_update, # external callback with respect to SNES
-    [F_external_operators, J_external_operators, dp] # input arguments of the callback
+    assemble_residual_with_callback,
+    problem.u,
+    problem.F,
+    problem.J,
+    bcs,
+    constitutive_update,  # external callback with respect to SNES
+    [F_external_operators, J_external_operators, dp],  # input arguments of the callback
 )
 
 # Set the custom residual assembly function with the one that calls
