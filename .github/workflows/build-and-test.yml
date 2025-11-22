@@ -20,8 +20,6 @@ jobs:
       PYVISTA_OFF_SCREEN: true
       PYVISTA_JUPYTER_BACKEND: "static"
       DISPLAY: ":99.0"
-      DEB_PYTHON_INSTALL_LAYOUT: deb_system
-      LIBGL_ALWAYS_SOFTWARE: 1
     
     steps:
       - uses: actions/checkout@v5
