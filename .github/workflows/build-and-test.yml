@@ -55,8 +55,7 @@ jobs:
           node-version: "20"
 
       - name: Build book
-        working-directory: doc/
-        run: jupyter-book build .
+        run: jupyter-book build doc
       
       - name: Upload documentation as artifact
         uses: actions/upload-artifact@v4
