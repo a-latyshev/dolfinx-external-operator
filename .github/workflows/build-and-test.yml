@@ -56,9 +56,6 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install common packages
-        uses: ./.github/actions/install-dependencies
-
       - name: Install requirements
         run: |
           python3 -m pip install --break-system-packages -U pip setuptools pkgconfig poetry-core
