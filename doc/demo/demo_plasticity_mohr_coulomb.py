@@ -86,7 +86,7 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from mpltools import annotation  # for slope markers
-from utilities import assemble_residual_with_callback, find_cell_by_point
+from utilities import find_cell_by_point
 
 import basix
 import ufl
@@ -98,6 +98,7 @@ from dolfinx_external_operator import (
     evaluate_operands,
     replace_external_operators,
 )
+from dolfinx_external_operator.petsc import assemble_residual_with_callback
 
 jax.config.update("jax_enable_x64", True)
 
