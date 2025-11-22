@@ -22,7 +22,7 @@ jobs:
       DISPLAY: ":99.0"
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       
       - name: Install
         run: |
@@ -58,7 +58,7 @@ jobs:
         run: jupyter-book build .
       
       - name: Upload documentation as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: webpage
           path: doc/_build/html
