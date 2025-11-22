@@ -5,11 +5,20 @@ on:
   workflow_call:
   push:
     branches:
-      - "**"
-      - "!main"
+      - main
+      - master
   pull_request:
     branches:
-      - "main"
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
       
 jobs:
   build-and-test:
@@ -51,26 +60,12 @@ jobs:
         run: |
           python3 -m pytest -m mpi -v --num-proc=2 doc/demo
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install requirements
+      - name: Build Jupyter Book
         run: |
-          python3 -m pip install --break-system-packages -U pip setuptools pkgconfig poetry-core
-          python3 -m pip install --no-build-isolation --break-system-packages --no-cache-dir --no-binary=h5py .[netgen] --upgrade
-
-  
-      - name: Build book
-        run: |
-          ls -R doc/
-          ls -R doc/_build
           jupyter-book build doc/
-      
-      - name: Upload documentation as artifact
-        uses: actions/upload-artifact@v4
+
+      - name: Upload Pages artifact
+        if: success()
+        uses: actions/upload-pages-artifact@v4
         with:
-          name: webpage
           path: doc/_build/html
-          if-no-files-found: error
