@@ -50,9 +50,10 @@ jobs:
           python3 -m pytest -m mpi -v --num-proc=2 doc/demo
 
       - name: Install Node.js
-        run: |
-          apt-get update && apt-get install -y nodejs npm node --version npm --version
-
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          
       - name: Build book
         working-directory: doc/
         run: jupyter-book build .
