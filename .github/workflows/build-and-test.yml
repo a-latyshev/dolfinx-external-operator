@@ -20,9 +20,11 @@ jobs:
       PYVISTA_OFF_SCREEN: true
       PYVISTA_JUPYTER_BACKEND: "static"
       DISPLAY: ":99.0"
+      DEB_PYTHON_INSTALL_LAYOUT: deb_system
+      LIBGL_ALWAYS_SOFTWARE: 1
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       
       - name: Install
         run: |
@@ -53,6 +55,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      - name: Install common packages
+        uses: ./.github/actions/install-dependencies
+
+      - name: Install requirements
+        run: |
+          python3 -m pip install --break-system-packages -U pip setuptools pkgconfig poetry-core
+          python3 -m pip install --no-build-isolation --break-system-packages --no-cache-dir --no-binary=h5py .[netgen] --upgrade
 
       - name: Build book
         run: jupyter-book build doc
