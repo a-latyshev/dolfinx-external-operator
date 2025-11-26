@@ -22,7 +22,7 @@ jobs:
       DISPLAY: ":99.0"
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       
       - name: Install
         run: |
@@ -49,13 +49,12 @@ jobs:
         run: |
           python3 -m pytest -m mpi -v --num-proc=2 doc/demo
 
-      - name: Build book
-        working-directory: doc/
-        run: jupyter-book build .
-      
-      - name: Upload documentation as artifact
-        uses: actions/upload-artifact@v4
+      - name: Build Jupyter Book
+        run: |
+          jupyter-book build doc/
+
+      - name: Upload Pages artifact
+        if: success()
+        uses: actions/upload-pages-artifact@v4
         with:
-          name: webpage
           path: doc/_build/html
-          if-no-files-found: error
