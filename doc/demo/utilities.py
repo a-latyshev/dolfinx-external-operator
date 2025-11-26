@@ -1,17 +1,11 @@
-from collections.abc import Callable, Sequence
-
 from mpi4py import MPI
-from petsc4py import PETSc
 
 import gmsh
 import numpy as np
 
 import basix
 from dolfinx.fem import Expression
-from dolfinx.fem.bcs import DirichletBC
-from dolfinx.fem.forms import Form
 from dolfinx.fem.function import Function
-from dolfinx.fem.petsc import apply_lifting, assemble_vector, set_bc
 from dolfinx.geometry import bb_tree, compute_colliding_cells, compute_collisions_points
 from dolfinx.io import gmsh as gmshio
 
@@ -101,51 +95,3 @@ def interpolate_quadrature(ufl_expr, fem_func: Function) -> None:
     expr_expr = Expression(ufl_expr, quadrature_points)
     expr_eval = expr_expr.eval(mesh, cells)
     np.copyto(fem_func.x.array, expr_eval.reshape(-1))
-
-
-def assemble_residual_with_callback(
-    u: Function | Sequence[Function],
-    F: Form | Sequence[Form],
-    J: Form | Sequence[Sequence[Form]],
-    bcs: Sequence[DirichletBC],
-    external_callback: Callable,
-    snes: PETSc.SNES,
-    x: PETSc.Vec,
-    b: PETSc.Vec,
-) -> None:
-    """Assemble the residual at ``x`` into the vector ``b`` with a callback to
-    external functions.
-
-    Prior to assembling the residual and after updating the solution ``u``, the
-    function ``external_callback`` is called.
-
-    A function conforming to the interface expected by ``SNES.setFunction`` can
-    be created by fixing the first 5 arguments, e.g. (cf.
-    ``dolfinx.fem.petsc.assemble_residual``):
-
-    Example::
-
-        snes = PETSc.SNES().create(mesh.comm)
-        assemble_residual = functools.partial(
-            dolfinx.fem.petsc.assemble_residual, u, F, J, bcs,
-            external_callback)
-        snes.setFunction(assemble_residual, b)
-
-    Args:
-        snes: the snes object x: Vector containing the latest solution. b:
-        Vector to assemble the residual into.
-    """
-    x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
-    x.copy(u.x.petsc_vec)
-    u.x.scatter_forward()
-
-    # Call external functions, e.g. evaluation of external operators
-    external_callback()
-
-    with b.localForm() as b_local:
-        b_local.set(0.0)
-    assemble_vector(b, F)
-
-    apply_lifting(b, [J], [bcs], [x], -1.0)
-    b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-    set_bc(b, bcs, x, -1.0)
