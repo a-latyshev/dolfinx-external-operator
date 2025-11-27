@@ -282,6 +282,8 @@ def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
             external_operators += ex_ops
     elif isinstance(form, ufl.Form):
         replaced_form, ex_ops = _replace_form(form)
+        if isinstance(replaced_form, ufl.Action):
+            replaced_form, ex_ops = _replace_external_operators(replaced_form)
         external_operators += ex_ops
     return replaced_form, list(set(external_operators))
 
