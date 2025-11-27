@@ -32,7 +32,7 @@ jobs:
         
       - name: Download docs artifact
         # docs artifact is uploaded by build-docs job
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: webpage
           path: "_build/html"
