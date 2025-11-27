@@ -56,7 +56,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
-
         super().__init__(
             *operands,
             function_space=function_space,
@@ -64,9 +63,11 @@ class FEMExternalOperator(ufl.ExternalOperator):
             argument_slots=argument_slots,
         )
 
+
         new_shape = self.ufl_shape
         for i, e in enumerate(self.derivatives):
             new_shape += self.ufl_operands[i].ufl_shape * e
+
         if new_shape != self.ufl_shape:
             mesh = function_space.mesh
             quadrature_element = basix.ufl.quadrature_element(
@@ -249,7 +250,13 @@ def _replace_action(action: ufl.Action):
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
-
+def _replace_adjoint(adjoint: ufl.Adjoint):
+    form = adjoint.form()
+    arguments = adjoint.arguments()
+    assert len(arguments) == 2
+    replaced_form, ex_ops = _replace_external_operators(form) 
+    return ufl.adjoint(replaced_form), ex_ops
+    
 def _replace_form(form: ufl.Form):
     external_operators = form.base_form_operators()
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
@@ -257,7 +264,7 @@ def _replace_form(form: ufl.Form):
     return replaced_form, external_operators
 
 
-def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
+def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action | ufl.Adjoint):
     """Replace external operators in a form with there `fem.Function`
     counterparts."""
     replaced_form = 0
@@ -272,8 +279,13 @@ def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
         elif isinstance(form.right(), FEMExternalOperator):
             replaced_form, ex_op = _replace_action(form)
             external_operators += [ex_op]
-        else:
-            raise RuntimeError("Expected an ExternalOperator in the right part of the Action.")
+        elif isinstance(form.left(), ufl.Adjoint
+                ):
+            replaced_left, ex_ops = _replace_external_operators(form.left().form())
+            replaced_form = ufl.adjoint(replaced_left)
+            external_operators.extend(ex_ops)
+        else:         
+            raise RuntimeError(f"Did not expect to get here with {form}")
     elif isinstance(form, ufl.FormSum):
         components = form.components()
         for i in range(0, len(components)):
@@ -284,6 +296,9 @@ def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
         replaced_form, ex_ops = _replace_form(form)
         if isinstance(replaced_form, ufl.Action):
             replaced_form, ex_ops = _replace_external_operators(replaced_form)
+        external_operators += ex_ops
+    elif isinstance(form, ufl.Adjoint):
+        replaced_form, ex_ops = _replace_adjoint(form)
         external_operators += ex_ops
     return replaced_form, list(set(external_operators))
 
