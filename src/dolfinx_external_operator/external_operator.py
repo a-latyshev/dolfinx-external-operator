@@ -160,6 +160,8 @@ def evaluate_operands(
         User is responsible to ensure that `entities` are correctly constructed
         with respect to the codimension of the external operator.
     """
+    if len(external_operators) == 0:
+        return {}
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
