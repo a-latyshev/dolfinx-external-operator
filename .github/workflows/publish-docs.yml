@@ -37,8 +37,8 @@ jobs:
           name: webpage
           path: "_build/html"
         
-      - name: Upload pages artifact
-        uses: actions/upload-artifact@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: "_build/html"
 
