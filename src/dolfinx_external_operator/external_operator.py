@@ -282,7 +282,7 @@ def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action | ufl.
         elif isinstance(form.left(), ufl.Adjoint
                 ):
             replaced_left, ex_ops = _replace_external_operators(form.left().form())
-            replaced_form = ufl.adjoint(replaced_left)
+            replaced_form = ufl.action(ufl.adjoint(replaced_left), form.right())
             external_operators.extend(ex_ops)
         else:         
             raise RuntimeError(f"Did not expect to get here with {form}")
