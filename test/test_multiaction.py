@@ -17,7 +17,7 @@ import ufl
     [
         (np.float32, np.float32),
         (np.float64, np.float64),
-        #(np.float32, np.complex64),
+        # (np.float32, np.complex64),
         (np.float64, np.complex128),
     ],
 )
