@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.typing as npt
 
 import basix
 import ufl
@@ -30,6 +31,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         name: str | None = None,
         coefficient: fem.Function | None = None,
         argument_slots=(),
+        dtype: npt.DTypeLike | None = None,
     ) -> None:
         """Initializes `FEMExternalOperator`.
 
@@ -44,6 +46,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 `ufl.Argument` or `ufl.Coefficient` objects.
             name: Name of the external operator and the associated
             `fem.Function` coefficient.
+            dtype: Data type of the external operator.
         """
         ufl_element = function_space.ufl_element()
         if ufl_element.family_name != "quadrature":
@@ -63,7 +66,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
             argument_slots=argument_slots,
         )
 
-
         new_shape = self.ufl_shape
         for i, e in enumerate(self.derivatives):
             new_shape += self.ufl_operands[i].ufl_shape * e
@@ -74,6 +76,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 mesh.topology.cell_name(),
                 degree=ufl_element.degree,
                 value_shape=new_shape,
+                dtype=mesh.geometry.x.dtype,
             )
             self.ref_function_space = fem.functionspace(mesh, quadrature_element)
         else:
@@ -84,8 +87,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         if coefficient is not None:
             self.ref_coefficient = coefficient
         else:
-            self.ref_coefficient = fem.Function(self.ref_function_space, name=name)
-
+            self.ref_coefficient = fem.Function(self.ref_function_space, name=name, dtype=dtype)
         self.external_function = external_function
 
     def _ufl_expr_reconstruct_(
@@ -104,6 +106,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             d_ops = ""
         else:
             d_ops = "/" + "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
+        dtype = self.ref_coefficient.dtype
         ex_op_name = d + self.ref_coefficient.name + d_ops
         return type(self)(
             *operands,
@@ -113,6 +116,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             argument_slots=argument_slots or self.argument_slots(),
             name=ex_op_name,
             coefficient=coefficient,
+            dtype=dtype,
             **add_kwargs,
         )
 
@@ -185,7 +189,7 @@ def evaluate_operands(
                 operand_domain = ufl.domain.extract_unique_domain(operand)
                 operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
                 # TODO: Stop recreating the expression every time
-                expr = fem.Expression(operand, quadrature_points)
+                expr = fem.Expression(operand, quadrature_points, dtype=external_operator.ref_coefficient.dtype)
                 # NOTE: Using expression eval might be expensive
                 evaluated_operand = expr.eval(operand_mesh, entities)
             evaluated_operands[operand] = evaluated_operand
@@ -250,13 +254,15 @@ def _replace_action(action: ufl.Action):
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
+
 def _replace_adjoint(adjoint: ufl.Adjoint):
     form = adjoint.form()
     arguments = adjoint.arguments()
     assert len(arguments) == 2
-    replaced_form, ex_ops = _replace_external_operators(form) 
+    replaced_form, ex_ops = _replace_external_operators(form)
     return ufl.adjoint(replaced_form), ex_ops
-    
+
+
 def _replace_form(form: ufl.Form):
     external_operators = form.base_form_operators()
     ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
@@ -279,12 +285,11 @@ def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action | ufl.
         elif isinstance(form.right(), FEMExternalOperator):
             replaced_form, ex_op = _replace_action(form)
             external_operators += [ex_op]
-        elif isinstance(form.left(), ufl.Adjoint
-                ):
+        elif isinstance(form.left(), ufl.Adjoint):
             replaced_left, ex_ops = _replace_external_operators(form.left().form())
             replaced_form = ufl.action(ufl.adjoint(replaced_left), form.right())
             external_operators.extend(ex_ops)
-        else:         
+        else:
             raise RuntimeError(f"Did not expect to get here with {form}")
     elif isinstance(form, ufl.FormSum):
         components = form.components()
