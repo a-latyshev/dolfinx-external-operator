@@ -120,7 +120,6 @@ def test_nested_action(q_deg, data_types):
         * ufl.dx(metadata={"quadrature_degree": q_deg})
     )
     vec_ref = dolfinx.fem.assemble_vector(dolfinx.fem.form(ref_form, dtype=dtype))
-    
+
     tol = 50 * np.finfo(r_type).eps
     np.testing.assert_allclose(vec.array, vec_ref.array, rtol=tol, atol=tol)
-        
