@@ -1,3 +1,5 @@
+from functools import singledispatchmethod
+
 import numpy as np
 import numpy.typing as npt
 
@@ -7,6 +9,9 @@ from dolfinx import fem
 from dolfinx import mesh as _mesh
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
+from ufl.corealg.dag_traverser import DAGTraverser
+
+from .fem import functionspace
 
 
 @ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
@@ -78,7 +83,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 value_shape=new_shape,
                 dtype=mesh.geometry.x.dtype,
             )
-            self.ref_function_space = fem.functionspace(mesh, quadrature_element)
+            self.ref_function_space = functionspace(mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
 
@@ -251,71 +256,140 @@ def _replace_action(action: ufl.Action):
         coefficient[indexes] * external_operator_argument[indexes_contracted],
         indexes[: coeff_dim - arg_dim],
     )
+
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
 
-def _replace_adjoint(adjoint: ufl.Adjoint):
-    form = adjoint.form()
-    arguments = adjoint.arguments()
-    assert len(arguments) == 2
-    replaced_form, ex_ops = _replace_external_operators(form)
-    return ufl.adjoint(replaced_form), ex_ops
+def map_integrands(function, form, only_integral_type=None):
+    """Map integrands.
 
+    This function is a slightly modified version of `ufl/ufl/algorithms/map_integrands.py`,
+    which is part of the FEniCS Project (https://www.fenicsproject.org) and
+    licensed under the GNU Lesser General Public License v3.0
 
-def _replace_form(form: ufl.Form):
-    external_operators = form.base_form_operators()
-    ex_ops_map = {ex_op: ex_op.ref_coefficient for ex_op in external_operators}
-    replaced_form = ufl.algorithms.replace(form, ex_ops_map)
-    return replaced_form, external_operators
+    Original author: Martin Sandve Alnæs
 
-
-def _replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action | ufl.Adjoint):
-    """Replace external operators in a form with there `fem.Function`
-    counterparts."""
-    replaced_form = 0
-    external_operators = []
-    if isinstance(form, ufl.Action):
-        if isinstance(form.right(), ufl.Action):
-            replaced_right_part, ex_ops = replace_external_operators(form.right())
-            external_operators += ex_ops
-            interim_form = ufl.Action(form.left(), replaced_right_part)
-            replaced_form, ex_ops = replace_external_operators(interim_form)
-            external_operators += ex_ops
-        elif isinstance(form.right(), FEMExternalOperator):
-            replaced_form, ex_op = _replace_action(form)
-            external_operators += [ex_op]
-        elif isinstance(form.left(), ufl.Adjoint):
-            replaced_left, ex_ops = _replace_external_operators(form.left().form())
-            replaced_form = ufl.action(ufl.adjoint(replaced_left), form.right())
-            external_operators.extend(ex_ops)
+    Apply transform(expression) to each integrand expression in form, or
+    to form if it is an Expr.
+    """
+    if isinstance(form, ufl.Form):
+        mapped_integrals = [map_integrands(function, itg, only_integral_type) for itg in form.integrals()]
+        nonzero_integrals = [itg for itg in mapped_integrals if not isinstance(itg.integrand(), ufl.constantvalue.Zero)]
+        return ufl.Form(nonzero_integrals)
+    elif isinstance(form, ufl.Integral):
+        itg = form
+        if (only_integral_type is None) or (itg.integral_type() in only_integral_type):
+            new_itg = function(itg.integrand())
+            return itg.reconstruct(integrand=new_itg)
         else:
-            raise RuntimeError(f"Did not expect to get here with {form}")
+            return itg
     elif isinstance(form, ufl.FormSum):
-        components = form.components()
-        for i in range(0, len(components)):
-            replaced_form_term, ex_ops = replace_external_operators(components[i])
-            replaced_form += replaced_form_term
-            external_operators += ex_ops
-    elif isinstance(form, ufl.Form):
-        replaced_form, ex_ops = _replace_form(form)
-        if isinstance(replaced_form, ufl.Action):
-            replaced_form, ex_ops = _replace_external_operators(replaced_form)
-        external_operators += ex_ops
+        mapped_components = [map_integrands(function, component, only_integral_type) for component in form.components()]
+        nonzero_components = [
+            (component, w)
+            for component, w in zip(mapped_components, form.weights())
+            # Catch ufl.Zero and ZeroBaseForm
+            if component != 0
+        ]
+
+        # Simplify case with one nonzero component and the corresponding weight is 1
+        if len(nonzero_components) == 1 and nonzero_components[0][1] == 1:
+            return nonzero_components[0][0]
+        return sum(w * component for component, w in nonzero_components)
+
+        # return sum(component for component, _ in nonzero_components)
+
     elif isinstance(form, ufl.Adjoint):
-        replaced_form, ex_ops = _replace_adjoint(form)
-        external_operators += ex_ops
-    return replaced_form, list(set(external_operators))
+        # Zeros are caught inside `Adjoint.__new__`
+        return ufl.adjoint(map_integrands(function, form._form, only_integral_type))
+
+    elif isinstance(form, ufl.Action):
+        left = map_integrands(function, form._left, only_integral_type)
+        right = form._right
+        if isinstance(right, FEMExternalOperator):
+            assert right.derivatives != ()
+            interim_form, ex_op = _replace_action(ufl.Action(left, right))
+            processed_form = map_integrands(function, interim_form)
+            function.external_operators.extend([ex_op])
+            return processed_form
+        # Zeros are caught inside `Action.__new__`
+        right = map_integrands(function, right, only_integral_type)
+        return ufl.action(left, right)
+
+    elif isinstance(form, ufl.ZeroBaseForm):
+        arguments = tuple(map_integrands(function, arg, only_integral_type) for arg in form._arguments)
+        return ufl.ZeroBaseForm(arguments)
+    elif isinstance(form, ufl.core.expr.Expr | ufl.BaseForm):
+        integrand = form
+        return function(integrand)
+    else:
+        raise ValueError("Expecting Form, Integral or Expr.")
 
 
-def replace_external_operators(form: ufl.Form | ufl.FormSum | ufl.Action):
-    """Health check for the form and replace external operators."""
-    replaced_form, external_operators = _replace_external_operators(form)
-    if replaced_form.base_form_operators():
-        raise RuntimeError(
-            "After the replacement of external operators, some still remain in the form. "
-            "This indicates that the original form includes a multiplication of external operators, "
-            "which is not supported by design. You may raise an issue in the GitHub repository to "
-            "discuss this feature in more detail."
-        )
-    return replaced_form, external_operators
+class ExternalOperatorReplacer(DAGTraverser):
+    """DAGTraverser to replaced external operators with a coefficient in the appropriate space."""
+
+    def __init__(
+        self,
+        compress: bool | None = True,
+        visited_cache: dict[tuple, ufl.core.expr.Expr] | None = None,
+        result_cache: dict[ufl.core.expr.Expr, ufl.core.expr.Expr] | None = None,
+    ) -> None:
+        """Initialise.
+
+        Args:
+            compress: If True, ``result_cache`` will be used.
+            visited_cache: cache of intermediate results;
+                expr -> r = self.process(expr, ...).
+            result_cache: cache of result objects for memory reuse, r -> r.
+
+        """
+        super().__init__(compress=compress, visited_cache=visited_cache, result_cache=result_cache)
+        self._ex_ops = []
+
+    @singledispatchmethod
+    def process(
+        self,
+        o: ufl.core.expr.Expr,
+    ) -> ufl.core.expr.Expr:
+        """Replace external operators in UFL expressions.
+
+        Args:
+            o: `ufl.core.expr.Expr` to be processed.
+        """
+        self._ex_ops = []
+        return super().process(o)
+
+    @property
+    def external_operators(self) -> list[FEMExternalOperator]:
+        """Return the list of external operators found during processing."""
+        return self._ex_ops
+
+    @process.register(ufl.ExternalOperator)
+    def _(self, o: ufl.ExternalOperator, *args) -> ufl.core.expr.Expr:
+        self._ex_ops.append(o)
+        return o.ref_coefficient
+
+    @process.register(ufl.core.expr.Expr)
+    def _(
+        self,
+        o: ufl.Argument,
+    ) -> ufl.core.expr.Expr:
+        """Handle anything else in UFL."""
+        return self.reuse_if_untouched(o)
+
+
+def replace_external_operators(form: ufl.Form) -> tuple[ufl.Form, list[FEMExternalOperator]]:
+    """Replace external operators with its reference coefficient.
+
+    Args:
+        expr: UFL expression.
+
+    Returns:
+        A tuple with the replaced form and the list of external operators found.
+    """
+    rule = ExternalOperatorReplacer()
+    form = ufl.algorithms.apply_derivatives.apply_derivatives(ufl.algorithms.expand_derivatives(form))
+    new_form = map_integrands(rule, form)
+    return new_form, rule.external_operators

@@ -36,7 +36,7 @@ def test_nested_action(q_deg, data_types):
         else:
             return (0.1 * x[0], 0.2 * x[1] + 0.3 * x[1], x[0] * x[1])
 
-    theta = dolfinx.fem.Function(T, dtype=dtype)
+    theta = dolfinx.fem.Function(T, dtype=dtype, name="theta")
     theta.interpolate(theta_func)
 
     def f_mod(mod, theta, x):
