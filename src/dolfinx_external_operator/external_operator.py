@@ -254,7 +254,6 @@ def _replace_action(action: ufl.Action):
         coefficient[indexes] * external_operator_argument[indexes_contracted],
         indexes[: coeff_dim - arg_dim],
     )
-
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
