@@ -11,8 +11,6 @@ from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 from ufl.corealg.dag_traverser import DAGTraverser
 
-from .fem import functionspace
-
 
 @ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):
@@ -83,7 +81,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 value_shape=new_shape,
                 dtype=mesh.geometry.x.dtype,
             )
-            self.ref_function_space = functionspace(mesh, quadrature_element)
+            self.ref_function_space = fem.functionspace(mesh, quadrature_element)
         else:
             self.ref_function_space = function_space
 
