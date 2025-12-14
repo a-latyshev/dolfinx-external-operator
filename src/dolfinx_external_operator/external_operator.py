@@ -50,7 +50,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         if ufl_element.family_name != "quadrature":
             raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
 
-        self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands))) # expend high-level operands
+        self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
         for operand in self.ufl_operands:
             if isinstance(operand, FEMExternalOperator):
                 raise TypeError("Use of FEMExternalOperators as operands is not implemented.")

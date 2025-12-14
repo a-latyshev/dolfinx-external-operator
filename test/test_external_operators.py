@@ -139,6 +139,7 @@ def test_replacement_mechanism():
     check_replacement(FN4, [N1, N2], operators_count_after_AD=4)
     check_replacement(Fn5 + Fn1, [n1, n2], operators_count_after_AD=4)
 
+
 def check_operand_expansion(operand: ufl.core.expr.Expr, u: fem.Function):
     domain = u.function_space.mesh
     V = u.function_space
@@ -154,6 +155,7 @@ def check_operand_expansion(operand: ufl.core.expr.Expr, u: fem.Function):
     assert renumber_indices(N.ufl_operands[0]) == operand_expanded
     dN = J_external_operators[0]
     assert renumber_indices(dN.ufl_operands[0]) == operand_expanded
+
 
 def test_indexed_operands():
     domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
