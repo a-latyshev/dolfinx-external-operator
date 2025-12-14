@@ -7,6 +7,7 @@ import basix
 import ufl
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.renumbering import renumber_indices
+from ufl.algorithms import expand_derivatives
 
 from dolfinx import fem
 from dolfinx.mesh import create_unit_square
@@ -32,7 +33,7 @@ def compute_dimensions(operand, u, test_f):
     )
     F = ufl.inner(N, test_f) * dx
     J = ufl.derivative(F, u, u_hat)
-    J_expanded = ufl.algorithms.expand_derivatives(J)
+    J_expanded = expand_derivatives(J)
     _J_replaced, J_ex_ops_list = replace_external_operators(J_expanded)
     dNdu = J_ex_ops_list[0]
 
@@ -92,7 +93,7 @@ def check_replacement(form: ufl.Form, operators: list[FEMExternalOperator], oper
     assert len(form_replaced.base_form_operators()) == 0
 
     J = ufl.derivative(form, u, ufl.TrialFunction(V))
-    J_expanded = ufl.algorithms.expand_derivatives(J)
+    J_expanded = expand_derivatives(J)
     J_replaced, J_external_operators = replace_external_operators(J_expanded)
     assert len(J_external_operators) == operators_count_after_AD
     assert len(J_replaced.base_form_operators()) == 0
@@ -147,19 +148,19 @@ def check_operand_expansion(operand: ufl.core.expr.Expr, u: fem.Function):
     dx = ufl.Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": 1})
     F = ufl.inner(N, ufl.TestFunction(V)) * dx
     J = ufl.derivative(F, u, ufl.TrialFunction(V))
-    J_expanded = ufl.algorithms.expand_derivatives(J)
+    J_expanded = expand_derivatives(J)
     F_replaced, F_external_operators = replace_external_operators(F)
     J_replaced, J_external_operators = replace_external_operators(J_expanded)
-    operand_expended = renumber_indices(apply_algebra_lowering(operand))
-    assert renumber_indices(N.ufl_operands[0]) == operand_expended
+    operand_expanded = renumber_indices(apply_algebra_lowering(operand))
+    assert renumber_indices(N.ufl_operands[0]) == operand_expanded
     dN = J_external_operators[0]
-    assert renumber_indices(dN.ufl_operands[0]) == operand_expended
+    assert renumber_indices(dN.ufl_operands[0]) == operand_expanded
 
 def test_indexed_operands():
     domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
     V = fem.functionspace(domain, ("P", 1, (2,)))
     u = fem.Function(V)
-# Operands expansion 
+    
     operand = ufl.transpose(ufl.grad(u))
     check_operand_expansion(operand, u)
 
@@ -170,3 +171,29 @@ def test_indexed_operands():
     J = ufl.det(F)
     operand = ufl.tr(C)
     check_operand_expansion(operand, u)
+
+    Qe = basix.ufl.quadrature_element(
+        domain.topology.cell_name(),
+        degree=1,
+        value_shape=(),
+    )
+    W = fem.functionspace(domain, basix.ufl.mixed_element([Qe, Qe]))
+    u = fem.Function(W)
+    u1, _ = ufl.split(u)
+    v = ufl.TestFunction(W)
+    v1, _ = ufl.split(v)
+
+    Q = fem.functionspace(domain, Qe)
+    operand = ufl.grad(u1)
+    N = FEMExternalOperator(operand, function_space=Q)
+    F = ufl.inner(N * u1, v1) * ufl.dx
+    J = ufl.derivative(F, u, ufl.TrialFunction(W))
+    J_expanded = expand_derivatives(J)
+
+    F_replaced, F_external_operators = replace_external_operators(F)
+    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+    operand_expanded = renumber_indices(expand_derivatives(operand))
+    assert renumber_indices(N.ufl_operands[0]) == operand_expanded
+    dN = J_external_operators[0]
+    assert renumber_indices(dN.ufl_operands[0]) == operand_expanded
