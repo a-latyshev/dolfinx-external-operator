@@ -4,9 +4,10 @@ import basix
 import ufl
 from dolfinx import fem
 from dolfinx import mesh as _mesh
+from ufl.algorithms import expand_derivatives
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
-from ufl.algorithms import expand_derivatives
+
 
 @ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):

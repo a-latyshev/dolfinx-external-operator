@@ -5,16 +5,16 @@ from mpi4py import MPI
 
 import basix
 import ufl
-from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
-from ufl.algorithms.renumbering import renumber_indices
-from ufl.algorithms import expand_derivatives
-
 from dolfinx import fem
 from dolfinx.mesh import create_unit_square
 from dolfinx_external_operator import (
     FEMExternalOperator,
     replace_external_operators,
 )
+from ufl.algorithms import expand_derivatives
+from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
+from ufl.algorithms.renumbering import renumber_indices
+
 
 def Q_gen(domain, tensor_shape):
     Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1, value_shape=tensor_shape)
@@ -149,8 +149,7 @@ def check_operand_expansion(operand: ufl.core.expr.Expr, u: fem.Function):
     F = ufl.inner(N, ufl.TestFunction(V)) * dx
     J = ufl.derivative(F, u, ufl.TrialFunction(V))
     J_expanded = expand_derivatives(J)
-    F_replaced, F_external_operators = replace_external_operators(F)
-    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+    _, J_external_operators = replace_external_operators(J_expanded)
     operand_expanded = renumber_indices(apply_algebra_lowering(operand))
     assert renumber_indices(N.ufl_operands[0]) == operand_expanded
     dN = J_external_operators[0]
@@ -160,13 +159,12 @@ def test_indexed_operands():
     domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
     V = fem.functionspace(domain, ("P", 1, (2,)))
     u = fem.Function(V)
-    
+
     operand = ufl.transpose(ufl.grad(u))
     check_operand_expansion(operand, u)
 
     d = domain.geometry.dim
-    I = ufl.Identity(d)
-    F = ufl.variable(I + ufl.grad(u))
+    F = ufl.variable(ufl.Identity(d) + ufl.grad(u))
     C = F.T * F
     J = ufl.det(F)
     operand = ufl.tr(C)
@@ -189,9 +187,7 @@ def test_indexed_operands():
     F = ufl.inner(N * u1, v1) * ufl.dx
     J = ufl.derivative(F, u, ufl.TrialFunction(W))
     J_expanded = expand_derivatives(J)
-
-    F_replaced, F_external_operators = replace_external_operators(F)
-    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+    _, J_external_operators = replace_external_operators(J_expanded)
 
     operand_expanded = renumber_indices(expand_derivatives(operand))
     assert renumber_indices(N.ufl_operands[0]) == operand_expanded
