@@ -6,7 +6,7 @@ from dolfinx import fem
 from dolfinx import mesh as _mesh
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
-
+from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 
 @ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):
@@ -49,7 +49,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         if ufl_element.family_name != "quadrature":
             raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
 
-        self.ufl_operands = tuple(map(as_ufl, operands))
+        self.ufl_operands = tuple(map(apply_algebra_lowering, map(as_ufl, operands)))
         for operand in self.ufl_operands:
             if isinstance(operand, FEMExternalOperator):
                 raise TypeError("Use of FEMExternalOperators as operands is not implemented.")
@@ -58,7 +58,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
 
         super().__init__(
-            *operands,
+            *self.ufl_operands,
             function_space=function_space,
             derivatives=derivatives,
             argument_slots=argument_slots,
