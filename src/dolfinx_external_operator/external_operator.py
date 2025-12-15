@@ -78,7 +78,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                     value_shape=new_shape,
                 )
             else:
-                element = basix.ufl.element(self.ufl_element().element_family, mesh.basix_cell(), degree=self.ufl_element().degree, shape=new_shape, discontinuous=True)
+                element = basix.ufl.element(self.ufl_element().element_family, mesh.basix_cell(), degree=self.ufl_element().degree, shape=new_shape)
 
             self.ref_function_space = fem.functionspace(mesh, element)
         else:

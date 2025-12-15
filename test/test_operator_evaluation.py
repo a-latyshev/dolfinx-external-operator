@@ -176,10 +176,10 @@ def test_continuous_space():
     def N_impl(u_):
         return u_.reshape(-1) * 2.0
 
-    # Id = np.eye(2)
-    # n = u.x.array.reshape((-1, gdim)).shape[0]
+    Id = np.eye(2)
+    n = u.x.array.reshape((-1, gdim)).shape[0]
     def dNdu_impl(u_):
-        return np.eye(u.x.array.size).reshape(-1) * 2.0
+        return np.repeat(Id[np.newaxis,:,:], n, axis=0).reshape(-1) * 2.0
 
     def N_external(derivatives):
         if derivatives == (0,):
@@ -197,6 +197,7 @@ def test_continuous_space():
     J_expanded = ufl.algorithms.expand_derivatives(J)
     F_replaced, F_external_operators = replace_external_operators(F)
     J_replaced, J_external_operators = replace_external_operators(J_expanded)
+    
     evaluated_operands = evaluate_operands(F_external_operators)
     _ = evaluate_external_operators(F_external_operators, evaluated_operands)
     _ = evaluate_external_operators(J_external_operators, evaluated_operands)
@@ -247,8 +248,9 @@ def test_mixed_element_space():
     def N_impl(grad_u1):
         return grad_u1.x.array.reshape(-1)
 
+    n = u.x.array.size // gdim
     def dN_impl(grad_u1):
-        return np.eye(u1.x.array.size).reshape(-1)
+        return np.repeat(Id[np.newaxis,:,:], n, axis=0).reshape(-1)
 
     def N_external(derivatives):
         if derivatives == (0,):
