@@ -31,7 +31,9 @@ def test_heat_equation():
     quadrature_degree = 2
     Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
     Q = fem.functionspace(domain, Qe)
-    dx = Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree})
+    W = fem.functionspace(domain, ("P", 1, (2,)))
+    dx = Measure("dx", metadata={"quadrature_degree": quadrature_degree})
+
 
     A = 1.0
     B = 1.0
@@ -67,7 +69,7 @@ def test_heat_equation():
         else:
             return NotImplementedError
 
-    q_ = FEMExternalOperator(T, sigma, function_space=Q, external_function=q_external)
+    q_ = FEMExternalOperator(T, sigma, function_space=W, external_function=q_external)
     T_tilde = TestFunction(V)
 
     F = inner(q_, grad(T_tilde)) * dx
@@ -91,6 +93,8 @@ def test_heat_equation():
     F_explicit = inner(q_explicit, grad(T_tilde)) * dx
     F_explicit_compiled = fem.form(F_explicit)
     b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
+    breakpoint()
+
     assert np.allclose(b_explicit_vector.array, b_vector.array)
 
     J_explicit = ufl.derivative(F_explicit, T, T_hat)

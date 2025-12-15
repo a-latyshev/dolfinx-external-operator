@@ -47,8 +47,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
             `fem.Function` coefficient.
         """
         ufl_element = function_space.ufl_element()
-        if ufl_element.family_name != "quadrature":
-            raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
+        # if ufl_element.family_name != "quadrature":
+        #     raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
 
         self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
         for operand in self.ufl_operands:
@@ -69,13 +69,18 @@ class FEMExternalOperator(ufl.ExternalOperator):
         for i, e in enumerate(self.derivatives):
             new_shape += self.ufl_operands[i].ufl_shape * e
         if new_shape != self.ufl_shape:
+            
             mesh = function_space.mesh
-            quadrature_element = basix.ufl.quadrature_element(
-                mesh.topology.cell_name(),
-                degree=ufl_element.degree,
-                value_shape=new_shape,
-            )
-            self.ref_function_space = fem.functionspace(mesh, quadrature_element)
+            if self.ufl_element().element_family is None:
+                element = basix.ufl.quadrature_element(
+                    mesh.topology.cell_name(),
+                    degree=ufl_element.degree,
+                    value_shape=new_shape,
+                )
+            else:
+                element = basix.ufl.element(self.ufl_element().element_family, mesh.basix_cell(), degree=self.ufl_element().degree, shape=new_shape, discontinuous=True)
+
+            self.ref_function_space = fem.functionspace(mesh, element)
         else:
             self.ref_function_space = function_space
 
@@ -164,8 +169,9 @@ def evaluate_operands(
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
-    quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree)[0]
-
+    #quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree)[0]
+    eval_points = ref_function_space.element.interpolation_points
+    assert isinstance(ufl_element.pullback, ufl.pullback.IdentityPullback)
     # If no entity map is provided, assume that there is no sub-meshing
     if entities is None:
         map_c = mesh.topology.index_map(mesh.topology.dim)
@@ -185,7 +191,7 @@ def evaluate_operands(
                 operand_domain = ufl.domain.extract_unique_domain(operand)
                 operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
                 # TODO: Stop recreating the expression every time
-                expr = fem.Expression(operand, quadrature_points)
+                expr = fem.Expression(operand, eval_points)
                 # NOTE: Using expression eval might be expensive
                 evaluated_operand = expr.eval(operand_mesh, entities)
             evaluated_operands[operand] = evaluated_operand
@@ -207,6 +213,7 @@ def evaluate_external_operators(
         A list containing the evaluation of the external operators.
     """
     evaluated_operators = []
+
     for external_operator in external_operators:
         ufl_operands_eval = [evaluated_operands[operand] for operand in external_operator.ufl_operands]
         external_operator_eval = external_operator.external_function(external_operator.derivatives)(*ufl_operands_eval)
@@ -214,8 +221,14 @@ def evaluate_external_operators(
         if type(external_operator_eval) is tuple:
             np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
         else:
-            np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
+            try:
+                np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
+            except ValueError:
+                dofmap_list = external_operator.ref_function_space.dofmap.list
+                bs = external_operator.ref_function_space.dofmap.bs
 
+                unrolled_dofmap = (np.repeat(dofmap_list, bs).reshape(dofmap_list.shape[0], -1)*bs + np.tile(np.arange(bs), dofmap_list.shape[1])).flatten()
+                external_operator.ref_coefficient.x.array[unrolled_dofmap] = external_operator_eval
         evaluated_operators.append(external_operator_eval)
 
     return evaluated_operators
