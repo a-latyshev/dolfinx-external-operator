@@ -56,9 +56,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
             raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
 
         self.ufl_operands = tuple(map(as_ufl, operands))
-        for operand in self.ufl_operands:
-            if isinstance(operand, FEMExternalOperator):
-                raise TypeError("Use of FEMExternalOperators as operands is not implemented.")
 
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
@@ -179,7 +176,6 @@ def evaluate_operands(
         num_cells = map_c.size_local + map_c.num_ghosts
         cells = np.arange(0, num_cells, dtype=np.int32)
         entities = cells
-
     # Evaluate unique operands in external operators
     evaluated_operands = {}
     for external_operator in external_operators:
@@ -192,9 +188,12 @@ def evaluate_operands(
                 operand_domain = ufl.domain.extract_unique_domain(operand)
                 operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
                 # TODO: Stop recreating the expression every time
-                expr = fem.Expression(operand, quadrature_points, dtype=external_operator.ref_coefficient.dtype)
-                # NOTE: Using expression eval might be expensive
-                evaluated_operand = expr.eval(operand_mesh, entities)
+                if isinstance(operand, ufl.ExternalOperator):
+                    evaluated_operand = evaluate_operands([operand], entities)
+                else:
+                    expr = fem.Expression(operand, quadrature_points, dtype=external_operator.ref_coefficient.dtype)
+                    # NOTE: Using expression eval might be expensive
+                    evaluated_operand = expr.eval(operand_mesh, entities)
             evaluated_operands[operand] = evaluated_operand
     return evaluated_operands
 
@@ -215,8 +214,15 @@ def evaluate_external_operators(
     """
     evaluated_operators = []
     for external_operator in external_operators:
-        ufl_operands_eval = [evaluated_operands[operand] for operand in external_operator.ufl_operands]
+        ufl_operands_eval = []
+        for operand in external_operator.ufl_operands:
+            if isinstance(operand, ufl.ExternalOperator):
+                ufl_operands_eval.extend(evaluate_external_operators([operand], evaluated_operands))
+            else:
+                ufl_operands_eval.append(evaluated_operands[operand])
+            
         external_operator_eval = external_operator.external_function(external_operator.derivatives)(*ufl_operands_eval)
+
         # NOTE: Maybe to force the user to return always a tuple?
         if type(external_operator_eval) is tuple:
             np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
@@ -365,6 +371,9 @@ class ExternalOperatorReplacer(DAGTraverser):
 
     @process.register(ufl.ExternalOperator)
     def _(self, o: ufl.ExternalOperator, *args) -> ufl.core.expr.Expr:
+        for operand in o.ufl_operands:
+            if isinstance(operand, ufl.ExternalOperator):
+                self._ex_ops.append(operand)        
         self._ex_ops.append(o)
         return o.ref_coefficient
 
