@@ -1,11 +1,18 @@
 from mpi4py import MPI
 
-import basix.ufl
-import dolfinx
 import numpy as np
 import pytest
+
+import basix.ufl
+import dolfinx
 import ufl
-from dolfinx_external_operator import FEMExternalOperator, replace_external_operators,  evaluate_operands, evaluate_external_operators
+from dolfinx_external_operator import (
+    FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
+    replace_external_operators,
+)
+
 
 def compile_external_operator_form(
     form: dolfinx.fem.Form,
@@ -43,9 +50,10 @@ def pack_external_operator_data(form: dolfinx.fem.Form | list[dolfinx.fem.Form])
 def p(mod, u_NN):
     return mod.sin(u_NN)
 
+
 def p_NN(mod, derivatives):
     if derivatives == (0,):
-        return lambda u_NN : p(mod, u_NN)
+        return lambda u_NN: p(mod, u_NN)
     else:
         raise RuntimeError(f"Not implemented for derivative {derivatives}")
 
@@ -64,14 +72,11 @@ def u_NN_impl(gdim, x, theta):
     return out.flatten().copy()
 
 
-
 def u_NN_np(gdim, derivatives):
     if derivatives == (0, 0):
         return lambda x, theta: u_NN_impl(gdim, x, theta)
     else:
-        raise RuntimeError(
-            f"No function is defined for the derivatives {derivatives}."
-        )
+        raise RuntimeError(f"No function is defined for the derivatives {derivatives}.")
 
 
 @pytest.mark.parametrize("q_deg", [1, 4, 8])
@@ -91,13 +96,9 @@ def test_replacement_operator(cell_type, N, q_deg):
     if tdim == 1:
         mesh = dolfinx.mesh.create_unit_interval(MPI.COMM_WORLD, N)
     if tdim == 2:
-        mesh = dolfinx.mesh.create_unit_square(
-            MPI.COMM_WORLD, N, N, cell_type=cell_type
-        )
+        mesh = dolfinx.mesh.create_unit_square(MPI.COMM_WORLD, N, N, cell_type=cell_type)
     elif tdim == 3:
-        mesh = dolfinx.mesh.create_unit_cube(
-            MPI.COMM_WORLD, N, N, N, cell_type=cell_type
-        )
+        mesh = dolfinx.mesh.create_unit_cube(MPI.COMM_WORLD, N, N, N, cell_type=cell_type)
 
     R = dolfinx.fem.functionspace(mesh, ("DG", 1, (4,)))
     theta = dolfinx.fem.Function(R)
@@ -113,15 +114,14 @@ def test_replacement_operator(cell_type, N, q_deg):
         x,
         theta,
         function_space=Q,
-        external_function=lambda derivatives: u_NN_np(
-            mesh.geometry.dim, derivatives
-        ),
+        external_function=lambda derivatives: u_NN_np(mesh.geometry.dim, derivatives),
         name="exop",
     )
 
     N_ufl = u_NN(mesh.geometry.dim, ufl, x, theta)
-    P = FEMExternalOperator(N, function_space=Q, external_function=lambda derivatives: p_NN(np, derivatives),
-                            name="second_op")
+    P = FEMExternalOperator(
+        N, function_space=Q, external_function=lambda derivatives: p_NN(np, derivatives), name="second_op"
+    )
     V = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
     phi = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
@@ -129,23 +129,21 @@ def test_replacement_operator(cell_type, N, q_deg):
 
     def F(P, N, phi_h):
         a = ufl.inner(ufl.grad(phi), ufl.grad(v)) * dx
-        L = P*N * v * dx
+        L = P * N * v * dx
         _F = a - L
         return ufl.action(_F, phi_h)
-
 
     lmbda = dolfinx.fem.Function(V, name="lmbda")
     phih = dolfinx.fem.Function(V, name="phih")
     phih.interpolate(lambda x: np.sin(np.pi * x[0]))
     lmbda.interpolate(lambda x: np.cos(3 * np.pi * x[0]))
 
-    F_ex = F(P,N, phih)
+    F_ex = F(P, N, phih)
     F_compiled = compile_external_operator_form(F_ex)
 
     pack_external_operator_data(F_compiled)
     vec = dolfinx.fem.assemble_vector(F_compiled)
     P_ufl = p(ufl, N_ufl)
-    F_ref = F(P_ufl,N_ufl,  phih)
+    F_ref = F(P_ufl, N_ufl, phih)
     vec_ref = dolfinx.fem.assemble_vector(dolfinx.fem.form(F_ref))
     np.testing.assert_allclose(vec.array, vec_ref.array)
-

@@ -220,7 +220,7 @@ def evaluate_external_operators(
                 ufl_operands_eval.extend(evaluate_external_operators([operand], evaluated_operands))
             else:
                 ufl_operands_eval.append(evaluated_operands[operand])
-            
+
         external_operator_eval = external_operator.external_function(external_operator.derivatives)(*ufl_operands_eval)
 
         # NOTE: Maybe to force the user to return always a tuple?
@@ -373,7 +373,7 @@ class ExternalOperatorReplacer(DAGTraverser):
     def _(self, o: ufl.ExternalOperator, *args) -> ufl.core.expr.Expr:
         for operand in o.ufl_operands:
             if isinstance(operand, ufl.ExternalOperator):
-                self._ex_ops.append(operand)        
+                self._ex_ops.append(operand)
         self._ex_ops.append(o)
         return o.ref_coefficient
 
