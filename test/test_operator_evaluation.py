@@ -231,26 +231,30 @@ def test_mixed_element_space():
         metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree},
     )
 
-    # Quadrature space for external operator output (scalar per quadrature point)
-    Qe = basix.ufl.quadrature_element(
-        domain.topology.cell_name(),
-        degree=quadrature_degree,
-        value_shape=(),
-    )
-    Q = fem.functionspace(domain, Qe)
-    W = fem.functionspace(domain, basix.ufl.mixed_element([Qe, Qe]))
-    u = fem.Function(W)
-    u.x.array[:] = 1.0
+    Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
+    Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=())
+    V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
+    u = fem.Function(V)
+    u.sub(0).interpolate(lambda x: x[1] + 2.0)
+    u.sub(1).interpolate(lambda x: x[1] + 1.0)
     u1, u2 = ufl.split(u)
-    v = ufl.TestFunction(W)
-    v1, v2 = ufl.split(v)
+    v = ufl.TestFunction(V)
 
-    def N_impl(grad_u1):
-        return grad_u1.x.array.reshape(-1)
+    V1 = V.sub(0)
+    V2 = V.sub(1)
+    local_dofs_V1 = V1.dofmap.list.shape[1]
+    local_dofs_V2 = V2.dofmap.list.shape[1]
+    local_size_V = local_dofs_V1 + local_dofs_V2
 
-    n = u.x.array.size // gdim
-    def dN_impl(grad_u1):
-        return np.repeat(Id[np.newaxis,:,:], n, axis=0).reshape(-1)
+    def N_impl(u_):
+        out = np.zeros_like(u_)
+        out[:, local_dofs_V1:local_size_V] = u_[:, local_dofs_V1:local_size_V]
+        return out.reshape(-1)
+
+    def dN_impl(u_):
+        out = np.zeros_like(u_)
+        out[:, local_dofs_V1:local_size_V] = 1.0
+        return out.reshape(-1)
 
     def N_external(derivatives):
         if derivatives == (0,):
@@ -259,10 +263,11 @@ def test_mixed_element_space():
             return dN_impl
         else:
             raise NotImplementedError
-        
-    N = FEMExternalOperator(ufl.grad(u1), function_space=W, name="N", external_function=N_external)
-    F = ufl.algorithms.expand_derivatives(ufl.inner(N, v) * ufl.dx)
-    J = ufl.derivative(F, u, ufl.TrialFunction(W))
+    
+    # u2 from V2 will be projected onto both V1 and V2
+    N = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
+    F = ufl.inner(N, v) * ufl.dx
+    J = ufl.derivative(F, u, ufl.TrialFunction(V))
     J_expanded = ufl.algorithms.expand_derivatives(J)
 
     F_replaced, F_external_operators = replace_external_operators(F)
@@ -271,8 +276,13 @@ def test_mixed_element_space():
     _ = evaluate_external_operators(F_external_operators, evaluated_operands)
     _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
+    F_compiled = fem.form(F_replaced)
+    J_compiled = fem.form(J_replaced)
+    b_vector = fem.assemble_vector(F_compiled)
+    A_matrix = fem.assemble_matrix(J_compiled)
+
     # Check vector assembly
-    N_explicit = ufl.grad(u1)
+    N_explicit = ufl.as_vector([ufl.zero(), u2])
     F_explicit = inner(N_explicit, v) * ufl.dx
     F_explicit_compiled = fem.form(F_explicit)
     b_explicit_vector = fem.assemble_vector(F_explicit_compiled)

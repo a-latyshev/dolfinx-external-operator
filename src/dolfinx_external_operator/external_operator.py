@@ -8,6 +8,11 @@ from ufl.algorithms import expand_derivatives
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 
+def get_unrolled_dofmap(function_space):
+    dofmap_list = function_space.dofmap.list
+    bs = function_space.dofmap.bs
+    unrolled_dofmap = (np.repeat(dofmap_list, bs).reshape(dofmap_list.shape[0], -1)*bs + np.tile(np.arange(bs), dofmap_list.shape[1])).flatten()
+    return unrolled_dofmap
 
 @ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):
@@ -70,6 +75,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
             new_shape += self.ufl_operands[i].ufl_shape * e
         if new_shape != self.ufl_shape:
             
+            # TODO: update ufl_shape
+
             mesh = function_space.mesh
             if self.ufl_element().element_family is None:
                 element = basix.ufl.quadrature_element(
@@ -83,8 +90,19 @@ class FEMExternalOperator(ufl.ExternalOperator):
             self.ref_function_space = fem.functionspace(mesh, element)
         else:
             self.ref_function_space = function_space
-
         self.name = name
+
+        # Points to evaluate operands
+        if self.ref_function_space.ufl_element().family_name != "mixed element":
+            self.eval_points = self.ref_function_space.element.interpolation_points
+        else:
+            points = []
+            for i in range(self.ref_function_space.num_sub_spaces):
+                points.append(self.ref_function_space.sub(i).element.interpolation_points)
+            self.eval_points = np.concatenate(points)
+
+        self.unrolled_dofmap = get_unrolled_dofmap(self.ref_function_space)
+        
         # Make the global coefficient associated to the external operator
         if coefficient is not None:
             self.ref_coefficient = coefficient
@@ -170,7 +188,7 @@ def evaluate_operands(
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
     #quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree)[0]
-    eval_points = ref_function_space.element.interpolation_points
+    
     assert isinstance(ufl_element.pullback, ufl.pullback.IdentityPullback)
     # If no entity map is provided, assume that there is no sub-meshing
     if entities is None:
@@ -191,7 +209,7 @@ def evaluate_operands(
                 operand_domain = ufl.domain.extract_unique_domain(operand)
                 operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
                 # TODO: Stop recreating the expression every time
-                expr = fem.Expression(operand, eval_points)
+                expr = fem.Expression(operand, external_operator.eval_points)
                 # NOTE: Using expression eval might be expensive
                 evaluated_operand = expr.eval(operand_mesh, entities)
             evaluated_operands[operand] = evaluated_operand
@@ -222,13 +240,9 @@ def evaluate_external_operators(
             np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
         else:
             try:
-                np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval)
+                external_operator.ref_coefficient.x.array[external_operator.unrolled_dofmap] = external_operator_eval
             except ValueError:
-                dofmap_list = external_operator.ref_function_space.dofmap.list
-                bs = external_operator.ref_function_space.dofmap.bs
-
-                unrolled_dofmap = (np.repeat(dofmap_list, bs).reshape(dofmap_list.shape[0], -1)*bs + np.tile(np.arange(bs), dofmap_list.shape[1])).flatten()
-                external_operator.ref_coefficient.x.array[unrolled_dofmap] = external_operator_eval
+                external_operator.ref_coefficient.x.array[external_operator.unrolled_dofmap] = external_operator_eval
         evaluated_operators.append(external_operator_eval)
 
     return evaluated_operators
