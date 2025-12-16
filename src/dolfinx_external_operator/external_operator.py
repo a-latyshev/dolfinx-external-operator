@@ -217,7 +217,7 @@ def evaluate_external_operators(
         ufl_operands_eval = []
         for operand in external_operator.ufl_operands:
             if isinstance(operand, ufl.ExternalOperator):
-                ufl_operands_eval.extend(evaluate_external_operators([operand], evaluated_operands))
+                ufl_operands_eval.extend(evaluate_external_operators([operand], evaluated_operands[operand]))
             else:
                 ufl_operands_eval.append(evaluated_operands[operand])
 
@@ -373,8 +373,10 @@ class ExternalOperatorReplacer(DAGTraverser):
     def _(self, o: ufl.ExternalOperator, *args) -> ufl.core.expr.Expr:
         for operand in o.ufl_operands:
             if isinstance(operand, ufl.ExternalOperator):
-                self._ex_ops.append(operand)
-        self._ex_ops.append(o)
+                if operand not in self._ex_ops:
+                    self._ex_ops.append(operand)
+        if o not in self._ex_ops:
+            self._ex_ops.append(o)
         return o.ref_coefficient
 
     @process.register(ufl.core.expr.Expr)

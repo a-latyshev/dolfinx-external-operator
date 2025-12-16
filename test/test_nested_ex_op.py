@@ -51,9 +51,20 @@ def p(mod, u_NN):
     return mod.sin(u_NN)
 
 
+def z(mod, u_NN, p_NN):
+    return mod.cos(u_NN) + p_NN**2
+
+
 def p_NN(mod, derivatives):
     if derivatives == (0,):
         return lambda u_NN: p(mod, u_NN)
+    else:
+        raise RuntimeError(f"Not implemented for derivative {derivatives}")
+
+
+def z_NN(mod, derivatives):
+    if derivatives == (0, 0):
+        return lambda u_NN, p_NN: z(mod, u_NN, p_NN)
     else:
         raise RuntimeError(f"Not implemented for derivative {derivatives}")
 
@@ -118,18 +129,20 @@ def test_replacement_operator(cell_type, N, q_deg):
         name="exop",
     )
 
-    N_ufl = u_NN(mesh.geometry.dim, ufl, x, theta)
     P = FEMExternalOperator(
         N, function_space=Q, external_function=lambda derivatives: p_NN(np, derivatives), name="second_op"
+    )
+    Z = FEMExternalOperator(
+        N, P, function_space=Q, external_function=lambda derivatives: z_NN(np, derivatives), name="third_op"
     )
     V = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
     phi = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
     dx = ufl.Measure("dx", domain=mesh, metadata={"quadrature_degree": q_deg})
 
-    def F(P, N, phi_h):
+    def F(P, N, Z, phi_h):
         a = ufl.inner(ufl.grad(phi), ufl.grad(v)) * dx
-        L = P * N * v * dx
+        L = (Z**2 * P * N) * v * dx
         _F = a - L
         return ufl.action(_F, phi_h)
 
@@ -138,12 +151,14 @@ def test_replacement_operator(cell_type, N, q_deg):
     phih.interpolate(lambda x: np.sin(np.pi * x[0]))
     lmbda.interpolate(lambda x: np.cos(3 * np.pi * x[0]))
 
-    F_ex = F(P, N, phih)
+    F_ex = F(P, N, Z, phih)
     F_compiled = compile_external_operator_form(F_ex)
 
     pack_external_operator_data(F_compiled)
     vec = dolfinx.fem.assemble_vector(F_compiled)
+    N_ufl = u_NN(mesh.geometry.dim, ufl, x, theta)
     P_ufl = p(ufl, N_ufl)
-    F_ref = F(P_ufl, N_ufl, phih)
+    Z_ufl = z(ufl, N_ufl, P_ufl)
+    F_ref = F(P_ufl, N_ufl, Z_ufl, phih)
     vec_ref = dolfinx.fem.assemble_vector(dolfinx.fem.form(F_ref))
     np.testing.assert_allclose(vec.array, vec_ref.array)
