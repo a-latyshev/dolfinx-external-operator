@@ -174,12 +174,13 @@ def test_continuous_space():
     u.x.array[:] = 1.0
 
     def N_impl(u_):
-        return u_.reshape(-1) * 2.0
+        return u_.reshape(-1)
 
     Id = np.eye(2)
-    n = u.x.array.reshape((-1, gdim)).shape[0]
     def dNdu_impl(u_):
-        return np.repeat(Id[np.newaxis,:,:], n, axis=0).reshape(-1) * 2.0
+        n_cells = u_.shape[0]
+        n_dofs = u_.shape[1]
+        return np.repeat(Id[np.newaxis,:,:], n_cells*n_dofs, axis=0).reshape(-1)
 
     def N_external(derivatives):
         if derivatives == (0,):
@@ -208,7 +209,7 @@ def test_continuous_space():
     A_matrix = fem.assemble_matrix(J_compiled)
 
     # Check vector assembly
-    N_explicit = 2.0 * u
+    N_explicit = u
     F_explicit = inner(N_explicit, v) * ufl.dx
     F_explicit_compiled = fem.form(F_explicit)
     b_explicit_vector = fem.assemble_vector(F_explicit_compiled)

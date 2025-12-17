@@ -8,6 +8,7 @@ from ufl.algorithms import expand_derivatives
 from ufl.algorithms.analysis import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
+from ufl.constantvalue import Zero
 
 def get_unrolled_dofmap(function_space):
     dofmap_list = function_space.dofmap.list
@@ -115,6 +116,11 @@ class FEMExternalOperator(ufl.ExternalOperator):
         argument_slots=None,
         add_kwargs={},
     ):
+        if self.ufl_element().is_cellwise_constant(): # TODO: TEEEST THIS
+            new_shape = self.ufl_shape
+            for i, e in enumerate(self.derivatives):
+                new_shape += self.ufl_operands[i].ufl_shape * e
+            return Zero(self.ufl_shape)
         """Return a new object of the same type with new operands."""
         coefficient = None
         d = "\N{PARTIAL DIFFERENTIAL}o"
@@ -134,6 +140,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             coefficient=coefficient,
             **add_kwargs,
         )
+        
 
     def __hash__(self):
         """Hash code for UFL AD."""
@@ -161,6 +168,9 @@ class FEMExternalOperator(ufl.ExternalOperator):
         e += ")"
         return e + "/" + d_ops if sum(derivatives) > 0 else e
 
+    def is_cellwise_constant(self):
+        """Return whether this expression is spatially constant over each cell."""
+        return self.ufl_element().is_cellwise_constant()
 
 def evaluate_operands(
     external_operators: list[FEMExternalOperator],
