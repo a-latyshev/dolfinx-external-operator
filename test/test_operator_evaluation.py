@@ -266,7 +266,9 @@ def test_mixed_element_space():
     
     # u2 from V2 will be projected onto both V1 and V2
     N = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
-    F = ufl.inner(N, v) * ufl.dx
+    N1, N2 = ufl.split(N)
+    v1, v2 = ufl.split(v)
+    F = N1 * v1 * ufl.dx + ufl.inner(ufl.grad(N2), v) * ufl.dx
     J = ufl.derivative(F, u, ufl.TrialFunction(V))
     J_expanded = ufl.algorithms.expand_derivatives(J)
 
@@ -282,8 +284,7 @@ def test_mixed_element_space():
     A_matrix = fem.assemble_matrix(J_compiled)
 
     # Check vector assembly
-    N_explicit = ufl.as_vector([ufl.zero(), u2])
-    F_explicit = inner(N_explicit, v) * ufl.dx
+    F_explicit = inner(ufl.grad(u2), v) * ufl.dx
     F_explicit_compiled = fem.form(F_explicit)
     b_explicit_vector = fem.assemble_vector(F_explicit_compiled)
     assert np.allclose(b_explicit_vector.array, b_vector.array)

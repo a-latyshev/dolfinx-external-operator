@@ -5,6 +5,7 @@ import ufl
 from dolfinx import fem
 from dolfinx import mesh as _mesh
 from ufl.algorithms import expand_derivatives
+from ufl.algorithms.analysis import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 
@@ -52,14 +53,9 @@ class FEMExternalOperator(ufl.ExternalOperator):
             `fem.Function` coefficient.
         """
         ufl_element = function_space.ufl_element()
-        # if ufl_element.family_name != "quadrature":
-        #     raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
-
         self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
-        for operand in self.ufl_operands:
-            if isinstance(operand, FEMExternalOperator):
-                raise TypeError("Use of FEMExternalOperators as operands is not implemented.")
-
+        # TODO: Add check that operands contain coefficients from mixed elements
+        
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
 
