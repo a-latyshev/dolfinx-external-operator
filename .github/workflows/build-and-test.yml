@@ -48,13 +48,14 @@ jobs:
       - name: Run demos (MPI, np=3)
         run: |
           python3 -m pytest -m mpi -v --num-proc=2 doc/demo
+          
+      - name: Build book
+        working-directory: doc/
+        run: jupyter-book build .
 
-      - name: Build Jupyter Book
-        run: |
-          jupyter-book build doc/
-
-      - name: Upload Pages artifact
-        if: success()
-        uses: actions/upload-pages-artifact@v4
+      - name: Upload documentation as artifact
+        uses: actions/upload-artifact@v5
         with:
+          name: webpage
           path: doc/_build/html
+          if-no-files-found: error
