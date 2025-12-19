@@ -60,7 +60,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
-            
+
         super().__init__(
             *self.ufl_operands,
             function_space=function_space,
