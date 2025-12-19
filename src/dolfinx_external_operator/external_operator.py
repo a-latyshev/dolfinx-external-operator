@@ -57,12 +57,10 @@ class FEMExternalOperator(ufl.ExternalOperator):
             raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
 
         self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
-        for operand in self.ufl_operands:
-            if isinstance(operand, FEMExternalOperator):
-                raise TypeError("Use of FEMExternalOperators as operands is not implemented.")
 
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
+            
         super().__init__(
             *self.ufl_operands,
             function_space=function_space,
