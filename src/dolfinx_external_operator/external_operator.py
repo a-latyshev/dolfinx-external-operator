@@ -7,6 +7,7 @@ import basix
 import ufl
 from dolfinx import fem
 from dolfinx import mesh as _mesh
+from ufl.algorithms import expand_derivatives
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 from ufl.corealg.dag_traverser import DAGTraverser
@@ -55,12 +56,13 @@ class FEMExternalOperator(ufl.ExternalOperator):
         if ufl_element.family_name != "quadrature":
             raise TypeError("FEMExternalOperator currently only supports Quadrature elements.")
 
-        self.ufl_operands = tuple(map(as_ufl, operands))
+        self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
 
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
+
         super().__init__(
-            *operands,
+            *self.ufl_operands,
             function_space=function_space,
             derivatives=derivatives,
             argument_slots=argument_slots,

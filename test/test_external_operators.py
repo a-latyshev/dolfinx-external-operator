@@ -5,13 +5,17 @@ from mpi4py import MPI
 
 import basix
 import ufl
-from dolfinx import fem, mesh
+from dolfinx import fem
+from dolfinx.mesh import create_unit_square
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
 )
+from ufl.algorithms import expand_derivatives
+from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
+from ufl.algorithms.renumbering import renumber_indices
 
 
 def Q_gen(domain, tensor_shape):
@@ -31,7 +35,7 @@ def compute_dimensions(operand, u, test_f):
     )
     F = ufl.inner(N, test_f) * dx
     J = ufl.derivative(F, u, u_hat)
-    J_expanded = ufl.algorithms.expand_derivatives(J)
+    J_expanded = expand_derivatives(J)
     _J_replaced, J_ex_ops_list = replace_external_operators(J_expanded)
     dNdu = J_ex_ops_list[0]
 
@@ -49,7 +53,7 @@ def test_dimensions_after_differentiation():
     # dim(dN) - dim(doperand) == dim(N) == dim(test_f)
     # shape(dN) == shape(N) + shape(operand)
 
-    domain = mesh.create_unit_square(MPI.COMM_WORLD, 2, 2)
+    domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
     V = fem.functionspace(domain, ("P", 1))
     u = fem.Function(V)
     v = ufl.TestFunction(V)
@@ -91,14 +95,14 @@ def check_replacement(form: ufl.Form, operators: list[FEMExternalOperator], oper
     assert len(form_replaced.base_form_operators()) == 0
 
     J = ufl.derivative(form, u, ufl.TrialFunction(V))
-    J_expanded = ufl.algorithms.expand_derivatives(J)
+    J_expanded = expand_derivatives(J)
     J_replaced, J_external_operators = replace_external_operators(J_expanded)
     assert len(J_external_operators) == operators_count_after_AD
     assert len(J_replaced.base_form_operators()) == 0
 
 
 def test_replacement_mechanism():
-    domain = mesh.create_unit_square(MPI.COMM_WORLD, 2, 2)
+    domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
     V = fem.functionspace(domain, ("P", 1))
     u = fem.Function(V)
     v = ufl.TestFunction(V)
@@ -138,8 +142,65 @@ def test_replacement_mechanism():
     check_replacement(Fn5 + Fn1, [n1, n2], operators_count_after_AD=4)
 
 
+def check_operand_expansion(operand: ufl.core.expr.Expr, u: fem.Function):
+    domain = u.function_space.mesh
+    V = u.function_space
+    Q = Q_gen(domain, (2,))
+    N = FEMExternalOperator(operand, function_space=Q)
+
+    dx = ufl.Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": 1})
+    F = ufl.inner(N, ufl.TestFunction(V)) * dx
+    J = ufl.derivative(F, u, ufl.TrialFunction(V))
+    J_expanded = expand_derivatives(J)
+    _, J_external_operators = replace_external_operators(J_expanded)
+    operand_expanded = renumber_indices(apply_algebra_lowering(operand))
+    assert renumber_indices(N.ufl_operands[0]) == operand_expanded
+    dN = J_external_operators[0]
+    assert renumber_indices(dN.ufl_operands[0]) == operand_expanded
+
+
+def test_indexed_operands():
+    domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
+    V = fem.functionspace(domain, ("P", 1, (2,)))
+    u = fem.Function(V)
+
+    operand = ufl.transpose(ufl.grad(u))
+    check_operand_expansion(operand, u)
+
+    d = domain.geometry.dim
+    F = ufl.variable(ufl.Identity(d) + ufl.grad(u))
+    C = F.T * F
+    J = ufl.det(F)
+    operand = ufl.tr(C)
+    check_operand_expansion(operand, u)
+
+    Qe = basix.ufl.quadrature_element(
+        domain.topology.cell_name(),
+        degree=1,
+        value_shape=(),
+    )
+    W = fem.functionspace(domain, basix.ufl.mixed_element([Qe, Qe]))
+    u = fem.Function(W)
+    u1, _ = ufl.split(u)
+    v = ufl.TestFunction(W)
+    v1, _ = ufl.split(v)
+
+    Q = fem.functionspace(domain, Qe)
+    operand = ufl.grad(u1)
+    N = FEMExternalOperator(operand, function_space=Q)
+    F = ufl.inner(N * u1, v1) * ufl.dx
+    J = ufl.derivative(F, u, ufl.TrialFunction(W))
+    J_expanded = expand_derivatives(J)
+    _, J_external_operators = replace_external_operators(J_expanded)
+
+    operand_expanded = renumber_indices(expand_derivatives(operand))
+    assert renumber_indices(N.ufl_operands[0]) == operand_expanded
+    dN = J_external_operators[0]
+    assert renumber_indices(dN.ufl_operands[0]) == operand_expanded
+
+
 def test_no_operator():
-    domain = mesh.create_unit_square(MPI.COMM_WORLD, 2, 2)
+    domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
     V = fem.functionspace(domain, ("P", 1))
     u = fem.Function(V)
     v = ufl.TestFunction(V)
