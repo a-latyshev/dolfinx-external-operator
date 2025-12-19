@@ -9,6 +9,8 @@ from dolfinx import fem
 from dolfinx.mesh import create_unit_square
 from dolfinx_external_operator import (
     FEMExternalOperator,
+    evaluate_external_operators,
+    evaluate_operands,
     replace_external_operators,
 )
 from ufl.algorithms import expand_derivatives
@@ -195,3 +197,16 @@ def test_indexed_operands():
     assert renumber_indices(N.ufl_operands[0]) == operand_expanded
     dN = J_external_operators[0]
     assert renumber_indices(dN.ufl_operands[0]) == operand_expanded
+
+
+def test_no_operator():
+    domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
+    V = fem.functionspace(domain, ("P", 1))
+    u = fem.Function(V)
+    v = ufl.TestFunction(V)
+    F = ufl.inner(u, v) * ufl.dx
+    _, external_operators = replace_external_operators(F)
+    assert len(external_operators) == 0
+    data = evaluate_operands(external_operators)
+    assert data == {}
+    evaluate_external_operators(external_operators, data)

@@ -92,6 +92,6 @@ def interpolate_quadrature(ufl_expr, fem_func: Function) -> None:
     num_cells = map_c.size_local + map_c.num_ghosts
     cells = np.arange(0, num_cells, dtype=np.int32)
 
-    expr_expr = Expression(ufl_expr, quadrature_points)
+    expr_expr = Expression(ufl_expr, quadrature_points, dtype=fem_func.dtype)
     expr_eval = expr_expr.eval(mesh, cells)
     np.copyto(fem_func.x.array, expr_eval.reshape(-1))
