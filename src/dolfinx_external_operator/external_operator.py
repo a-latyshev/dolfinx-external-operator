@@ -9,6 +9,7 @@ from ufl.algorithms.analysis import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.core.ufl_type import ufl_type
 from ufl.constantvalue import Zero
+from basix.ufl import _ElementBase
 
 def get_unrolled_dofmap(function_space):
     dofmap_list = function_space.dofmap.list
@@ -16,6 +17,24 @@ def get_unrolled_dofmap(function_space):
     unrolled_dofmap = (np.repeat(dofmap_list, bs).reshape(dofmap_list.shape[0], -1)*bs + np.tile(np.arange(bs), dofmap_list.shape[1])).flatten()
     return unrolled_dofmap
 
+def new_element_from_new_shape(element:_ElementBase, diff_shape: tuple[int, ...], mesh:_mesh.Mesh) -> _ElementBase:
+    new_shape = element.reference_value_shape + diff_shape
+
+    if element.element_family is None:
+        element = basix.ufl.quadrature_element(
+            mesh.topology.cell_name(),
+            degree=element.degree,
+            value_shape=new_shape,
+        )
+    else:
+        element = basix.ufl.element(
+            element.element_family, 
+            mesh.basix_cell(), 
+            degree=element.degree, 
+            shape=new_shape
+        )
+    return element
+    
 @ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):
     """Finite element external operator.
@@ -55,7 +74,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
         """
         ufl_element = function_space.ufl_element()
         self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
-        # TODO: Add check that operands contain coefficients from mixed elements
         
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
@@ -67,36 +85,46 @@ class FEMExternalOperator(ufl.ExternalOperator):
             argument_slots=argument_slots,
         )
 
-        new_shape = self.ufl_shape
+        # Define functional space of external operator
+        diff_shape = () # extra indexes that come after differentiation
         for i, e in enumerate(self.derivatives):
-            new_shape += self.ufl_operands[i].ufl_shape * e
+            diff_shape += self.ufl_operands[i].ufl_shape * e 
+            
+        new_shape = self.ufl_shape + diff_shape
         if new_shape != self.ufl_shape:
             
-            # TODO: update ufl_shape
+            # TODO: should we decrease the degree after differentiation?
 
             mesh = function_space.mesh
-            if self.ufl_element().element_family is None:
-                element = basix.ufl.quadrature_element(
-                    mesh.topology.cell_name(),
-                    degree=ufl_element.degree,
-                    value_shape=new_shape,
-                )
+            original_element = function_space.ufl_element()
+            if original_element.is_mixed:
+                all_sub_els = []
+                for sub_el in original_element.sub_elements:
+                    new_sub_el = new_element_from_new_shape(sub_el, diff_shape, mesh)
+                    all_sub_els.append(new_sub_el)
+                new_element = basix.ufl.mixed_element(all_sub_els)
             else:
-                element = basix.ufl.element(self.ufl_element().element_family, mesh.basix_cell(), degree=self.ufl_element().degree, shape=new_shape)
-
-            self.ref_function_space = fem.functionspace(mesh, element)
+                new_element = new_element_from_new_shape(original_element, diff_shape, mesh)
+                
+            self.ref_function_space = fem.functionspace(mesh, new_element)
         else:
             self.ref_function_space = function_space
+
+        # TODO: update ufl_shape; how this will change the replacement mechanism?
+        # Currently: its equal to self.arguments()[0].ufl_element()
+        # Source: https://github.com/FEniCS/ufl/blob/966b0c0930bcdbd27fd939bb7ebf59fa6016faed/ufl/core/external_operator.py#L68
+        # self.ufl_shape =
+        # self.ref_function_space.ufl_element().reference_value_shape
         self.name = name
 
         # Points to evaluate operands
-        if self.ref_function_space.ufl_element().family_name != "mixed element":
-            self.eval_points = self.ref_function_space.element.interpolation_points
-        else:
+        if self.ref_function_space.ufl_element().is_mixed:
             points = []
             for i in range(self.ref_function_space.num_sub_spaces):
                 points.append(self.ref_function_space.sub(i).element.interpolation_points)
             self.eval_points = np.concatenate(points)
+        else:
+            self.eval_points = self.ref_function_space.element.interpolation_points
 
         self.unrolled_dofmap = get_unrolled_dofmap(self.ref_function_space)
         
