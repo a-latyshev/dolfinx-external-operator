@@ -109,6 +109,7 @@ the following references:
 * Jérémy Bleyer (École des Ponts ParisTech, Université Gustave Eiffel, jeremy.bleyer@enpc.fr)
 * Jack S. Hale (University of Luxembourg, jack.hale@uni.lu)
 * Corrado Maurini (Sorbonne Université, corrado.maurini@sorbonne-universite.fr)
+* Jørgen S. Dokken (Simula Research Laboratory, dokken@simula.no)
 
 If you wish to be added as a contributor after an accepted PR please ask via
 email.

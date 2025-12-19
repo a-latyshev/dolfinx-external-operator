@@ -4,10 +4,12 @@
 title: "External operators within FEniCSx/DOLFINx"
 author: Andrey Latyshev, Jack S. Hale
 copyright: "2024"
+only_build_toc_files: true
 
 execute:
   execute_notebooks: cache
   timeout: 3600
+
 # Information about where the book exists on the web
 repository:
   url: https://github.com/a-latyshev/dolfinx-external-operator/  # Online location of your book
