@@ -198,6 +198,7 @@ def test_indexed_operands():
     dN = J_external_operators[0]
     assert renumber_indices(dN.ufl_operands[0]) == operand_expanded
 
+
 def test_no_operator():
     domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
     V = fem.functionspace(domain, ("P", 1))

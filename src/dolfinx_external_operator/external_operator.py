@@ -5,23 +5,25 @@ import numpy.typing as npt
 
 import basix
 import ufl
+from basix.ufl import _ElementBase
 from dolfinx import fem
 from dolfinx import mesh as _mesh
 from ufl.algorithms import expand_derivatives
-from ufl.algorithms.analysis import extract_coefficients
-from ufl.constantvalue import as_ufl
+from ufl.constantvalue import Zero, as_ufl
 from ufl.core.ufl_type import ufl_type
 from ufl.corealg.dag_traverser import DAGTraverser
-from ufl.constantvalue import Zero
-from basix.ufl import _ElementBase
+
 
 def get_unrolled_dofmap(function_space):
     dofmap_list = function_space.dofmap.list
     bs = function_space.dofmap.bs
-    unrolled_dofmap = (np.repeat(dofmap_list, bs).reshape(dofmap_list.shape[0], -1)*bs + np.tile(np.arange(bs), dofmap_list.shape[1])).flatten()
+    unrolled_dofmap = (
+        np.repeat(dofmap_list, bs).reshape(dofmap_list.shape[0], -1) * bs + np.tile(np.arange(bs), dofmap_list.shape[1])
+    ).flatten()
     return unrolled_dofmap
 
-def new_element_from_new_shape(element:_ElementBase, diff_shape: tuple[int, ...], mesh:_mesh.Mesh) -> _ElementBase:
+
+def new_element_from_new_shape(element: _ElementBase, diff_shape: tuple[int, ...], mesh: _mesh.Mesh) -> _ElementBase:
     new_shape = element.reference_value_shape + diff_shape
 
     if element.element_family is None:
@@ -32,13 +34,15 @@ def new_element_from_new_shape(element:_ElementBase, diff_shape: tuple[int, ...]
         )
     else:
         element = basix.ufl.element(
-            element.element_family, 
-            mesh.basix_cell(), 
-            degree=element.degree, 
-            shape=new_shape
+            element.element_family,
+            mesh.basix_cell(),
+            degree=element.degree,
+            shape=new_shape,
+            discontinuous=element.discontinuous,
         )
     return element
-    
+
+
 @ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):
     """Finite element external operator.
@@ -78,9 +82,8 @@ class FEMExternalOperator(ufl.ExternalOperator):
             `fem.Function` coefficient.
             dtype: Data type of the external operator.
         """
-        ufl_element = function_space.ufl_element()
         self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
-        
+
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
         super().__init__(
@@ -91,13 +94,11 @@ class FEMExternalOperator(ufl.ExternalOperator):
         )
 
         # Define functional space of external operator
-        diff_shape = () # extra indexes that come after differentiation
+        diff_shape = ()  # extra indexes that come after differentiation
         for i, e in enumerate(self.derivatives):
-            diff_shape += self.ufl_operands[i].ufl_shape * e 
-            
-        new_shape = self.ufl_shape + diff_shape
-        if new_shape != self.ufl_shape:
-            
+            diff_shape += self.ufl_operands[i].ufl_shape * e
+
+        if diff_shape != ():
             # TODO: should we decrease the degree after differentiation?
 
             mesh = function_space.mesh
@@ -110,7 +111,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 new_element = basix.ufl.mixed_element(all_sub_els)
             else:
                 new_element = new_element_from_new_shape(original_element, diff_shape, mesh)
-                
+
             self.ref_function_space = fem.functionspace(mesh, new_element)
         else:
             self.ref_function_space = function_space
@@ -132,7 +133,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             self.eval_points = self.ref_function_space.element.interpolation_points
 
         self.unrolled_dofmap = get_unrolled_dofmap(self.ref_function_space)
-        
+
         # Make the global coefficient associated to the external operator
         if coefficient is not None:
             self.ref_coefficient = coefficient
@@ -148,7 +149,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         argument_slots=None,
         add_kwargs={},
     ):
-        if self.ufl_element().is_cellwise_constant(): # TODO: TEEEST THIS
+        if self.ufl_element().is_cellwise_constant():  # TODO: TEEEST THIS
             new_shape = self.ufl_shape
             for i, e in enumerate(self.derivatives):
                 new_shape += self.ufl_operands[i].ufl_shape * e
@@ -174,7 +175,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
             dtype=dtype,
             **add_kwargs,
         )
-        
 
     def __hash__(self):
         """Hash code for UFL AD."""
@@ -206,6 +206,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         """Return whether this expression is spatially constant over each cell."""
         return self.ufl_element().is_cellwise_constant()
 
+
 def evaluate_operands(
     external_operators: list[FEMExternalOperator],
     entities: np.ndarray | None = None,
@@ -229,8 +230,8 @@ def evaluate_operands(
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
-    #quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree)[0]
-    
+    # quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree)[0]
+
     assert isinstance(ufl_element.pullback, ufl.pullback.IdentityPullback)
     # If no entity map is provided, assume that there is no sub-meshing
     if entities is None:
@@ -253,7 +254,9 @@ def evaluate_operands(
                 if isinstance(operand, ufl.ExternalOperator):
                     evaluated_operand = evaluate_operands([operand], entities)
                 else:
-                    expr = fem.Expression(operand, external_operator.eval_points, dtype=external_operator.ref_coefficient.dtype)
+                    expr = fem.Expression(
+                        operand, external_operator.eval_points, dtype=external_operator.ref_coefficient.dtype
+                    )
                     # NOTE: Using expression eval might be expensive
                     evaluated_operand = expr.eval(operand_mesh, entities)
             evaluated_operands[operand] = evaluated_operand

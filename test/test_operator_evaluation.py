@@ -7,9 +7,6 @@ import numpy as np
 
 import basix
 import ufl
-from ufl.algorithms import expand_derivatives
-from ufl import Measure, TestFunction, TrialFunction, derivative, grad, inner, split, div
-
 from dolfinx import fem, mesh
 from dolfinx_external_operator import (
     FEMExternalOperator,
@@ -17,17 +14,18 @@ from dolfinx_external_operator import (
     evaluate_operands,
     replace_external_operators,
 )
+from ufl import Measure, TestFunction, TrialFunction, derivative, div, grad, inner
+
 
 def check_vector_matrix(F, F_explicit, u):
-    """"Check that the vector and matrix assembled from the form `F`
+    """ "Check that the vector and matrix assembled from the form `F`
     match those assembled from the explicit form F_explicit. The derivative is
     taken in the direction of the function `u`.
     """
     V = u.function_space
     J = derivative(F, u, TrialFunction(V))
-    J_expanded = expand_derivatives(J)
     F_replaced, F_external_operators = replace_external_operators(F)
-    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+    J_replaced, J_external_operators = replace_external_operators(J)
     evaluated_operands = evaluate_operands(F_external_operators)
     _ = evaluate_external_operators(F_external_operators, evaluated_operands)
     _ = evaluate_external_operators(J_external_operators, evaluated_operands)
@@ -46,6 +44,7 @@ def check_vector_matrix(F, F_explicit, u):
     A_explicit_matrix = fem.assemble_matrix(J_explicit_compiled)
     assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 
+
 def test_quadrature_space():
     # Test is based on the heat equation tutorial:
     # `nonlinear_heat_equation_part2.py`.
@@ -60,7 +59,6 @@ def test_quadrature_space():
     quadrature_degree = 2
     Qe = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=(2,))
     Q = fem.functionspace(domain, Qe)
-    W = fem.functionspace(domain, ("P", 1, (2,)))
     dx = Measure("dx", metadata={"quadrature_degree": quadrature_degree})
 
     A = 1.0
@@ -107,6 +105,7 @@ def test_quadrature_space():
 
     check_vector_matrix(F, F_explicit, T)
 
+
 def test_discontinuous_space():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
     gdim = domain.geometry.dim
@@ -123,17 +122,17 @@ def test_discontinuous_space():
     def dNddivu_impl(div_u_, grad_u_):
         n_cells = div_u_.shape[0]
         n_dofs = div_u_.shape[1]
-        return np.ones(n_cells*n_dofs).reshape(-1)
+        return np.ones(n_cells * n_dofs).reshape(-1)
 
     def dNdgradu_impl(div_u_, grad_u_):
         return 2 * grad_u_.reshape(-1)
 
     def N_external(derivatives):
-        if derivatives == (0,0):
+        if derivatives == (0, 0):
             return N_impl
-        elif derivatives == (1,0):
+        elif derivatives == (1, 0):
             return dNddivu_impl
-        elif derivatives == (0,1):
+        elif derivatives == (0, 1):
             return dNdgradu_impl
         else:
             raise NotImplementedError
@@ -148,6 +147,7 @@ def test_discontinuous_space():
     F_explicit = N_explicit * inner(u, v) * dx
     check_vector_matrix(F, F_explicit, u)
 
+
 def test_continuous_space():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
     gdim = domain.geometry.dim
@@ -159,10 +159,11 @@ def test_continuous_space():
         return u_.reshape(-1)
 
     Id = np.eye(2)
+
     def dNdu_impl(u_):
         n_cells = u_.shape[0]
         n_dofs = u_.shape[1]
-        return np.repeat(Id[np.newaxis,:,:], n_cells*n_dofs, axis=0).reshape(-1)
+        return np.repeat(Id[np.newaxis, :, :], n_cells * n_dofs, axis=0).reshape(-1)
 
     def N_external(derivatives):
         if derivatives == (0,):
@@ -175,10 +176,11 @@ def test_continuous_space():
     N = FEMExternalOperator(u, function_space=V, external_function=N_external)
     v = TestFunction(V)
     F = inner(N, v) * ufl.dx
-    
+
     N_explicit = u
     F_explicit = inner(N_explicit, v) * ufl.dx
     check_vector_matrix(F, F_explicit, u)
+
 
 # def test_mixed_element_space():
 #     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
@@ -216,7 +218,7 @@ def test_continuous_space():
 #             return dN_impl
 #         else:
 #             raise NotImplementedError
-    
+
 #     # u2 from V2 will be projected onto both V1 and V2
 #     N = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
 #     N1, N2 = split(N)
@@ -270,7 +272,7 @@ def test_continuous_space():
 #             return dNdgradu1_impl
 #         else:
 #             raise NotImplementedError
-    
+
 #     # u2 from V2 will be projected onto both V1 and V2
 #     N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
 
