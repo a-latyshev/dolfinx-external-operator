@@ -1,18 +1,16 @@
 from mpi4py import MPI
 
+import numpy as np
+
 import basix
 import ufl
-from ufl.algorithms import expand_derivatives
-from ufl.algorithms.renumbering import renumber_indices
 from dolfinx import fem, mesh
 from dolfinx_external_operator import (
     FEMExternalOperator,
-    evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
 )
 
-import numpy as np
 
 def test_operands_evaluation():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 4, 4)
@@ -22,7 +20,7 @@ def test_operands_evaluation():
     u.interpolate(lambda x: (x[0] * 0.1, x[1] * 0.3))
     v = ufl.TestFunction(V)
 
-    # Measure 
+    # Measure
     quadrature_degree = 2
     dx = ufl.Measure(
         "dx",
@@ -31,8 +29,7 @@ def test_operands_evaluation():
     )
 
     d = domain.geometry.dim
-    I = ufl.Identity(d)
-    F = ufl.variable(I + ufl.grad(u))
+    F = ufl.variable(ufl.Identity(d) + ufl.grad(u))
     C = F.T * F
     J = ufl.det(F)
     I1 = ufl.tr(C)
@@ -57,10 +54,10 @@ def test_operands_evaluation():
 
     I1_expr = fem.Expression(I1, quadrature_points, dtype=N.ref_coefficient.dtype)
     I1_values = I1_expr.eval(N.ref_function_space.mesh, cells)
-    slope_values = np.full((quadrature_points.shape[0]*num_cells,), slope.x.array[0], dtype=N.ref_coefficient.dtype)
+    slope_values = np.full((quadrature_points.shape[0] * num_cells,), slope.x.array[0], dtype=N.ref_coefficient.dtype)
 
     P = ufl.diff(I1, F) * N
-    Res = ufl.inner(P, ufl.grad(v)) * dx 
+    Res = ufl.inner(P, ufl.grad(v)) * dx
     J = ufl.derivative(Res, u, ufl.TrialFunction(V))
     _, J_external_operators = replace_external_operators(J)
     evaluated_operands = evaluate_operands(J_external_operators)
