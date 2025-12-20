@@ -319,6 +319,8 @@ def _replace_action(action: ufl.Action):
     N_tilde = action.left().arguments()[-1]
     external_operator_argument = action.right().argument_slots()[-1]
     coefficient = action.right().ref_coefficient
+    print(N_tilde.ufl_shape, external_operator_argument.ufl_shape, coefficient.ufl_shape)
+
     # NOTE: Is this replace always appropriate?
     arg_dim = len(external_operator_argument.ufl_shape)
     coeff_dim = len(coefficient.ufl_shape)

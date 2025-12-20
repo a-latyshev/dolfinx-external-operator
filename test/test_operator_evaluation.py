@@ -14,7 +14,7 @@ from dolfinx_external_operator import (
     evaluate_operands,
     replace_external_operators,
 )
-from ufl import Measure, TestFunction, TrialFunction, derivative, div, grad, inner
+from ufl import Measure, TestFunction, TrialFunction, derivative, div, grad, inner, split
 
 
 def check_vector_matrix(F, F_explicit, u):
@@ -182,105 +182,105 @@ def test_continuous_space():
     check_vector_matrix(F, F_explicit, u)
 
 
-# def test_mixed_element_space():
-#     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
-#     gdim = domain.geometry.dim
+def test_mixed_element_space():
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+    gdim = domain.geometry.dim
 
-#     Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
-#     Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=())
-#     V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
-#     u = fem.Function(V)
-#     u.sub(0).interpolate(lambda x: x[1] + 2.0)
-#     u.sub(1).interpolate(lambda x: x[1] + 1.0)
-#     u1, u2 = split(u)
-#     v = TestFunction(V)
+    Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
+    Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=())
+    V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
+    u = fem.Function(V)
+    u.sub(0).interpolate(lambda x: x[1] + 2.0)
+    u.sub(1).interpolate(lambda x: x[1] + 1.0)
+    u1, u2 = split(u)
+    v = TestFunction(V)
 
-#     V1 = V.sub(0)
-#     V2 = V.sub(1)
-#     local_dofs_V1 = V1.dofmap.list.shape[1]
-#     local_dofs_V2 = V2.dofmap.list.shape[1]
-#     local_size_V = local_dofs_V1 + local_dofs_V2
+    V1 = V.sub(0)
+    V2 = V.sub(1)
+    local_dofs_V1 = V1.dofmap.list.shape[1]
+    local_dofs_V2 = V2.dofmap.list.shape[1]
+    local_size_V = local_dofs_V1 + local_dofs_V2
 
-#     def N_impl(u_):
-#         out = np.zeros_like(u_)
-#         out[:, local_dofs_V1:local_size_V] = u_[:, local_dofs_V1:local_size_V]
-#         return out.reshape(-1)
+    def N_impl(u_):
+        out = np.zeros_like(u_)
+        out[:, local_dofs_V1:local_size_V] = u_[:, local_dofs_V1:local_size_V]
+        return out.reshape(-1)
 
-#     def dN_impl(u_):
-#         out = np.zeros_like(u_)
-#         out[:, local_dofs_V1:local_size_V] = 1.0
-#         return out.reshape(-1)
+    def dN_impl(u_):
+        out = np.zeros_like(u_)
+        out[:, local_dofs_V1:local_size_V] = 1.0
+        return out.reshape(-1)
 
-#     def N_external(derivatives):
-#         if derivatives == (0,):
-#             return N_impl
-#         elif derivatives == (1,):
-#             return dN_impl
-#         else:
-#             raise NotImplementedError
+    def N_external(derivatives):
+        if derivatives == (0,):
+            return N_impl
+        elif derivatives == (1,):
+            return dN_impl
+        else:
+            raise NotImplementedError
 
-#     # u2 from V2 will be projected onto both V1 and V2
-#     N = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
-#     N1, N2 = split(N)
-#     v1, v2 = split(v)
-#     F = N1 * v1 * ufl.dx + inner(grad(N2), v) * ufl.dx
-#     F_explicit = inner(grad(u2), v) * ufl.dx
+    # u2 from V2 will be projected onto both V1 and V2
+    N = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
+    N1, N2 = split(N)
+    v1, v2 = split(v)
+    F = N1 * v1 * ufl.dx + inner(grad(N2), v) * ufl.dx
+    F_explicit = inner(grad(u2), v) * ufl.dx
 
-#     check_vector_matrix(F, F_explicit, u)
+    check_vector_matrix(F, F_explicit, u)
 
-#     Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
-#     Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=(gdim,))
-#     V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
-#     u = fem.Function(V)
-#     u.sub(0).interpolate(lambda x: x[1] + 2.0)
-#     u.sub(1).interpolate(lambda x: (x[0], x[1]))
-#     u1, u2 = split(u)
-#     v = TestFunction(V)
+    # Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
+    # Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=(gdim,))
+    # V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
+    # u = fem.Function(V)
+    # u.sub(0).interpolate(lambda x: x[1] + 2.0)
+    # u.sub(1).interpolate(lambda x: (x[0], x[1]))
+    # u1, u2 = split(u)
+    # v = TestFunction(V)
 
-#     V1 = V.sub(0)
-#     V2 = V.sub(1)
-#     local_dofs_V1 = V1.dofmap.list.shape[1]
-#     local_dofs_V2 = V2.dofmap.list.shape[1]
-#     local_size_V = local_dofs_V1 + local_dofs_V2
+    # V1 = V.sub(0)
+    # V2 = V.sub(1)
+    # local_dofs_V1 = V1.dofmap.list.shape[1]
+    # local_dofs_V2 = V2.dofmap.list.shape[1]
+    # local_size_V = local_dofs_V1 + local_dofs_V2
 
-#     # N = [N1, N2]
-#     # N1 = u1 + inner(u2, u2), N2 = u2
-#     def N_impl(u1_, u2_):
-#         # each operand has shape: (n_cells, n_dofs_Ve1 + n_dofs_Ve2,
-#         # *math_shape)
-#         # shape(N) == (n_cells, n_dofs_Ve1 + n_dofs_Ve2, *math_shape)
-#         out = np.zeros_like(u_)
-#         out[:, local_dofs_V1:local_size_V] = u_[:, local_dofs_V1:local_size_V]
-#         return out.reshape(-1)
+    # # N = [N1, N2]
+    # # N1 = u1 + inner(u2, u2), N2 = u2
+    # def N_impl(u1_, u2_):
+    #     # each operand has shape: (n_cells, n_dofs_Ve1 + n_dofs_Ve2,
+    #     # *math_shape)
+    #     # shape(N) == (n_cells, n_dofs_Ve1 + n_dofs_Ve2, *math_shape)
+    #     out = np.zeros_like(u_)
+    #     out[:, local_dofs_V1:local_size_V] = u_[:, local_dofs_V1:local_size_V]
+    #     return out.reshape(-1)
 
-#     def dNdu2_impl(u1_, u2_):
-#         out = np.zeros_like(u_)
-#         out[:, local_dofs_V1:local_size_V] = 1.0
-#         return out.reshape(-1)
+    # def dNdu2_impl(u1_, u2_):
+    #     out = np.zeros_like(u_)
+    #     out[:, local_dofs_V1:local_size_V] = 1.0
+    #     return out.reshape(-1)
 
-#     def dNdgradu1_impl(u1_, u2_):
-#         out = np.zeros_like(u_)
-#         out[:, local_dofs_V1:local_size_V] = 1.0
-#         return out.reshape(-1)
+    # def dNdgradu1_impl(u1_, u2_):
+    #     out = np.zeros_like(u_)
+    #     out[:, local_dofs_V1:local_size_V] = 1.0
+    #     return out.reshape(-1)
 
-#     def N_external(derivatives):
-#         if derivatives == (0, 0):
-#             return N_impl
-#         elif derivatives == (1, 0):
-#             return dNdu2_impl
-#         elif derivative == (0, 1):
-#             return dNdgradu1_impl
-#         else:
-#             raise NotImplementedError
+    # def N_external(derivatives):
+    #     if derivatives == (0, 0):
+    #         return N_impl
+    #     elif derivatives == (1, 0):
+    #         return dNdu2_impl
+    #     elif derivative == (0, 1):
+    #         return dNdgradu1_impl
+    #     else:
+    #         raise NotImplementedError
 
-#     # u2 from V2 will be projected onto both V1 and V2
-#     N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
+    # # u2 from V2 will be projected onto both V1 and V2
+    # N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
 
-#     N1, N2 = split(N)
-#     v1, v2 = split(v)
-#     F = N1 * v1 * ufl.dx + inner(N2, v) * ufl.dx
-#     N1_explicit = u1 + inner(u2, u2)
-#     N2_explicit = u2
-#     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v) * ufl.dxx
+    # N1, N2 = split(N)
+    # v1, v2 = split(v)
+    # F = N1 * v1 * ufl.dx + inner(N2, v) * ufl.dx
+    # N1_explicit = u1 + inner(u2, u2)
+    # N2_explicit = u2
+    # F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v) * ufl.dxx
 
-#     check_vector_matrix(F, F_explicit, u)
+    # check_vector_matrix(F, F_explicit, u)
