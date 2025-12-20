@@ -198,7 +198,7 @@ def evaluate_operands(
                     expr = fem.Expression(operand, quadrature_points, dtype=external_operator.ref_coefficient.dtype)
                     # NOTE: Using expression eval might be expensive
                     evaluated_operand = expr.eval(operand_mesh, entities)
-            evaluated_operands[operand] = evaluated_operand
+                evaluated_operands[operand] = evaluated_operand
     return evaluated_operands
 
 
