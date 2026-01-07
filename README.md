@@ -64,14 +64,14 @@ the following references:
 
 ```bibtex
 @article{jtcam:14449,
-    title      = {Expressing general constitutive models in FEniCSx using external operators and algorithmic automatic differentiation},
-    author     = {Andrey Latyshev and Jérémy Bleyer and Corrado Maurini and Jack Hale},
-    doi        = {10.46298/jtcam.14449},
-    journal    = {Journal of Theoretical, Computational and Applied Mechanics},
-    issn       = {2726-6141},
-    year       = {2025},
-    month      = {Sep},
-    keywords   = {automated finite element solvers, Numba, JAX, FEniCSx, external operators, algorithmic automatic differentiation, constitutive models}
+  title      = {Expressing general constitutive models in FEniCSx using external operators and algorithmic automatic differentiation},
+  author     = {Andrey Latyshev and Jérémy Bleyer and Corrado Maurini and Jack Hale},
+  doi        = {10.46298/jtcam.14449},
+  journal    = {Journal of Theoretical, Computational and Applied Mechanics},
+  issn       = {2726-6141},
+  year       = {2025},
+  month      = {Sep},
+  keywords   = {automated finite element solvers, Numba, JAX, FEniCSx, external operators, algorithmic automatic differentiation, constitutive models}
 }
 
 @inproceedings{latyshev_2024_external_paper,
