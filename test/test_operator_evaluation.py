@@ -197,18 +197,18 @@ def test_mixed_element_space():
 
     V1 = V.sub(0)
     V2 = V.sub(1)
-    local_dofs_V1 = V1.dofmap.list.shape[1]
-    local_dofs_V2 = V2.dofmap.list.shape[1]
-    local_size_V = local_dofs_V1 + local_dofs_V2
+    pts_V1 = V1.element.interpolation_points.shape[0]
+    pts_V2 = V2.element.interpolation_points.shape[0]
+    pts_total = pts_V1 + pts_V2
 
     def N_impl(u_):
         out = np.zeros_like(u_)
-        out[:, local_dofs_V1:local_size_V] = u_[:, local_dofs_V1:local_size_V]
+        out[:, pts_V1:pts_total] = u_[:, pts_V1:pts_total]
         return out.reshape(-1)
 
     def dN_impl(u_):
         out = np.zeros_like(u_)
-        out[:, local_dofs_V1:local_size_V] = 1.0
+        out[:, pts_V1:pts_total] = 1.0
         return out.reshape(-1)
 
     def N_external(derivatives):
@@ -228,59 +228,90 @@ def test_mixed_element_space():
 
     check_vector_matrix(F, F_explicit, u)
 
-    # Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
-    # Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=(gdim,))
-    # V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
-    # u = fem.Function(V)
-    # u.sub(0).interpolate(lambda x: x[1] + 2.0)
-    # u.sub(1).interpolate(lambda x: (x[0], x[1]))
-    # u1, u2 = split(u)
-    # v = TestFunction(V)
+    # Use a higher-order scalar component so that `u1 + inner(u2, u2)`
+    # (degree 4 when u2 is P2) is exactly representable.
+    Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=4, shape=())
+    Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=(gdim,))
+    V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
+    u = fem.Function(V)
+    u.sub(0).interpolate(lambda x: x[1] + 2.0)
+    u.sub(1).interpolate(lambda x: (x[0], x[1]))
+    u1, u2 = split(u)
+    v = TestFunction(V)
 
-    # V1 = V.sub(0)
-    # V2 = V.sub(1)
-    # local_dofs_V1 = V1.dofmap.list.shape[1]
-    # local_dofs_V2 = V2.dofmap.list.shape[1]
-    # local_size_V = local_dofs_V1 + local_dofs_V2
+    V1 = V.sub(0)
+    V2 = V.sub(1)
+    local_dofs_V1 = V1.dofmap.list.shape[1]
+    local_dofs_V2 = V2.dofmap.list.shape[1]
+    local_size_V = local_dofs_V1 + local_dofs_V2
 
-    # # N = [N1, N2]
-    # # N1 = u1 + inner(u2, u2), N2 = u2
-    # def N_impl(u1_, u2_):
-    #     # each operand has shape: (n_cells, n_dofs_Ve1 + n_dofs_Ve2,
-    #     # *math_shape)
-    #     # shape(N) == (n_cells, n_dofs_Ve1 + n_dofs_Ve2, *math_shape)
-    #     out = np.zeros_like(u_)
-    #     out[:, local_dofs_V1:local_size_V] = u_[:, local_dofs_V1:local_size_V]
-    #     return out.reshape(-1)
+    pts_V1 = V1.element.interpolation_points.shape[0]
+    pts_V2 = V2.element.interpolation_points.shape[0]
+    pts_total = pts_V1 + pts_V2
 
-    # def dNdu2_impl(u1_, u2_):
-    #     out = np.zeros_like(u_)
-    #     out[:, local_dofs_V1:local_size_V] = 1.0
-    #     return out.reshape(-1)
+    # N = [N1, N2]
+    # N1 = u1 + inner(u2, u2), N2 = u2
+    def N_impl(u1_, u2_):
+        # In the mixed (scalar + vector) case, operand evaluation is performed
+        # on concatenated interpolation points:
+        # - first `pts_V1` points for the scalar subspace
+        # - next  `pts_V2` points for the vector subspace
+        # We return a padded array with component axis size 2:
+        # - scalar component stored in [:, :pts_V1, 0]
+        # - vector component stored in [:, pts_V1:, :]
+        n_cells = u2_.shape[0]
+        out = np.zeros((n_cells, pts_total, 2), dtype=u2_.dtype)
+        u1_vals = u1_.reshape(n_cells, -1)
+        u2_first = u2_[:, :pts_V1, :]
+        out[:, :pts_V1, 0] = u1_vals[:, :pts_V1] + np.einsum("...i,...i->...", u2_first, u2_first)
+        out[:, pts_V1:, :] = u2_[:, pts_V1:, :]
+        return out.reshape(-1)
 
-    # def dNdgradu1_impl(u1_, u2_):
-    #     out = np.zeros_like(u_)
-    #     out[:, local_dofs_V1:local_size_V] = 1.0
-    #     return out.reshape(-1)
+    def dNdu1_impl(u1_, u2_):
+        # dN1/du1 = 1, dN2/du1 = 0
+        n_cells = u2_.shape[0]
+        out = np.zeros((n_cells, pts_total, 2), dtype=u2_.dtype)
+        out[:, :pts_V1, 0] = 1.0
+        return out.reshape(-1)
 
-    # def N_external(derivatives):
-    #     if derivatives == (0, 0):
-    #         return N_impl
-    #     elif derivatives == (1, 0):
-    #         return dNdu2_impl
-    #     elif derivative == (0, 1):
-    #         return dNdgradu1_impl
-    #     else:
-    #         raise NotImplementedError
+    def dNdu2_impl(u1_, u2_):
+        # dN1/du2 = 2*u2 (vector), dN2/du2 = I (matrix)
+        # Return component axis size 4 for the mixed (vector + matrix) derivative space.
+        n_cells = u2_.shape[0]
+        out = np.zeros((n_cells, pts_total, 4), dtype=u2_.dtype)
+        # First subspace (vector): store the 2 vector components
+        out[:, :pts_V1, 0:2] = 2.0 * u2_[:, :pts_V1, :]
+        # Second subspace (matrix): store a00,a01,a10,a11 per point
+        out[:, pts_V1:, 0] = 1.0
+        out[:, pts_V1:, 3] = 1.0
+        return out.reshape(-1)
 
-    # # u2 from V2 will be projected onto both V1 and V2
-    # N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
+    def N_external(derivatives):
+        if derivatives == (0, 0):
+            return N_impl
+        elif derivatives == (1, 0):
+            return dNdu1_impl
+        elif derivatives == (0, 1):
+            return dNdu2_impl
+        else:
+            raise NotImplementedError
 
-    # N1, N2 = split(N)
-    # v1, v2 = split(v)
-    # F = N1 * v1 * ufl.dx + inner(N2, v) * ufl.dx
-    # N1_explicit = u1 + inner(u2, u2)
-    # N2_explicit = u2
-    # F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v) * ufl.dxx
+    # u2 from V2 will be projected onto both V1 and V2
+    N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
 
-    # check_vector_matrix(F, F_explicit, u)
+    N1, N2 = split(N)
+    v1, v2 = split(v)
+    F = N1 * v1 * ufl.dx #+ inner(N2, v) * ufl.dx
+    N1_explicit = u1 + inner(u2, u2)
+   # N2_explicit = u2
+    F_explicit = N1_explicit * v1 * ufl.dx #+ inner(N2_explicit, v) * ufl.dx
+
+    check_vector_matrix(F, F_explicit, u)
+
+
+def main():
+    test_mixed_element_space()
+
+
+if __name__ == "__main__":
+    main()

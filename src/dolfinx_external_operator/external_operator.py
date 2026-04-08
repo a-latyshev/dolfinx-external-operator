@@ -277,6 +277,97 @@ def evaluate_external_operators(
     Returns:
         A list containing the evaluation of the external operators.
     """
+
+    def _assign_into_coefficient(ex_op: FEMExternalOperator, values: np.ndarray) -> None:
+        """Assign evaluated values into ``ex_op.ref_coefficient``.
+
+        For non-mixed spaces, ``values`` is expected to be a flat array that
+        matches the unrolled dof layout.
+
+        For mixed spaces, evaluation is naturally expressed on the concatenated
+        interpolation points of each subspace (as constructed in
+        ``FEMExternalOperator.__init__``). In that case, we pack subspace-by-
+        subspace into the (unrolled) mixed coefficient vector.
+        """
+
+        V = ex_op.ref_function_space
+        coeff = ex_op.ref_coefficient
+
+        if V.ufl_element().is_mixed and values.ndim == 1:
+            # Common convenience: user returns `out.reshape(-1)` where
+            # `out.shape == (n_cells, n_points_total, max_val_size)`.
+            n_points_total = ex_op.eval_points.shape[0]
+            # Prefer using the actual mesh cell count when possible.
+            try:
+                map_c = V.mesh.topology.index_map(V.mesh.topology.dim)
+                n_cells_mesh = map_c.size_local + map_c.num_ghosts
+            except Exception:
+                n_cells_mesh = None
+
+            if n_cells_mesh is not None and n_points_total > 0 and values.size % (n_cells_mesh * n_points_total) == 0:
+                comp_size = values.size // (n_cells_mesh * n_points_total)
+                if comp_size == 1:
+                    values = values.reshape(n_cells_mesh, n_points_total)
+                else:
+                    values = values.reshape(n_cells_mesh, n_points_total, comp_size)
+            elif n_points_total > 0 and values.size % n_points_total == 0:
+                # Fall back to scalar-only (or unknown component size) reshape.
+                n_cells = values.size // n_points_total
+                values = values.reshape(n_cells, n_points_total)
+
+        if V.ufl_element().is_mixed and values.ndim in (2, 3):
+            n_cells = values.shape[0]
+            offset = 0
+            for i in range(V.num_sub_spaces):
+                Vi = V.sub(i)
+                n_pts = Vi.element.interpolation_points.shape[0]
+                dofs_per_cell = Vi.dofmap.list.shape[1]
+                val_shape = Vi.ufl_element().reference_value_shape
+                val_size = int(np.prod(val_shape)) if len(val_shape) > 0 else 1
+
+                if dofs_per_cell != n_pts * val_size:
+                    raise ValueError(
+                        "Unsupported mixed subspace layout: expected dofs_per_cell == n_pts * val_size, "
+                        f"got dofs_per_cell={dofs_per_cell}, n_pts={n_pts}, val_size={val_size}."
+                    )
+
+                if values.ndim == 2:
+                    if val_size != 1:
+                        raise ValueError(
+                            "Mixed output packing requires a component axis for non-scalar subspaces: "
+                            f"subspace={i}, val_shape={val_shape}."
+                        )
+                    block = values[:, offset : offset + n_pts]
+                else:
+                    chunk = values[:, offset : offset + n_pts, :]
+                    if chunk.shape[2] >= val_size:
+                        # Take only the components required by this subspace.
+                        block = chunk[:, :, :val_size].reshape(n_cells, dofs_per_cell)
+                    elif (
+                        len(val_shape) == 2
+                        and val_shape[0] == val_shape[1]
+                        and chunk.shape[2] == val_shape[0]
+                        and int(np.prod(val_shape)) == val_size
+                    ):
+                        # Allow providing only diagonal entries for square-matrix-valued subspaces.
+                        n = val_shape[0]
+                        mat = np.zeros((n_cells, n_pts, n, n), dtype=chunk.dtype)
+                        for k in range(n):
+                            mat[:, :, k, k] = chunk[:, :, k]
+                        block = mat.reshape(n_cells, dofs_per_cell)
+                    else:
+                        raise ValueError(
+                            "Insufficient component axis size for mixed subspace packing: "
+                            f"subspace={i}, val_shape={val_shape}, need_val_size={val_size}, got={chunk.shape[2]}."
+                        )
+
+                coeff.x.array[Vi.dofmap.list.flatten()] = block.reshape(-1)
+                offset += n_pts
+            return
+
+        # Default: treat values as already aligned with the coefficient dofs
+        coeff.x.array[ex_op.unrolled_dofmap] = values
+
     evaluated_operators = []
 
     for external_operator in external_operators:
@@ -294,9 +385,10 @@ def evaluate_external_operators(
             np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
         else:
             try:
-                external_operator.ref_coefficient.x.array[external_operator.unrolled_dofmap] = external_operator_eval
+                _assign_into_coefficient(external_operator, external_operator_eval)
             except ValueError:
-                external_operator.ref_coefficient.x.array[external_operator.unrolled_dofmap] = external_operator_eval
+                # Keep the old behaviour for diagnostics; re-raise with a clearer message.
+                raise
         evaluated_operators.append(external_operator_eval)
 
     return evaluated_operators
@@ -315,21 +407,83 @@ def unique_external_operators(external_operators: list[FEMExternalOperator]):
 
 
 def _replace_action(action: ufl.Action):
-    # Extract the trial function associated with ExternalOperator
+    """Rewrite an Action involving a differentiated FEMExternalOperator.
+
+    UFL differentiation of an ExternalOperator introduces an ``ufl.Action``.
+    The left form contains an Argument (typically the test function in the
+    operator's range space), and the right side provides:
+
+    - the differentiated operator coefficient (``ref_coefficient``)
+    - the direction/slot Argument (from ``argument_slots``)
+
+    For mixed spaces, UFL flattens component shapes into a single vector shape.
+    We therefore split the coefficient into components and apply the derivative
+    tensor to the direction component-wise, then re-flatten to match the mixed
+    Argument's shape.
+    """
+
+    def _apply_derivative_tensor(coef_expr: ufl.core.expr.Expr, arg_expr: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
+        """Apply a derivative tensor ``coef_expr`` to a direction ``arg_expr``.
+
+        Interprets ``coef_expr`` as having shape ``out_shape + arg_shape`` and
+        contracts over the trailing ``arg_shape`` indices.
+        """
+        arg_shape = arg_expr.ufl_shape
+        if arg_shape == ():
+            return coef_expr * arg_expr
+
+        coef_shape = coef_expr.ufl_shape
+        arg_rank = len(arg_shape)
+        coef_rank = len(coef_shape)
+        if coef_rank < arg_rank:
+            raise ValueError(
+                "Derivative coefficient has lower rank than direction argument: "
+                f"coef_shape={coef_shape}, arg_shape={arg_shape}."
+            )
+
+        out_rank = coef_rank - arg_rank
+        indices = ufl.indices(coef_rank)
+        out_indices = indices[:out_rank]
+        arg_indices = indices[out_rank:]
+        return ufl.as_tensor(coef_expr[indices] * arg_expr[arg_indices], out_indices)
+
+    def _flatten_to_entries(expr: ufl.core.expr.Expr) -> list[ufl.core.expr.Expr]:
+        """Flatten a tensor expression into scalar entries.
+
+        UFL doesn't guarantee a public ``ufl.flatten`` helper across versions.
+        We therefore flatten by explicit indexing in row-major order.
+        """
+        if expr.ufl_shape == ():
+            return [expr]
+        entries: list[ufl.core.expr.Expr] = []
+        for multi_index in np.ndindex(expr.ufl_shape):
+            if len(multi_index) == 1:
+                entries.append(expr[multi_index[0]])
+            else:
+                entries.append(expr[multi_index])
+        return entries
+
+    # Extract the Argument associated with the (differentiated) ExternalOperator
     N_tilde = action.left().arguments()[-1]
     external_operator_argument = action.right().argument_slots()[-1]
     coefficient = action.right().ref_coefficient
-    print(N_tilde.ufl_shape, external_operator_argument.ufl_shape, coefficient.ufl_shape)
 
-    # NOTE: Is this replace always appropriate?
-    arg_dim = len(external_operator_argument.ufl_shape)
-    coeff_dim = len(coefficient.ufl_shape)
-    indexes = ufl.indices(coeff_dim)
-    indexes_contracted = indexes[coeff_dim - arg_dim :]
-    replacement = ufl.as_tensor(
-        coefficient[indexes] * external_operator_argument[indexes_contracted],
-        indexes[: coeff_dim - arg_dim],
-    )
+    # Build a replacement expression with the same ufl_shape as N_tilde
+    try:
+        is_mixed = coefficient.ufl_element().is_mixed
+    except Exception:
+        is_mixed = False
+
+    if is_mixed:
+        coef_components = ufl.split(coefficient)
+        applied_components = [_apply_derivative_tensor(c, external_operator_argument) for c in coef_components]
+        entries: list[ufl.core.expr.Expr] = []
+        for comp in applied_components:
+            entries.extend(_flatten_to_entries(comp))
+        replacement = ufl.as_vector(entries)
+    else:
+        replacement = _apply_derivative_tensor(coefficient, external_operator_argument)
+
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
 
