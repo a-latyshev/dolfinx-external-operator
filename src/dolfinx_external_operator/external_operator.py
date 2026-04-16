@@ -86,6 +86,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
+
         super().__init__(
             *self.ufl_operands,
             function_space=function_space,
@@ -259,7 +260,7 @@ def evaluate_operands(
                     )
                     # NOTE: Using expression eval might be expensive
                     evaluated_operand = expr.eval(operand_mesh, entities)
-            evaluated_operands[operand] = evaluated_operand
+                evaluated_operands[operand] = evaluated_operand
     return evaluated_operands
 
 
