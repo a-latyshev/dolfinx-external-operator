@@ -407,6 +407,49 @@ def unique_external_operators(external_operators: list[FEMExternalOperator]):
     return unique_operators
 
 
+def _apply_derivative_tensor(coef_expr: ufl.core.expr.Expr, arg_expr: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
+    """Apply a derivative tensor ``coef_expr`` to a direction ``arg_expr``.
+
+    Interprets ``coef_expr`` as having shape ``out_shape + arg_shape`` and
+    contracts over the trailing ``arg_shape`` indices.
+    """
+    arg_shape = arg_expr.ufl_shape
+    if arg_shape == ():
+        return coef_expr * arg_expr
+
+    coef_shape = coef_expr.ufl_shape
+    arg_rank = len(arg_shape)
+    coef_rank = len(coef_shape)
+    if coef_rank < arg_rank:
+        raise ValueError(
+            "Derivative coefficient has lower rank than direction argument: "
+            f"coef_shape={coef_shape}, arg_shape={arg_shape}."
+        )
+
+    out_rank = coef_rank - arg_rank
+    indices = ufl.indices(coef_rank)
+    out_indices = indices[:out_rank]
+    arg_indices = indices[out_rank:]
+    return ufl.as_tensor(coef_expr[indices] * arg_expr[arg_indices], out_indices)
+
+
+def _flatten_to_entries(expr: ufl.core.expr.Expr) -> list[ufl.core.expr.Expr]:
+    """Flatten a tensor expression into scalar entries.
+
+    UFL doesn't guarantee a public ``ufl.flatten`` helper across versions.
+    We therefore flatten by explicit indexing in row-major order.
+    """
+    if expr.ufl_shape == ():
+        return [expr]
+    entries: list[ufl.core.expr.Expr] = []
+    for multi_index in np.ndindex(expr.ufl_shape):
+        if len(multi_index) == 1:
+            entries.append(expr[multi_index[0]])
+        else:
+            entries.append(expr[multi_index])
+    return entries
+
+
 def _replace_action(action: ufl.Action):
     """Rewrite an Action involving a differentiated FEMExternalOperator.
 
@@ -422,47 +465,6 @@ def _replace_action(action: ufl.Action):
     tensor to the direction component-wise, then re-flatten to match the mixed
     Argument's shape.
     """
-
-    def _apply_derivative_tensor(coef_expr: ufl.core.expr.Expr, arg_expr: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
-        """Apply a derivative tensor ``coef_expr`` to a direction ``arg_expr``.
-
-        Interprets ``coef_expr`` as having shape ``out_shape + arg_shape`` and
-        contracts over the trailing ``arg_shape`` indices.
-        """
-        arg_shape = arg_expr.ufl_shape
-        if arg_shape == ():
-            return coef_expr * arg_expr
-
-        coef_shape = coef_expr.ufl_shape
-        arg_rank = len(arg_shape)
-        coef_rank = len(coef_shape)
-        if coef_rank < arg_rank:
-            raise ValueError(
-                "Derivative coefficient has lower rank than direction argument: "
-                f"coef_shape={coef_shape}, arg_shape={arg_shape}."
-            )
-
-        out_rank = coef_rank - arg_rank
-        indices = ufl.indices(coef_rank)
-        out_indices = indices[:out_rank]
-        arg_indices = indices[out_rank:]
-        return ufl.as_tensor(coef_expr[indices] * arg_expr[arg_indices], out_indices)
-
-    def _flatten_to_entries(expr: ufl.core.expr.Expr) -> list[ufl.core.expr.Expr]:
-        """Flatten a tensor expression into scalar entries.
-
-        UFL doesn't guarantee a public ``ufl.flatten`` helper across versions.
-        We therefore flatten by explicit indexing in row-major order.
-        """
-        if expr.ufl_shape == ():
-            return [expr]
-        entries: list[ufl.core.expr.Expr] = []
-        for multi_index in np.ndindex(expr.ufl_shape):
-            if len(multi_index) == 1:
-                entries.append(expr[multi_index[0]])
-            else:
-                entries.append(expr[multi_index])
-        return entries
 
     # Extract the Argument associated with the (differentiated) ExternalOperator
     N_tilde = action.left().arguments()[-1]
