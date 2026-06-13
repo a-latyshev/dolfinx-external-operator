@@ -2,19 +2,63 @@
 
 # Formalizing External Operators in Variational Forms
 
-This document formalizes the mathematical framework for integrating external, arbitrarily complex operators into variational forms, particularly within finite element analysis (FEA). It bridges the continuous formulation of directional derivatives with the discrete tensor calculus required when constitutive laws or source terms are evaluated outside the primary symbolic framework (e.g., via `dolfinx-external-operator`).
+This document formalizes notation around the use of external operators in
+FEniCSx. It bridges the continuous formulation of directional derivatives with
+the discrete tensor calculus required when constitutive laws or source terms are
+evaluated with external operators. We believe it facilitates formalizing
+variational problems when complex high-order tensors and functional spaces (e.g.
+mixed elements) are used.
 
 ## 1. The Directional Derivative of a Variational Form
 
 In standard finite element analysis, the weak form of a nonlinear boundary value problem is expressed as finding $u \in V$ such that for all test functions $v \in \hat{V}$:
 
-$$F(u; v) = 0$$
+$$
+    F(u; v) = 0
+$$
 
-To solve this nonlinear system using Newton-like methods, we must linearize the form. This requires computing the Gâteaux derivative (or directional derivative) of the functional $F$ at the current state $u$ in the direction of an incremental field $\delta u \in V$:
+To solve this nonlinear system using Newton-like methods, we must linearize the form. This requires computing the Gâteaux derivative (or directional derivative) of the functional $F$ at the current state $u$ in the direction of an incremental field $\hat{u} \in V$:
 
-$$DF(u; v)[\delta u] = \left. \frac{d}{d\epsilon} F(u + \epsilon \delta u; v) \right|_{\epsilon=0}$$
+$$
+    D_u[F]\{ \hat{u} \} = 
+        \lim_{\epsilon \to 0} \frac{F(u + \epsilon \hat{u};v) - F(u;v) }{\epsilon}.
+$$
 
-If $F$ depends on an intermediate operator $o(u)$ (such as a gradient $\nabla u$ or a strain tensor $\varepsilon(u)$), the derivative expands via the chain rule. For an integrand strictly defined within a symbolic framework, this derivative is computed automatically via algorithmic differentiation.
+We call this derivate as Jacobian of $F$ and denote:
+$$
+    J(u ; \hat{u}, v) := D_u[F(u ; v)]\{ \hat{u} \},
+$$
+where semicolon separates non-linear (on the left) and linear (on the right)
+operands of $J$ (similar to $F$).
+
+### Chain rule
+
+If $F$ depends on an intermediate operator $N(u)$ (such as a gradient $\nabla u$
+or a strain tensor $\varepsilon(u)$), the derivative expands via the **chain
+rule**. 
+
+$$
+    D_u[F \circ N(u)]\{ \hat{u} \} = D_u[F(N(u); v)]\{ \hat{u} \} = D_N[F]\{
+    D_u[N] \{ \hat{u} \} \}
+$$
+
+Then the Jacobian can be defined as 
+
+$$
+    J(u ; \hat{N}, v) = D_N[F] \{ \hat{N} \},
+$$
+where the direction $\hat{N} = D_u[N] \{ \hat{u} \}$ is the directional
+derivative of the operator $N$ in the direction $\hat{u}$.
+
+If the functional $F$ depends on multiple nonlinear operands, we can distinguish
+_total_ ($D_\cdot[\cdot]$) and _partial_ Gâteaux ($\partial_\cdot[\cdot]$) derivatives to make it clear, with respect to what
+argument we take a directional derivative
+
+$$
+    D_u[F(u, w, N(u); v)]\{ \hat{u} \} = \partial_u [F(u, w, N(u); v)]\{ \hat{u}
+    \} + \partial_N [F(u, w, N(u); v)]\{ \hat{N} \}, 
+$$
+where $\hat{N} = D_u[N] \{ \hat{u} \}$.
 
 ## 2. Introducing the External Operator
 
