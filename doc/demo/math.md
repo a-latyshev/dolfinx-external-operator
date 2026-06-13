@@ -33,8 +33,7 @@ operands of $J$ (similar to $F$).
 
 ### Chain rule
 
-If $F$ depends on an intermediate operator $N(u)$ (such as a gradient $\nabla u$
-or a strain tensor $\varepsilon(u)$), the derivative expands via the **chain
+If $F$ depends on an intermediate operator $N(u)$ (a.k.a _external operator_), the derivative expands via the **chain
 rule**. 
 
 $$
@@ -60,69 +59,78 @@ $$
 $$
 where $\hat{N} = D_u[N] \{ \hat{u} \}$.
 
-## 2. Introducing the External Operator
-
-An **external operator** $\mathbf{N}$ arises when a component of the integrand cannot or should not be represented symbolically. This frequently occurs with complex material models, neural network-based constitutive laws, or legacy Fortran/C++ subroutines evaluated strictly at quadrature points.
-
-Consider a modified variational form where the integrand involves an inner product with an external operator $\mathbf{N}$, which itself depends on a kinematic operator $o(u)$:
-
-$$F(u; v) = \int_{\Omega} \mathbf{N}(o(u)) : \mathbf{M}(v) \, dx$$
-
-Here, $\mathbf{M}(v)$ represents a test function operator (e.g., the symmetric gradient of the test function, $\nabla^s v$).
-
-Taking the directional derivative of this form yields:
-
-$$DF(u; v)[\delta u] = \int_{\Omega} D\mathbf{N}(o(u))[\delta u] : \mathbf{M}(v) \, dx$$
-
-The term $D\mathbf{N}(o(u))[\delta u]$ is the variation of the external operator. Because $\mathbf{N}$ is a "black box" to the symbolic math engine, the software framework cannot automatically differentiate it with respect to $u$. The mathematical formulation must isolate the derivative of the external function from the variation of the kinematic field.
-
 ## 3. The Derivative of the External Operator
 
-To compute $D\mathbf{N}(o(u))[\delta u]$, we decouple the variation of the primary field $u$ from the internal logic of $\mathbf{N}$. We apply the partial Gâteaux derivative framework defined by the chain rule:
+The external operator $N$ may itself depend on an operand $o(u)$, thus we apply
+the chain rule here again but this time we don't work with functional:
+$$
+    D_u[N(o(u))]\{ \hat{u} \} = \frac{\partial N}{\partial o} \cdot
+    D_u [o(u)]\{ \hat{u} \}.
+$$
+Thus, the Gâteaux derivative of $N$ consists of two parts: 
+1. The partial derivative of $N$ with respect to its operand: $\frac{\partial
+   N}{\partial o}$. This part can be treated as a "normal" derivative of $N$. **This is
+   exactly, what we mean by "derivative of external operator", which is a new
+   external operator and thus has to be provided by user in a form of a program
+   that computes values of $\frac{\partial
+   N}{\partial o}$**.
+2. The second part represents the derivative of an expression that depends on
+   the main field $u$. This is typically a UFL expression like $\nabla u$. This
+   part is handled by UFL automatically, except the case, when the operand
+   $o(u)$ is another external operator.
 
-$$D\mathbf{N}(o(u))[\delta u] = \frac{\partial \mathbf{N}}{\partial o} : Do(u)[\delta u]$$
+External operator may, of course, depend on multiple operands:
+$$
+    D_u[N(o_1(u), o_2(w), o_3(u))]\{ \hat{u} \} = \frac{\partial N}{\partial o_1} \cdot
+    D_u [o_1(u)]\{ \hat{u} \} + \frac{\partial N}{\partial o_3} \cdot
+    D_u [o_1(u)]\{ \hat{u} \}.
+$$
 
-This equation cleanly separates two responsibilities:
-
-1.  **$Do(u)[\delta u]$ (Kinematic Variation):** The variation of the intermediate operator with respect to the primary field. For example, if $o(u) = \nabla u$, then $Do(u)[\delta u] = \nabla \delta u$. This is purely kinematic and is handled easily by the symbolic finite element framework.
-2.  **$\frac{\partial \mathbf{N}}{\partial o}$ (The Tangent Operator):** The partial derivative of the external function with respect to its input tensor. This is the **consistent tangent** or algorithmic Jacobian. It contains the core physical or mathematical logic of the external model and must be provided by the external routine alongside the evaluation of $\mathbf{N}$ itself.
-
-## 4. The General Tensor Case
+### 4. The General Tensor Case
 
 To ensure dimensional consistency and generalize the external operator framework, we must define the tensor ranks and contraction rules explicitly. 
 
-Let the external operator $\mathbf{N}$ be a tensor function of rank $k$. Let its input argument, the operator $o(u)$, be a tensor of rank $p$. 
+Let the external operator $\boldsymbol{N}(\boldsymbol{o}(u))$ be a tensor
+function of rank $k$. Let its input argument, the operator $\boldsymbol{o}(u)$,
+be a tensor of rank $p$, then the derivative of the external operator (or
+tangent operator)
 
-The tangent operator provided by the external subroutine is defined as:
+$$
+    \boldsymbol{C} := \frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}}
+$$
 
-$$\mathbb{C} = \frac{\partial \mathbf{N}}{\partial o}$$
+is a higher-order tensor of rank $k + p$.
 
-Because $\mathbf{N}$ is rank $k$ and $o$ is rank $p$, the tangent operator $\mathbb{C}$ is a higher-order tensor of rank $k + p$. 
+When the external operator is varied in the direction $\hat{u}$, the resulting
+directional derivative is a contraction of tensors
 
-When the external operator is varied in the direction $\delta u$, the resulting directional derivative is:
-
-$$D\mathbf{N}(u)[\delta u] = \mathbb{C} : Do(u)[\delta u]$$
+$$
+    D_u[\boldsymbol{N}(\boldsymbol{o}(u))]\{ \hat{u} \} = \boldsymbol{C} : D_u [\boldsymbol{o}(u)] \{ \hat{u} \}
+$$
 
 ### Explicit Index Notation
 
-Using the Einstein summation convention, let $\alpha_1 \dots \alpha_k$ denote the indices of the external operator $\mathbf{N}$, and $\beta_1 \dots \beta_p$ denote the indices of the kinematic operator $o$.
+Using the Einstein summation convention, let $\alpha_1 \dots \alpha_k$ denote the indices of the external operator $\boldsymbol{N}$, and $\beta_1 \dots \beta_p$ denote the indices of the kinematic operator $\boldsymbol{o}$.
 
-The components of the tangent tensor $\mathbb{C}$ are:
+The components of the tangent tensor $\boldsymbol{C}$ are:
 
-$$\mathbb{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} = \frac{\partial \mathbf{N}_{\alpha_1 \dots \alpha_k}}{\partial o_{\beta_1 \dots \beta_p}}$$
+$$\boldsymbol{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} = \frac{\partial \boldsymbol{N}_{\alpha_1 \dots \alpha_k}}{\partial \boldsymbol{o}_{\beta_1 \dots \beta_p}}$$
 
-The variation of the external operator is evaluated by contracting the tangent tensor with the variation of the kinematic operator over the $p$ indices of $o$:
+The variation of the external operator is evaluated by contracting the tangent tensor with the variation of the kinematic operator over the $p$ indices of $\boldsymbol{o}$:
 
-$$\left( D\mathbf{N} \right)_{\alpha_1 \dots \alpha_k} = \mathbb{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} \left( Do \right)_{\beta_1 \dots \beta_p}$$
+$$
+    \left(D_u[\boldsymbol{N}(\boldsymbol{o}(u))]\{ \hat{u} \}\right)_{\alpha_1 \dots \alpha_k} = \boldsymbol{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} : (D_u [\boldsymbol{o}(u)] \{ \hat{u} \})_{\beta_1 \dots \beta_p}
+$$
+
 
 ### Substituting back into the Variational Form
 
 Returning to the full directional derivative of the variational form:
 
-$$DF(u; v)[\delta u] = \int_{\Omega} \left( \mathbb{C} : Do(u)[\delta u] \right) : \mathbf{M}(v) \, dx$$
+$$DF(u; v)[\delta u] = \int_{\Omega} \left( \boldsymbol{C} : Do(u)[\delta u] \right) : \mathbf{M}(v) \, dx$$
 
 In an implementation (such as `dolfinx-external-operator`), the framework expects the user to provide two black-box functions evaluated at quadrature points:
-1.  The residual contribution: $\mathbf{N}(o(u))$
+1.  The residual contribution: $\boldsymbol{N}(o(u))$
 2.  The tangent operator: $\mathbb{C}(o(u))$
 
-By formalizing the separation of the rank-$(k+p)$ external tangent tensor $\mathbb{C}$ from the rank-$p$ symbolic variations $Do(u)[\delta u]$ and $\mathbf{M}(v)$, the framework successfully constructs the exact Newton system for arbitrary external tensor functions without requiring symbolic transparency into $\mathbf{N}$.
+By formalizing the separation of the rank-$(k+p)$ external tangent tensor $\mathbb{C}$ from the rank-$p$ symbolic variations $Do(u)[\delta u]$ and $\mathbf{M}(v)$, the framework successfully constructs the exact Newton system for arbitrary external tensor functions without requiring symbolic transparency into $\boldsymbol{N}$.
