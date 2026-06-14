@@ -309,7 +309,7 @@ dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 # F_func.x.array[:] = F_eval.flatten()
 
 # %%
-metadata = {"quadrature_degree": 6}
+metadata = {"quadrature_degree": 2}
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 
 u_hat = ufl.TrialFunction(V)
@@ -414,18 +414,9 @@ I = ufl.variable(ufl.Identity(d))
 F_ = ufl.variable(I + ufl.grad(u_UFL))
 
 C = ufl.variable(F_.T * F_)
-I1 = ufl.variable(ufl.tr(C))
 J_ = ufl.variable(ufl.det(F_))
-
-# Material parameters (neo-Hookean)
-# E = default_scalar_type(1.0e4)
-# nu = default_scalar_type(0.3)
-# mu = fem.Constant(domain, E / (2 * (1 + nu)))
-# lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
-# Strain energy and first Piola-Kirchhoff stress
-# psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF)
-# psi = (mu / 2) * (I1 - 2) - mu * ufl.ln(J_) + (lmbda / 2) * (ufl.ln(J_)) ** 2
-I2 = ufl.variable(ufl.tr(C)*ufl.tr(C) - ufl.tr(C * C)) / 2.0
+I1 = ufl.variable(ufl.tr(C) + 1.0)
+I2 = ufl.variable(I1 + J_**2 - 1.0)
 I1_tilde = ufl.variable(J_ ** (-2.0/3.0) * I1)
 I2_tilde = ufl.variable(J_ ** (-4.0/3.0) * I2)
 
@@ -444,11 +435,11 @@ W = 0.5 * (I1_tilde - 3.0) + 1.5 * (J_ - 1.0)**2
 P = ufl.diff(W, F_)
 
 # %%
-metadata = {"quadrature_degree": 6}
+metadata = {"quadrature_degree": 2}
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 F = ufl.inner(ufl.grad(v), P) * dx
 
-problem_UFL = NonlinearProblem(F, u_UFL, bcs=bcs_u, petsc_options=petsc_options)
+problem_UFL = NonlinearProblem(F, u_UFL, bcs=bcs_u, petsc_options=petsc_options, petsc_options_prefix="UFL_hyperelasticity_")
 
 # %%
 # Apply a tensile load by incrementally increasing traction on the right edge
