@@ -304,11 +304,3 @@ def test_mixed_element_space():
     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_vector_matrix(F, F_explicit, u)
-
-
-def main():
-    test_mixed_element_space()
-
-
-if __name__ == "__main__":
-    main()
