@@ -9,13 +9,16 @@ Author: Adapted from FEniCSx/dolfinx and jorgensd/dolfinx-tutorial
 import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
-from solvers import PETScNonlinearProblem, PETScNonlinearSolver
 from utilities import build_square_with_elliptic_holes
 
 import basix
 import dolfinx.plot
 import ufl
 from dolfinx import default_scalar_type, fem, mesh
+
+from functools import partial
+from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx_external_operator.petsc import assemble_residual_with_callback
 
 # Define external function for Piola-Kirchhoff stress and its derivative
 from dolfinx_external_operator import (
@@ -322,25 +325,15 @@ J_form = fem.form(J_replaced)
 
 
 # %%
-def constitutive_update():
+def constitutive_update(
+    F_external_operators: list[FEMExternalOperator],
+    J_external_operators: list[FEMExternalOperator],
+):
+    """Update the constitutive model by evaluating the external operators."""
     evaluated_operands = evaluate_operands(F_external_operators)
     ((_, P_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     P.ref_coefficient.x.array[:] = P_new
 
-# problem = NonlinearProblemWithCallback(F_replaced, u, bcs=bcs_u, J=J_replaced, external_callback=constitutive_update)
-# solver = NewtonSolver(domain.comm, problem)
-# solver.atol = 1e-8
-# solver.rtol = 1e-8
-# solver.convergence_criterion = "incremental"
-# ksp = solver.krylov_solver
-# opts = PETSc.Options()  # type: ignore
-# option_prefix = ksp.getOptionsPrefix()
-# opts[f"{option_prefix}ksp_type"] = "preonly"
-# opts[f"{option_prefix}pc_type"] = "lu"
-# opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-# ksp.setFromOptions()
-
-problem = PETScNonlinearProblem(u, F_replaced, J_replaced, bcs=bcs_u, external_callback=constitutive_update)
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "snes_linesearch_type": "basic",
@@ -353,7 +346,20 @@ petsc_options = {
     "snes_monitor": "",
 }
 
-solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)
+problem = NonlinearProblem(
+    F_replaced, u, J=J_replaced, bcs=bcs_u, petsc_options_prefix="demo_hyperelasticity_", petsc_options=petsc_options
+)
+
+assemble_residual_with_callback_ = partial(
+    assemble_residual_with_callback,
+    problem.u,
+    problem.F,
+    problem.J,
+    bcs_u,
+    constitutive_update,  # external callback with respect to SNES
+    [F_external_operators, J_external_operators],  # input arguments of the callback
+)
+problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
 # %%
 # # Nonlinear problem and Newton solver
@@ -371,7 +377,7 @@ u.name = "displacement"
 u.x.array[:] = 0
 for step in range(1, n_steps + 1):
     u_D_top.value = step * max_traction / n_steps
-    num_its, converged = solver.solve(u)
+    num_its, converged = problem.solve()
     assert converged, f"Newton solver did not converge at step {step}"
     u.x.scatter_forward()
     if domain.comm.rank == 0:
@@ -380,7 +386,7 @@ for step in range(1, n_steps + 1):
 # %%
 # pyvista.start_xvfb()
 plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
-topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
+topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
 grid = pyvista.UnstructuredGrid(topology, cell_types, x)
 vals = np.zeros((x.shape[0], 3))
 vals[:, : len(u)] = u.x.array.reshape((x.shape[0], len(u)))
@@ -442,34 +448,7 @@ metadata = {"quadrature_degree": 6}
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 F = ufl.inner(ufl.grad(v), P) * dx
 
-# %%
-# Nonlinear problem and Newton solver
-
-problem = PETScNonlinearProblem(u_UFL, F, bcs=bcs_u)
-# petsc_options = {
-#     "snes_type": "vinewtonrsls",
-#     "snes_linesearch_type": "basic",
-#     "ksp_type": "preonly",
-#     "pc_type": "lu",
-#     "pc_factor_mat_solver_type": "mumps",
-#     "snes_atol": 1.0e-4,
-#     "snes_rtol": 1.0e-4,
-#     "snes_max_it": 100,
-#     "snes_monitor": "",
-# }
-
-solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)
-# solver.atol = 1e-4
-# solver.rtol = 1e-4
-# # solver.convergence_criterion = "incremental"
-# solver.max_it = 500
-# ksp = solver.krylov_solver
-# opts = PETSc.Options()  # type: ignore
-# option_prefix = ksp.getOptionsPrefix()
-# opts[f"{option_prefix}ksp_type"] = "preonly"
-# opts[f"{option_prefix}pc_type"] = "lu"
-# opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-# ksp.setFromOptions()
+problem_UFL = NonlinearProblem(F, u_UFL, bcs=bcs_u, petsc_options=petsc_options)
 
 # %%
 # Apply a tensile load by incrementally increasing traction on the right edge
@@ -479,7 +458,7 @@ u_UFL.name = "displacement"
 u_UFL.x.array[:] = 0
 for step in range(1, n_steps + 1):
     u_D_top.value = step * max_traction / n_steps
-    num_its, converged = solver.solve(u_UFL)
+    num_its, converged = problem_UFL.solve()
     assert converged, f"Newton solver did not converge at step {step}"
     u_UFL.x.scatter_forward()
     if domain.comm.rank == 0:
@@ -488,7 +467,7 @@ for step in range(1, n_steps + 1):
 # %%
 # pyvista.start_xvfb()
 plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
-topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
+topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
 grid = pyvista.UnstructuredGrid(topology, cell_types, x)
 vals = np.zeros((x.shape[0], 3))
 u_diff = u.x.array[:] - u_UFL.x.array[:]
