@@ -192,8 +192,18 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 self._assign_func = self._assign_mixed_3d
         else:
             self.eval_points = self.ref_function_space.element.interpolation_points
-            self.unrolled_dofmap = get_unrolled_dofmap(self.ref_function_space)
-            self._assign_func = self._assign_non_mixed
+            
+            # Use contiguous assignment for Quadrature/DG elements per user design decision
+            element = self.ref_function_space.ufl_element()
+            element_family = element.element_family
+            is_contiguous = (element_family is None) or (element_family in ("DG"))
+            
+            if is_contiguous:
+                self.unrolled_dofmap = None
+                self._assign_func = self._assign_non_mixed_contiguous
+            else:
+                self.unrolled_dofmap = get_unrolled_dofmap(self.ref_function_space)
+                self._assign_func = self._assign_non_mixed
 
         # Make the global coefficient associated to the external operator
         if coefficient is not None:
@@ -269,6 +279,9 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
     def _assign_non_mixed(self, values: np.ndarray) -> None:
         self.ref_coefficient.x.array[self.unrolled_dofmap] = values
+
+    def _assign_non_mixed_contiguous(self, values: np.ndarray) -> None:
+        self.ref_coefficient.x.array[:] = values
 
     def _assign_mixed_2d(self, values: np.ndarray) -> None:
         """Assign evaluated values into a mixed function space where all subspaces are scalar.
