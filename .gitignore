@@ -19,3 +19,4 @@ build/
 *.msh
 *.geo_unrolled
 *.pth
+.venv/
