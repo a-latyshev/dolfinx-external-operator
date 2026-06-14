@@ -1,7 +1,10 @@
-# External operators and functional analysis
+$$
+  \gdef\F{{\color{#ff7f0e} F}}
+  \gdef\u{{\color{#1f77b4} u}}
+  \gdef\hu{{\color{#2ca02c} \hat{u}}}
+$$
 
-# Formalizing External Operators in Variational Forms
-
+# Formalizing notation for External Operators
 
 This document formalizes notation around the use of external operators in
 FEniCSx. It bridges the continuous formulation of directional derivatives with
@@ -10,27 +13,29 @@ evaluated with external operators. We believe it facilitates formalizing
 variational problems when complex high-order tensors and functional spaces (e.g.
 mixed elements) are used.
 
-## 1. The Directional Derivative of a Variational Form
+## The Directional Derivative of a Variational Form
 
-In standard finite element analysis, the weak form of a nonlinear boundary value problem is expressed as finding $u \in V$ such that for all test functions $v \in \hat{V}$:
-
-$$
-    F(u; v) = 0
-$$
-
-To solve this nonlinear system using Newton-like methods, we must linearize the form. This requires computing the Gâteaux derivative (or directional derivative) of the functional $F$ at the current state $u$ in the direction of an incremental field $\hat{u} \in V$:
+In standard finite element analysis, the weak form of a nonlinear boundary value problem is expressed as finding $\u \in V$ such that for all test functions $v \in \hat{V}$:
 
 $$
-    D_u[F]\{ \hat{u} \} = 
-        \lim_{\epsilon \to 0} \frac{F(u + \epsilon \hat{u};v) - F(u;v) }{\epsilon}.
+    \F(\u; v) = 0
+$$
+
+To solve this nonlinear system using Newton-like methods, we must linearize the form. This requires computing the Gâteaux derivative (or directional derivative) of the ${ \color{#ff7f0e}\text{functional }} \F$ at the ${ \color{#1f77b4}\text{argument }}\u$ in the ${ \color{#2ca02c}\text{direction }} \hu \in V$:
+
+$$
+    D_\u {\color{#ff7f0e} [\F]} {\color{#2ca02c} \{ \hu \} }= 
+        \lim_{\epsilon \to 0} \frac{\F(\u + \epsilon \hu; v) - \F(\u; v) }{\epsilon},
 $$
 
 We call this derivate as Jacobian of $F$ and denote:
 $$
-    J(u ; \hat{u}, v) := D_u[F(u ; v)]\{ \hat{u} \},
+    J(\u ; \hu, v) := D_\u[\F(\u ; v)]\{ \hu \},
 $$
-where semicolon separates non-linear (on the left) and linear (on the right)
+where semicolon ($;$) separates non-linear (on the left) and linear (on the right)
 operands of $J$ (similar to $F$).
+
+_Note: although this notation may look overloaded, in the presence of functionals with multiple arguments and compositions (see the chain rule below), it makes clear expressing derivatives of complex variational forms._
 
 ### Chain rule
 
@@ -47,11 +52,11 @@ Then the Jacobian can be defined as
 $$
     J(u ; \hat{N}, v) = D_N[F] \{ \hat{N} \},
 $$
-where the direction $\hat{N} = D_u[N] \{ \hat{u} \}$ is the directional
+where the direction $\hat{N} = D_u[N] \{ \hat{u} \}$ is itself a directional
 derivative of the operator $N$ in the direction $\hat{u}$.
 
 If the functional $F$ depends on multiple nonlinear operands, we can distinguish
-_total_ ($D_\cdot[\cdot]$) and _partial_ Gâteaux ($\partial_\cdot[\cdot]$) derivatives to make it clear, with respect to what
+_total_ ($D_\cdot[\cdot]\{ \cdot \}$) and _partial_ Gâteaux ($\partial_\cdot[\cdot]\{ \cdot \}$) derivatives to make it clear, with respect to what
 argument we take a directional derivative
 
 $$
@@ -60,7 +65,7 @@ $$
 $$
 where $\hat{N} = D_u[N] \{ \hat{u} \}$.
 
-## 3. The Derivative of the External Operator
+## The Derivative of the External Operator
 
 The external operator $N$ may itself depend on an operand $o(u)$, thus we apply
 the chain rule here again but this time we don't work with functional:
@@ -87,7 +92,7 @@ $$
     D_u [o_1(u)]\{ \hat{u} \}.
 $$
 
-### 4. The General Tensor Case
+### The General Tensor Case
 
 To ensure dimensional consistency and generalize the external operator framework, we must define the tensor ranks and contraction rules explicitly. 
 
@@ -123,7 +128,7 @@ $$
     \left(D_u[\boldsymbol{N}(\boldsymbol{o}(u))]\{ \hat{u} \}\right)_{\alpha_1 \dots \alpha_k} = \boldsymbol{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} : (D_u [\boldsymbol{o}(u)] \{ \hat{u} \})_{\beta_1 \dots \beta_p}
 $$
 
-### 5. Mixed-element external operators
+## Mixed-element external operators
 
 Let's assume that the external operator $\boldsymbol{N}$ is from a mixed element
 space $Q$ which consists of $m$ subspaces:
