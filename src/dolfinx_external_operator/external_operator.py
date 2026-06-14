@@ -151,9 +151,12 @@ class FEMExternalOperator(ufl.ExternalOperator):
             # This represents the number of components returned by the external function per interpolation point,
             # which determines whether the output array is 2D (if _comp_size == 1) or 3D (if _comp_size > 1).
             # Examples:
-            # - Mixed space (scalar pressure, scalar temperature) -> val_sizes = [1, 1] -> _comp_size = 1 (2D output array)
-            # - Mixed space (2D velocity vector, scalar pressure) -> val_sizes = [2, 1] -> _comp_size = 2 (3D output array)
-            # - Mixed space (3D stress tensor, 3D velocity vector) -> val_sizes = [9, 3] -> _comp_size = 9 (3D output array)
+            # - Mixed space (scalar pressure, scalar temp) -> val_sizes = [1, 1]
+            #   -> _comp_size = 1 (2D output array)
+            # - Mixed space (2D velocity vector, scalar pressure) -> val_sizes = [2, 1]
+            #   -> _comp_size = 2 (3D output array)
+            # - Mixed space (3D stress tensor, 3D velocity vector) -> val_sizes = [9, 3]
+            #   -> _comp_size = 9 (3D output array)
             self._comp_size = max(val_sizes) if val_sizes else 1
 
             # Second pass: precompute metadata for slicing each subspace
@@ -175,13 +178,15 @@ class FEMExternalOperator(ufl.ExternalOperator):
 
                 flat_dofs = Vi.dofmap.list.flatten()
 
-                self._mixed_subspace_info.append({
-                    "n_pts": n_pts,
-                    "val_size": val_size,
-                    "dofs_per_cell": dofs_per_cell,
-                    "flat_dofs": flat_dofs,
-                    "offset": offset,
-                })
+                self._mixed_subspace_info.append(
+                    {
+                        "n_pts": n_pts,
+                        "val_size": val_size,
+                        "dofs_per_cell": dofs_per_cell,
+                        "flat_dofs": flat_dofs,
+                        "offset": offset,
+                    }
+                )
                 offset += n_pts
             self._n_points_total = offset
 
@@ -192,12 +197,12 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 self._assign_func = self._assign_mixed_3d
         else:
             self.eval_points = self.ref_function_space.element.interpolation_points
-            
+
             # Use contiguous assignment for Quadrature/DG elements per user design decision
             element = self.ref_function_space.ufl_element()
             element_family = element.element_family
             is_contiguous = (element_family is None) or (element_family in ("DG"))
-            
+
             if is_contiguous:
                 self.unrolled_dofmap = None
                 self._assign_func = self._assign_non_mixed_contiguous
@@ -377,7 +382,9 @@ def evaluate_operands(
                     evaluated_operand = evaluate_operands([operand], entities)
                 else:
                     expr = fem.Expression(
-                        operand, external_operator.eval_points, dtype=external_operator.ref_coefficient.dtype
+                        operand,
+                        external_operator.eval_points,
+                        dtype=external_operator.ref_coefficient.dtype,
                     )
                     # NOTE: Using expression eval might be expensive
                     evaluated_operand = expr.eval(operand_mesh, entities)
@@ -414,7 +421,10 @@ def evaluate_external_operators(
 
         # NOTE: Maybe to force the user to return always a tuple?
         if type(external_operator_eval) is tuple:
-            np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
+            np.copyto(
+                external_operator.ref_coefficient.x.array,
+                external_operator_eval[0],
+            )
         else:
             try:
                 external_operator._assign_func(external_operator_eval)
@@ -591,7 +601,7 @@ class ExternalOperatorReplacer(DAGTraverser):
         self,
         compress: bool | None = True,
         visited_cache: dict[tuple, ufl.core.expr.Expr] | None = None,
-        result_cache: dict[ufl.core.expr.Expr, ufl.core.expr.Expr] | None = None,
+        result_cache: (dict[ufl.core.expr.Expr, ufl.core.expr.Expr] | None) = None,
     ) -> None:
         """Initialise.
 
@@ -602,7 +612,11 @@ class ExternalOperatorReplacer(DAGTraverser):
             result_cache: cache of result objects for memory reuse, r -> r.
 
         """
-        super().__init__(compress=compress, visited_cache=visited_cache, result_cache=result_cache)
+        super().__init__(
+            compress=compress,
+            visited_cache=visited_cache,
+            result_cache=result_cache,
+        )
         self._ex_ops = []
 
     @singledispatchmethod
@@ -642,7 +656,9 @@ class ExternalOperatorReplacer(DAGTraverser):
         return self.reuse_if_untouched(o)
 
 
-def replace_external_operators(form: ufl.Form) -> tuple[ufl.Form, list[FEMExternalOperator]]:
+def replace_external_operators(
+    form: ufl.Form,
+) -> tuple[ufl.Form, list[FEMExternalOperator]]:
     """Replace external operators with its reference coefficient.
 
     Args:
