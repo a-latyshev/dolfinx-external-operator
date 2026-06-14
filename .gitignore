@@ -20,5 +20,6 @@ build/
 *.core
 *.msh
 *.geo_unrolled
+*.xao
 *.pth
 .venv/
