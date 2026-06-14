@@ -472,12 +472,7 @@ def _replace_action(action: ufl.Action):
     coefficient = action.right().ref_coefficient
 
     # Build a replacement expression with the same ufl_shape as N_tilde
-    try:
-        is_mixed = coefficient.ufl_element().is_mixed
-    except Exception:
-        is_mixed = False
-
-    if is_mixed:
+    if coefficient.ufl_element().is_mixed:
         coef_components = ufl.split(coefficient)
         applied_components = [_apply_derivative_tensor(c, external_operator_argument) for c in coef_components]
         entries: list[ufl.core.expr.Expr] = []
