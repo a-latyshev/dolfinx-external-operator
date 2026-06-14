@@ -268,22 +268,7 @@ def evaluate_operands(
                         operand, external_operator.eval_points, dtype=external_operator.ref_coefficient.dtype
                     )
                     # NOTE: Using expression eval might be expensive
-                    if entities is not None and np.any(entities == -1):
-                        valid_mask = entities != -1
-                        if entities.ndim == 2:
-                            valid_mask = entities[:, 0] != -1
-                        valid_entities = entities[valid_mask]
-                        num_points = external_operator.eval_points.shape[0]
-                        val_shape = operand.ufl_shape
-                        val_size = int(np.prod(val_shape)) if val_shape else 1
-                        evaluated_operand = np.zeros(
-                            (len(entities), num_points * val_size),
-                            dtype=external_operator.ref_coefficient.dtype
-                        )
-                        if len(valid_entities) > 0:
-                            evaluated_operand[valid_mask] = expr.eval(operand_mesh, valid_entities)
-                    else:
-                        evaluated_operand = expr.eval(operand_mesh, entities)
+                    evaluated_operand = expr.eval(operand_mesh, entities)
                 evaluated_operands[operand] = evaluated_operand
     return evaluated_operands
 
