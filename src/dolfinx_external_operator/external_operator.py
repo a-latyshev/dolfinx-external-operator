@@ -84,6 +84,13 @@ class FEMExternalOperator(ufl.ExternalOperator):
         """
         self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
 
+        for operand in self.ufl_operands:
+            if isinstance(operand, ufl.Coefficient) and operand.ufl_function_space().ufl_element().is_mixed:
+                raise TypeError(
+                    "Mixed element coefficients are not supported as external-operator operands: "
+                    f"operand {operand} is a mixed-space coefficient."
+                )
+
         if coefficient is not None and coefficient.function_space != function_space:
             raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
 
