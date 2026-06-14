@@ -1,5 +1,5 @@
 # Author: Andrey Latyshev
-# Test dimensions of external operator
+# Test constructor of external operator
 
 from mpi4py import MPI
 

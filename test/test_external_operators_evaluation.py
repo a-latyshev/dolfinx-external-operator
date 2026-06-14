@@ -220,8 +220,8 @@ def test_mixed_element_space():
             raise NotImplementedError
 
     # u2 from V2 will be projected onto both V1 and V2
-    N = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
-    N1, N2 = split(N)
+    N_tensor = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
+    N1, N2 = split(N_tensor)
     v1, v2 = split(v)
     F = N1 * v1 * ufl.dx + inner(grad(N2), v) * ufl.dx
     F_explicit = inner(grad(u2), v) * ufl.dx
@@ -241,9 +241,6 @@ def test_mixed_element_space():
 
     V1 = V.sub(0)
     V2 = V.sub(1)
-    local_dofs_V1 = V1.dofmap.list.shape[1]
-    local_dofs_V2 = V2.dofmap.list.shape[1]
-    local_size_V = local_dofs_V1 + local_dofs_V2
 
     pts_V1 = V1.element.interpolation_points.shape[0]
     pts_V2 = V2.element.interpolation_points.shape[0]
@@ -251,7 +248,7 @@ def test_mixed_element_space():
 
     # N = [N1, N2]
     # N1 = u1 + inner(u2, u2), N2 = u2
-    def N_impl(u1_, u2_):
+    def N_tensor_impl(u1_, u2_):
         # In the mixed (scalar + vector) case, operand evaluation is performed
         # on concatenated interpolation points:
         # - first `pts_V1` points for the scalar subspace
@@ -288,7 +285,7 @@ def test_mixed_element_space():
 
     def N_external(derivatives):
         if derivatives == (0, 0):
-            return N_impl
+            return N_tensor_impl
         elif derivatives == (1, 0):
             return dNdu1_impl
         elif derivatives == (0, 1):
@@ -301,17 +298,9 @@ def test_mixed_element_space():
 
     N1, N2 = split(N)
     v1, v2 = split(v)
-    F = N1 * v1 * ufl.dx #+ inner(N2, v) * ufl.dx
+    F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
     N1_explicit = u1 + inner(u2, u2)
-   # N2_explicit = u2
-    F_explicit = N1_explicit * v1 * ufl.dx #+ inner(N2_explicit, v) * ufl.dx
+    N2_explicit = u2
+    F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_vector_matrix(F, F_explicit, u)
-
-
-def main():
-    test_mixed_element_space()
-
-
-if __name__ == "__main__":
-    main()
