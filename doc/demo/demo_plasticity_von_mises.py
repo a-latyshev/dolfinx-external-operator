@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
 #   kernelspec:
-#     display_name: dolfinx-env
+#     display_name: dolfinx-env (3.12.3)
 #     language: python
 #     name: python3
 # ---
@@ -150,6 +150,9 @@
 # ### Preamble
 
 # %%
+from collections.abc import Callable, Sequence
+from functools import partial
+
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -157,13 +160,15 @@ import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from demo_plasticity_von_mises_pure_ufl import plasticity_von_mises_pure_ufl
-from solvers import NonlinearProblemWithCallback
 from utilities import build_cylinder_quarter, find_cell_by_point
 
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.nls.petsc import NewtonSolver
+from dolfinx.fem.bcs import DirichletBC
+from dolfinx.fem.forms import Form
+from dolfinx.fem.function import Function
+from dolfinx.fem.petsc import NonlinearProblem, apply_lifting, assemble_vector, set_bc
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -407,40 +412,128 @@ J_form = fem.form(J_replaced)
 # %% [markdown]
 # ### Solving the problem
 #
-# Once we prepared the forms containing external operators, we can defind the
-# nonlinear problem and its solver. Here we modified the original DOLFINx
-# `NonlinearProblem` and called it `NonlinearProblemWithCallback` to let the
-# solver evaluate external operators at each iteration. For this matter we define
-# the function `constitutive_update` with external operators evaluations and
-# update of the internal variable `dp`.
+# Once we prepared the forms containing external operators, we can apply the
+# Newton method to solve the nonlinear problem that is based on that forms. For
+# this matter, we use `NonlinearProblem`, which is a high-level interface of
+# DOLFINx based on PETSc SNES.
 
 
 # %%
-def constitutive_update():
+petsc_options = {
+    "snes_type": "vinewtonrsls",
+    "snes_linesearch_type": "basic",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "snes_atol": 1.0e-8,
+    "snes_rtol": 1.0e-8,
+    "snes_max_it": 100,
+    "snes_monitor": "",
+}
+
+problem = NonlinearProblem(
+    F_replaced, Du, J=J_replaced, bcs=bcs, petsc_options_prefix="demo_von_mises_", petsc_options=petsc_options
+)
+
+
+# %% [markdown]
+# To update external operators at each iteration of the Newton method, we provide
+# SNES of `problem` with the function `constitutive_update` that evaluates
+# external operators and updates the internal variable `dp`.
+
+
+# %%
+def constitutive_update(
+    F_external_operators: list[FEMExternalOperator], J_external_operators: list[FEMExternalOperator], dp: Function
+):
+    """Update the constitutive model by evaluating the external operators."""
     evaluated_operands = evaluate_operands(F_external_operators)
+    # Call `C_tang_impl` that returns additional arrays `sigma_new` and `dp_new`
     ((_, sigma_new, dp_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # This avoids having to evaluate the external operators of F.
+    # Update external operator `sigma` via explicit copy
+    sigma = F_external_operators[0]
     sigma.ref_coefficient.x.array[:] = sigma_new
+    # Update history variable
     dp.x.array[:] = dp_new
 
 
-problem = NonlinearProblemWithCallback(F_replaced, Du, bcs=bcs, J=J_replaced, external_callback=constitutive_update)
+def assemble_residual_with_callback(
+    u: Function,
+    F: Form,
+    J: Form,
+    bcs: Sequence[DirichletBC],
+    external_callback: Callable,
+    args_external_callback: Sequence,
+    snes: PETSc.SNES,
+    x: PETSc.Vec,
+    b: PETSc.Vec,
+) -> None:
+    """Assemble the residual at ``x`` into the vector ``b`` with a callback to
+    external functions.
+
+    Prior to assembling the residual and after updating the solution ``u``, the
+    function ``external_callback`` with input arguments ``args_external_callback``
+    is called.
+
+    A function conforming to the interface expected by ``SNES.setFunction`` can
+    be created by fixing the first 5 arguments, e.g. (cf.
+    ``dolfinx.fem.petsc.assemble_residual``):
+
+    Example::
+
+        snes = PETSc.SNES().create(mesh.comm)
+        assemble_residual = functools.partial(
+            dolfinx.fem.petsc.assemble_residual, u, F, J, bcs,
+            external_callback, args_external_callback)
+        snes.setFunction(assemble_residual, b)
+
+    Args:
+        u: Function tied to the solution vector within the residual and
+           Jacobian.
+        F: Form of the residual.
+        J: Form of the Jacobian.
+        bcs: List of Dirichlet boundary conditions to lift the residual.
+        external_callback: A callback function to call prior to assembling the
+                           residual.
+        args_external_callback: Arguments to pass to the external callback
+                                function.
+        snes: The solver instance.
+        x: The vector containing the point to evaluate the residual at.
+        b: Vector to assemble the residual into.
+    """
+    x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+    x.copy(u.x.petsc_vec)
+    u.x.scatter_forward()
+
+    # Call external functions, e.g. evaluation of external operators
+    external_callback(*args_external_callback)
+
+    with b.localForm() as b_local:
+        b_local.set(0.0)
+    assemble_vector(b, F)
+
+    apply_lifting(b, [J], [bcs], [x], -1.0)
+    b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+    set_bc(b, bcs, x, -1.0)
+
+
+assemble_residual_with_callback_ = partial(
+    assemble_residual_with_callback,
+    problem.u,
+    problem.F,
+    problem.J,
+    bcs,
+    constitutive_update,  # external callback with respect to SNES
+    [F_external_operators, J_external_operators, dp],  # input arguments of the callback
+)
+
+# Set the custom residual assembly function with the one that calls
+# `constitutive_update`
+problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
 # %% [markdown]
 # Now we are ready to solve the problem.
 
 # %% tags=["scroll-output"]
-solver = NewtonSolver(mesh.comm, problem)
-solver.max_it = 200
-solver.rtol = 1e-8
-ksp = solver.krylov_solver
-opts = PETSc.Options()  # type: ignore
-option_prefix = ksp.getOptionsPrefix()
-opts[f"{option_prefix}ksp_type"] = "preonly"
-opts[f"{option_prefix}pc_type"] = "lu"
-opts[f"{option_prefix}pc_factor_mat_solver_type"] = "mumps"
-ksp.setFromOptions()
-
 u = fem.Function(V, name="displacement")
 
 x_point = np.array([[R_i, 0, 0]])
@@ -455,14 +548,14 @@ results = np.zeros((num_increments, 2))
 eps = np.finfo(PETSc.ScalarType).eps
 
 for i, loading_v in enumerate(loadings):
-    residual = solver._b.norm()
     if MPI.COMM_WORLD.rank == 0:
         print(f"Load increment #{i}, load: {loading_v:.3f}")
 
     loading.value = loading_v
     Du.x.array[:] = eps
 
-    iters, _ = solver.solve(Du)
+    _ = problem.solve()
+    iters = problem.solver.getIterationNumber()
     print(f"\tInner Newton iterations: {iters}")
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)

@@ -3,13 +3,11 @@ from mpi4py import MPI
 import gmsh
 import numpy as np
 
-# import pyvista
 import basix
-
-# import dolfinx.plot as plot
-from dolfinx.fem import Expression, Function
+from dolfinx.fem import Expression
+from dolfinx.fem.function import Function
 from dolfinx.geometry import bb_tree, compute_colliding_cells, compute_collisions_points
-from dolfinx.io import gmshio
+from dolfinx.io import gmsh as gmshio
 
 
 def build_cylinder_quarter(lc=0.3, R_e=1.3, R_i=1.0):
@@ -85,38 +83,16 @@ def find_cell_by_point(mesh, point):
     return cells, points_on_proc
 
 
-# def plot_scalar_field(field, verbose=False, to_show=True):
-#     """
-#     Plot a scalar field with pyvista
-#     """
-#     field_name = field.name
-#     domain = field.function_space.mesh
-#     plotter = pyvista.Plotter(title=field_name, window_size=[200, 300])
-#     topology, cell_types, x = plot.vtk_mesh(domain)
-#     grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-#     grid.point_data[field_name] = field.x.array
-#     grid.set_active_scalars(field_name)
-#     if verbose:
-#         plotter.add_text(field_name, font_size=11)
-#     plotter.add_mesh(grid, show_edges=False, show_scalar_bar=verbose)
-#     plotter.view_xy()
-#     if not pyvista.OFF_SCREEN and to_show:
-#         plotter.show()
-#     plotter.camera.tight()
-#     image = plotter.screenshot(None, transparent_background=True, return_img=True)
-#     return image
-
-
-def interpolate_quadrature(ufl_expr, fem_func: Function):
+def interpolate_quadrature(ufl_expr, fem_func: Function) -> None:
     q_dim = fem_func.function_space._ufl_element.degree
     mesh = fem_func.ufl_function_space().mesh
 
-    quadrature_points, weights = basix.make_quadrature(basix.CellType.triangle, q_dim)
+    quadrature_points, _weights = basix.make_quadrature(mesh.basix_cell(), q_dim)
     map_c = mesh.topology.index_map(mesh.topology.dim)
     num_cells = map_c.size_local + map_c.num_ghosts
     cells = np.arange(0, num_cells, dtype=np.int32)
 
-    expr_expr = Expression(ufl_expr, quadrature_points)
+    expr_expr = Expression(ufl_expr, quadrature_points, dtype=fem_func.dtype)
     expr_eval = expr_expr.eval(mesh, cells)
     np.copyto(fem_func.x.array, expr_eval.reshape(-1))
 

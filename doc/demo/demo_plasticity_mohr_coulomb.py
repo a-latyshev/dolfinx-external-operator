@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.11.2
 #   kernelspec:
-#     display_name: dolfinx-env
+#     display_name: dolfinx-env (3.12.3)
 #     language: python
 #     name: python3
 # ---
@@ -73,6 +73,8 @@
 # ### Preamble
 
 # %%
+from functools import partial
+
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -84,18 +86,19 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from mpltools import annotation  # for slope markers
-from solvers import PETScNonlinearProblem, PETScNonlinearSolver
 from utilities import find_cell_by_point
 
 import basix
 import ufl
 from dolfinx import default_scalar_type, fem, mesh
+from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
 )
+from dolfinx_external_operator.petsc import assemble_residual_with_callback
 
 jax.config.update("jax_enable_x64", True)
 
@@ -576,7 +579,7 @@ def C_tang_impl(deps):
     sigma_n_ = sigma_n.x.array.reshape((-1, stress_dim))
 
     (C_tang_global, state) = dsigma_ddeps_vec(deps_, sigma_n_)
-    sigma_global, niter, yielding, norm_res, dlambda = state
+    sigma_global, niter, yielding, norm_res, _dlambda = state
 
     unique_iters, counts = jnp.unique(niter, return_counts=True)
 
@@ -649,23 +652,13 @@ _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 # %% [markdown]
 # ### Solving the problem
 #
-# Similarly to the von Mises tutorial, we use a Newton solver, but this time we
-# rely on `SNES`, the implementation from the `PETSc` library. We implemented the
-# class `PETScNonlinearProblem` that allows to call an additional routine
-# `external_callback` at each iteration of SNES before the vector and matrix
-# assembly.
+# Similarly to the von Mises tutorial, we use `NonlinearProblem` to solve the
+# global problem with SNES. To enable the external operators update at each
+# iteration of SNES before the vector and matrix assembly, we wrote a simple
+# wrapper `assemble_residual_with_callback`.
 
 
 # %%
-def constitutive_update():
-    evaluated_operands = evaluate_operands(F_external_operators)
-    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # Direct access to the external operator values
-    sigma.ref_coefficient.x.array[:] = sigma_new
-
-
-problem = PETScNonlinearProblem(Du, F_replaced, J_replaced, bcs=bcs, external_callback=constitutive_update)
-
 petsc_options = {
     "snes_type": "vinewtonrsls",
     "snes_linesearch_type": "basic",
@@ -678,8 +671,33 @@ petsc_options = {
     "snes_monitor": "",
 }
 
+problem = NonlinearProblem(
+    F_replaced, Du, J=J_replaced, bcs=bcs, petsc_options_prefix="demo_mohr-coulomb_", petsc_options=petsc_options
+)
 
-solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)  # PETSc.SNES wrapper
+
+def constitutive_update(
+    F_external_operators: list[FEMExternalOperator],
+    J_external_operators: list[FEMExternalOperator],
+):
+    """Update the constitutive model by evaluating the external operators."""
+    evaluated_operands = evaluate_operands(F_external_operators)
+    # Call `C_tang_impl`
+    ((_, sigma_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # Direct access to the external operator values
+    sigma.ref_coefficient.x.array[:] = sigma_new
+
+
+assemble_residual_with_callback_ = partial(
+    assemble_residual_with_callback,
+    problem.u,
+    problem.F,
+    problem.J,
+    bcs,
+    constitutive_update,  # external callback with respect to SNES
+    [F_external_operators, J_external_operators],  # input arguments of the callback
+)
+problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
 
 # %% [markdown]
@@ -702,7 +720,7 @@ for i, load in enumerate(load_steps):
     if MPI.COMM_WORLD.rank == 0:
         print(f"Load increment #{i}, load: {load}")
 
-    solver.solve(Du)
+    problem.solve()
 
     u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
     u.x.scatter_forward()
@@ -713,14 +731,6 @@ for i, load in enumerate(load_steps):
         results[i + 1, :] = (-u.eval(points_on_process, cells)[0], load)
 
 print(f"Slope stability factor: {-q.value[-1] * H / c}")
-
-# %% [markdown]
-# ```{note}
-# We demonstrated here the use of `PETSc.SNES` together with external operators
-# through the `PETScNonlinearProblem` and `PETScNonlinearSolver` classes. If the
-# user is familiar with original DOLFINx `NonlinearProblem`, feel free to
-# use `NonlinearProblemWithCallback` covered in the [von Mises tutorial](demo_plasticity_von_mises.py).
-# ```
 
 # %% [markdown]
 # ## Verification
@@ -770,13 +780,10 @@ try:
     print(pyvista.global_theme.jupyter_backend)
     import dolfinx.plot
 
-    pyvista.start_xvfb(0.1)
-
     W = fem.functionspace(domain, ("Lagrange", 1, (gdim,)))
     u_tmp = fem.Function(W, name="Displacement")
     u_tmp.interpolate(u)
 
-    pyvista.start_xvfb()
     plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
     topology, cell_types, x = dolfinx.plot.vtk_mesh(domain)
     grid = pyvista.UnstructuredGrid(topology, cell_types, x)
@@ -1120,7 +1127,7 @@ Du.x.array[:] = 1e-8
 if MPI.COMM_WORLD.rank == 0:
     print(f"Load increment #{i}, load: {load}")
 
-solver.solve(Du)
+problem.solve()
 
 u.x.petsc_vec.axpy(1.0, Du.x.petsc_vec)
 u.x.scatter_forward()

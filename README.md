@@ -33,22 +33,15 @@ releases of DOLFINx.
 The latest release version can be installed with:
 
 ```Shell
-pip install git+https://github.com/a-latyshev/dolfinx-external-operator.git@v0.8.0
+pip install dolfinx-external-operator
 ```
 
-The latest development version can be installed with:
+The latest development version can be installed for development with:
 
 ```Shell
 git clone https://github.com/a-latyshev/dolfinx-external-operator.git
 cd dolfinx-external-operator
 pip install -e .
-```
-
-The demos require pyvista and VTK for visualisation. VTK wheels are not
-currently built on Linux arm64, which leads to a failing `import vtk`. VTK can
-be installed from a third-party wheel on Linux arm64 using
-```Shell
-pip install https://github.com/finsberg/vtk-aarch64/releases/download/vtk-9.3.0-cp312/vtk-9.3.0.dev0-cp312-cp312-linux_aarch64.whl 
 ```
 
 ## Documentation
@@ -69,16 +62,16 @@ Introduction to External Operators — FEniCS 2024 Conference:
 If you use `dolfinx-external-operator` in your research we ask that you cite
 the following references:
 
-```
-@preprint{latyshev:hal-04735022,
-  TITLE = {{Expressing general constitutive models in FEniCSx using external operators and algorithmic automatic differentiation}},
-  AUTHOR = {Latyshev, Andrey and Bleyer, J{\'e}r{\'e}my and Maurini, Corrado and Hale, Jack S},
-  URL = {https://hal.science/hal-04735022},
-  NOTE = {working paper or preprint},
-  YEAR = {2024},
-  MONTH = Oct,
-  KEYWORDS = {constitutive models ; automated finite element solvers ; algorithmic automatic differentiation ; external operators ; FEniCSx ; JAX ; Numba},
-  HAL_VERSION = {v2},
+```bibtex
+@article{jtcam:14449,
+  title      = {Expressing general constitutive models in FEniCSx using external operators and algorithmic automatic differentiation},
+  author     = {Andrey Latyshev and Jérémy Bleyer and Corrado Maurini and Jack Hale},
+  doi        = {10.46298/jtcam.14449},
+  journal    = {Journal of Theoretical, Computational and Applied Mechanics},
+  issn       = {2726-6141},
+  year       = {2025},
+  month      = {Sep},
+  keywords   = {automated finite element solvers, Numba, JAX, FEniCSx, external operators, algorithmic automatic differentiation, constitutive models}
 }
 
 @inproceedings{latyshev_2024_external_paper,
@@ -91,14 +84,12 @@ the following references:
   address = {Giens, France},
   url = {https://hal.science/hal-04610881}
 }
-```
 
-```
 @software{latyshev_2024_external_code,
   title = {a-latyshev/dolfinx-external-operator},
   author = {Latyshev, Andrey and Hale, Jack},
-  date = {2024},
-  doi = {10.5281/zenodo.10907417}
+  date = {2025},
+  doi = {10.5281/zenodo.10907417},
   organization = {Zenodo}
 }
 ```
@@ -110,6 +101,7 @@ the following references:
 * Jérémy Bleyer (École des Ponts ParisTech, Université Gustave Eiffel, jeremy.bleyer@enpc.fr)
 * Jack S. Hale (University of Luxembourg, jack.hale@uni.lu)
 * Corrado Maurini (Sorbonne Université, corrado.maurini@sorbonne-universite.fr)
+* Jørgen S. Dokken (Simula Research Laboratory, dokken@simula.no)
 
 If you wish to be added as a contributor after an accepted PR please ask via
 email.

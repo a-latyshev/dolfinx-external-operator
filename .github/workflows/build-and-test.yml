@@ -14,7 +14,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    container: ghcr.io/fenics/dolfinx/lab:nightly
+    container: ghcr.io/fenics/dolfinx/lab:v0.10.0
     
     env:
       PYVISTA_OFF_SCREEN: true
@@ -22,7 +22,7 @@ jobs:
       DISPLAY: ":99.0"
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       
       - name: Install
         run: |
@@ -43,19 +43,18 @@ jobs:
       
       - name: Run demos (serial)
         run: |
-          python3 -c "from pyvista import start_xvfb; start_xvfb(0.1)"
           python3 -m pytest -m mpi -v --num-proc=1 doc/demo
 
       - name: Run demos (MPI, np=3)
         run: |
           python3 -m pytest -m mpi -v --num-proc=2 doc/demo
-
+          
       - name: Build book
         working-directory: doc/
         run: jupyter-book build .
-      
+
       - name: Upload documentation as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: webpage
           path: doc/_build/html
