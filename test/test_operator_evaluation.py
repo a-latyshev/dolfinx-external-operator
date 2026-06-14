@@ -301,10 +301,10 @@ def test_mixed_element_space():
 
     N1, N2 = split(N)
     v1, v2 = split(v)
-    F = N1 * v1 * ufl.dx #+ inner(N2, v) * ufl.dx
+    F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
     N1_explicit = u1 + inner(u2, u2)
-   # N2_explicit = u2
-    F_explicit = N1_explicit * v1 * ufl.dx #+ inner(N2_explicit, v) * ufl.dx
+    N2_explicit = u2
+    F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_vector_matrix(F, F_explicit, u)
 
