@@ -134,15 +134,41 @@ class FEMExternalOperator(ufl.ExternalOperator):
         self.name = name
 
         # Points to evaluate operands
-        if self.ref_function_space.ufl_element().is_mixed:
+        self._is_mixed = self.ref_function_space.ufl_element().is_mixed
+        if self._is_mixed:
             points = []
+            self._mixed_subspace_info = []
+            val_sizes = []
+            offset = 0
             for i in range(self.ref_function_space.num_sub_spaces):
-                points.append(self.ref_function_space.sub(i).element.interpolation_points)
+                Vi = self.ref_function_space.sub(i)
+                pts_arr = Vi.element.interpolation_points
+                points.append(pts_arr)
+                n_pts = pts_arr.shape[0]
+                dofs_per_cell = Vi.dofmap.list.shape[1]
+                val_shape = Vi.ufl_element().reference_value_shape
+                val_size = int(np.prod(val_shape)) if len(val_shape) > 0 else 1
+                val_sizes.append(val_size)
+                
+                flat_dofs = Vi.dofmap.list.flatten()
+                
+                self._mixed_subspace_info.append({
+                    "n_pts": n_pts,
+                    "val_size": val_size,
+                    "dofs_per_cell": dofs_per_cell,
+                    "val_shape": val_shape,
+                    "flat_dofs": flat_dofs,
+                    "offset": offset
+                })
+                offset += n_pts
             self.eval_points = np.concatenate(points)
+            self._n_points_total = offset
+            self._comp_size = max(val_sizes) if val_sizes else 1
+            self._assign_func = self._assign_mixed
         else:
             self.eval_points = self.ref_function_space.element.interpolation_points
-
-        self.unrolled_dofmap = get_unrolled_dofmap(self.ref_function_space)
+            self.unrolled_dofmap = get_unrolled_dofmap(self.ref_function_space)
+            self._assign_func = self._assign_non_mixed
 
         # Make the global coefficient associated to the external operator
         if coefficient is not None:
@@ -216,6 +242,49 @@ class FEMExternalOperator(ufl.ExternalOperator):
         """Return whether this expression is spatially constant over each cell."""
         return self.ufl_element().is_cellwise_constant()
 
+    def _assign_non_mixed(self, values: np.ndarray) -> None:
+        self.ref_coefficient.x.array[self.unrolled_dofmap] = values
+
+    def _assign_mixed(self, values: np.ndarray) -> None:
+        coeff = self.ref_coefficient
+        if values.ndim == 1:
+            n_cells = values.size // (self._n_points_total * self._comp_size)
+            target_shape = (n_cells, self._n_points_total) if self._comp_size == 1 else (n_cells, self._n_points_total, self._comp_size)
+            values = values.reshape(target_shape)
+
+        n_cells = values.shape[0]
+        for info in self._mixed_subspace_info:
+            offset = info["offset"]
+            n_pts = info["n_pts"]
+            val_size = info["val_size"]
+            dofs_per_cell = info["dofs_per_cell"]
+            flat_dofs = info["flat_dofs"]
+            val_shape = info["val_shape"]
+
+            if values.ndim == 2:
+                block = values[:, offset : offset + n_pts]
+            else:
+                chunk = values[:, offset : offset + n_pts, :]
+                if chunk.shape[2] >= val_size:
+                    block = chunk[:, :, :val_size].reshape(n_cells, dofs_per_cell)
+                elif (
+                    len(val_shape) == 2
+                    and val_shape[0] == val_shape[1]
+                    and chunk.shape[2] == val_shape[0]
+                    and int(np.prod(val_shape)) == val_size
+                ):
+                    n = val_shape[0]
+                    mat = np.zeros((n_cells, n_pts, n, n), dtype=chunk.dtype)
+                    for k in range(n):
+                        mat[:, :, k, k] = chunk[:, :, k]
+                    block = mat.reshape(n_cells, dofs_per_cell)
+                else:
+                    raise ValueError(
+                        "Insufficient component axis size for mixed subspace packing: "
+                        f"val_shape={val_shape}, need_val_size={val_size}, got={chunk.shape[2]}."
+                    )
+            coeff.x.array[flat_dofs] = block.reshape(-1)
+
 
 def evaluate_operands(
     external_operators: list[FEMExternalOperator],
@@ -288,97 +357,6 @@ def evaluate_external_operators(
         A list containing the evaluation of the external operators.
     """
 
-    def _assign_into_coefficient(ex_op: FEMExternalOperator, values: np.ndarray) -> None:
-        """Assign evaluated values into ``ex_op.ref_coefficient``.
-
-        For non-mixed spaces, ``values`` is expected to be a flat array that
-        matches the unrolled dof layout.
-
-        For mixed spaces, evaluation is naturally expressed on the concatenated
-        interpolation points of each subspace (as constructed in
-        ``FEMExternalOperator.__init__``). In that case, we pack subspace-by-
-        subspace into the (unrolled) mixed coefficient vector.
-        """
-
-        V = ex_op.ref_function_space
-        coeff = ex_op.ref_coefficient
-
-        if V.ufl_element().is_mixed and values.ndim == 1:
-            # Common convenience: user returns `out.reshape(-1)` where
-            # `out.shape == (n_cells, n_points_total, max_val_size)`.
-            n_points_total = ex_op.eval_points.shape[0]
-            # Prefer using the actual mesh cell count when possible.
-            try:
-                map_c = V.mesh.topology.index_map(V.mesh.topology.dim)
-                n_cells_mesh = map_c.size_local + map_c.num_ghosts
-            except Exception:
-                n_cells_mesh = None
-
-            flag = n_cells_mesh is not None and n_cells_mesh > 0 and n_points_total > 0
-            if flag:
-                comp_size = values.size // (n_cells_mesh * n_points_total)
-                if comp_size == 1:
-                    values = values.reshape(n_cells_mesh, n_points_total)
-                else:
-                    values = values.reshape(n_cells_mesh, n_points_total, comp_size)
-            elif n_points_total > 0 and values.size % n_points_total == 0:
-                # Fall back to scalar-only (or unknown component size) reshape.
-                n_cells = values.size // n_points_total
-                values = values.reshape(n_cells, n_points_total)
-
-        if V.ufl_element().is_mixed and values.ndim in (2, 3):
-            n_cells = values.shape[0]
-            offset = 0
-            for i in range(V.num_sub_spaces):
-                Vi = V.sub(i)
-                n_pts = Vi.element.interpolation_points.shape[0]
-                dofs_per_cell = Vi.dofmap.list.shape[1]
-                val_shape = Vi.ufl_element().reference_value_shape
-                val_size = int(np.prod(val_shape)) if len(val_shape) > 0 else 1
-
-                if dofs_per_cell != n_pts * val_size:
-                    raise ValueError(
-                        "Unsupported mixed subspace layout: expected dofs_per_cell == n_pts * val_size, "
-                        f"got dofs_per_cell={dofs_per_cell}, n_pts={n_pts}, val_size={val_size}."
-                    )
-
-                if values.ndim == 2:
-                    if val_size != 1:
-                        raise ValueError(
-                            "Mixed output packing requires a component axis for non-scalar subspaces: "
-                            f"subspace={i}, val_shape={val_shape}."
-                        )
-                    block = values[:, offset : offset + n_pts]
-                else:
-                    chunk = values[:, offset : offset + n_pts, :]
-                    if chunk.shape[2] >= val_size:
-                        # Take only the components required by this subspace.
-                        block = chunk[:, :, :val_size].reshape(n_cells, dofs_per_cell)
-                    elif (
-                        len(val_shape) == 2
-                        and val_shape[0] == val_shape[1]
-                        and chunk.shape[2] == val_shape[0]
-                        and int(np.prod(val_shape)) == val_size
-                    ):
-                        # Allow providing only diagonal entries for square-matrix-valued subspaces.
-                        n = val_shape[0]
-                        mat = np.zeros((n_cells, n_pts, n, n), dtype=chunk.dtype)
-                        for k in range(n):
-                            mat[:, :, k, k] = chunk[:, :, k]
-                        block = mat.reshape(n_cells, dofs_per_cell)
-                    else:
-                        raise ValueError(
-                            "Insufficient component axis size for mixed subspace packing: "
-                            f"subspace={i}, val_shape={val_shape}, need_val_size={val_size}, got={chunk.shape[2]}."
-                        )
-
-                coeff.x.array[Vi.dofmap.list.flatten()] = block.reshape(-1)
-                offset += n_pts
-            return
-
-        # Default: treat values as already aligned with the coefficient dofs
-        coeff.x.array[ex_op.unrolled_dofmap] = values
-
     evaluated_operators = []
 
     for external_operator in external_operators:
@@ -396,7 +374,7 @@ def evaluate_external_operators(
             np.copyto(external_operator.ref_coefficient.x.array, external_operator_eval[0])
         else:
             try:
-                _assign_into_coefficient(external_operator, external_operator_eval)
+                external_operator._assign_func(external_operator_eval)
             except ValueError:
                 # Keep the old behaviour for diagnostics; re-raise with a clearer message.
                 raise
