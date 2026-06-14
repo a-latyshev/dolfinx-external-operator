@@ -201,7 +201,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             # Use contiguous assignment for Quadrature/DG elements per user design decision
             element = self.ref_function_space.ufl_element()
             element_family = element.element_family
-            is_contiguous = (element_family is None) or (element_family in ("DG"))
+            is_contiguous = (element_family is None) or (element_family in ("DG",))
 
             if is_contiguous:
                 self.unrolled_dofmap = None
