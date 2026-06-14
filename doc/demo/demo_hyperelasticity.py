@@ -1,19 +1,3 @@
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: -all
-#     custom_cell_magics: kql
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.11.2
-#   kernelspec:
-#     display_name: dolfinx-env (3.12.3)
-#     language: python
-#     name: python3
-# ---
-
 # %%
 """
 Demo: Neo-Hookean Hyperelasticity - Tensile Test of a Rectangular Specimen (2D)
@@ -21,17 +5,17 @@ Author: Adapted from FEniCSx/dolfinx and jorgensd/dolfinx-tutorial
 """
 
 # %%
+
+import matplotlib.pyplot as plt
 import numpy as np
-import ufl
-from mpi4py import MPI
-from petsc4py import PETSc
-from dolfinx import mesh, fem, log, default_scalar_type
-from dolfinx.fem.petsc import NonlinearProblem
-from dolfinx.nls.petsc import NewtonSolver
-from dolfinx.mesh import CellType
-from dolfinx.io import XDMFFile
-from dolfinx.fem import Expression, Function
+import pyvista
+from solvers import PETScNonlinearProblem, PETScNonlinearSolver
+from utilities import build_square_with_elliptic_holes
+
 import basix
+import dolfinx.plot
+import ufl
+from dolfinx import default_scalar_type, fem, mesh
 
 # Define external function for Piola-Kirchhoff stress and its derivative
 from dolfinx_external_operator import (
@@ -40,16 +24,6 @@ from dolfinx_external_operator import (
     evaluate_operands,
     replace_external_operators,
 )
-from solvers import NonlinearProblemWithCallback
-from utilities import build_square_with_elliptic_holes
-from dolfinx.fem.petsc import NewtonSolverNonlinearProblem
-from solvers import PETScNonlinearProblem, PETScNonlinearSolver
-
-
-import pyvista
-import dolfinx.plot
-
-import matplotlib.pyplot as plt
 
 # %%
 # Geometry and mesh (2D)
@@ -93,8 +67,9 @@ bcs_u = [
 # ### Ex ops
 
 # %%
-import torch
 import numpy as np
+import torch
+
 
 class convexLinear(torch.nn.Module):
     """ Custom linear layer with positive weights and no bias """
@@ -113,7 +88,7 @@ class convexLinear(torch.nn.Module):
 
 class ICNN(torch.nn.Module):
     def __init__(self, n_input, n_hidden, n_output, dropout):
-        super(ICNN, self).__init__()
+        super().__init__()
         # Create Module dicts for the hidden and skip-connection layers
         self.layers = torch.nn.ModuleDict()
         self.skip_layers = torch.nn.ModuleDict()
@@ -146,7 +121,7 @@ class ICNN(torch.nn.Module):
 
         # Compute computeStrainInvariants
         I1 = C11 + C22 + 1.0
-        I2 = C11 + C22 - C12*C21 + C11*C22
+        C11 + C22 - C12*C21 + C11*C22
         I3 = C11*C22 - C12*C21
 
         # Apply transformation to invariants
@@ -164,7 +139,7 @@ class ICNN(torch.nn.Module):
             skip = self.skip_layers[str(layer)](x_input)
             z = self.layers[str(layer)](z)
             z += skip
-            z = torch.nn.functional.softplus(z)     
+            z = torch.nn.functional.softplus(z)
             z = 1/12.*torch.square(z)
             if self.training:
                 if self.dropout:
@@ -264,7 +239,7 @@ def dP_dF_impl(Fvals):
     P = P_NN + P_cor
 
     # Initialize a tensor to store the full Jacobian (second derivative)
-    batch_size, num_components = F.shape
+    _batch_size, num_components = F.shape
     jacobian_rows = []
 
     # Compute the Jacobian row by row
@@ -391,7 +366,7 @@ solver = PETScNonlinearSolver(domain.comm, problem, petsc_options=petsc_options)
 # %%
 # Apply a tensile load by incrementally increasing traction on the right edge
 n_steps = 100
-max_traction = 0.5 
+max_traction = 0.5
 u.name = "displacement"
 u.x.array[:] = 0
 for step in range(1, n_steps + 1):
@@ -442,7 +417,7 @@ J_ = ufl.variable(ufl.det(F_))
 # mu = fem.Constant(domain, E / (2 * (1 + nu)))
 # lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
 # Strain energy and first Piola-Kirchhoff stress
-# psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF) 
+# psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF)
 # psi = (mu / 2) * (I1 - 2) - mu * ufl.ln(J_) + (lmbda / 2) * (ufl.ln(J_)) ** 2
 I2 = ufl.variable(ufl.tr(C)*ufl.tr(C) - ufl.tr(C * C)) / 2.0
 I1_tilde = ufl.variable(J_ ** (-2.0/3.0) * I1)
