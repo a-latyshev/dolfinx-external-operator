@@ -314,7 +314,8 @@ def evaluate_external_operators(
             except Exception:
                 n_cells_mesh = None
 
-            if n_cells_mesh is not None and n_cells_mesh > 0 and n_points_total > 0 and values.size % (n_cells_mesh * n_points_total) == 0:
+            flag = n_cells_mesh is not None and n_cells_mesh > 0 and n_points_total > 0
+            if flag:
                 comp_size = values.size // (n_cells_mesh * n_points_total)
                 if comp_size == 1:
                     values = values.reshape(n_cells_mesh, n_points_total)

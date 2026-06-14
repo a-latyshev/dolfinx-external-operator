@@ -5,7 +5,6 @@ from mpi4py import MPI
 
 import basix
 import ufl
-import pytest
 from dolfinx import fem
 from dolfinx.mesh import create_unit_square
 from dolfinx_external_operator import (
