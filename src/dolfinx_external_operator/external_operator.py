@@ -421,16 +421,15 @@ def evaluate_external_operators(
 
         # NOTE: Maybe to force the user to return always a tuple?
         if type(external_operator_eval) is tuple:
-            np.copyto(
-                external_operator.ref_coefficient.x.array,
-                external_operator_eval[0],
-            )
+            values = external_operator_eval[0]
         else:
-            try:
-                external_operator._assign_func(external_operator_eval)
-            except ValueError:
-                # Keep the old behaviour for diagnostics; re-raise with a clearer message.
-                raise
+            values = external_operator_eval
+
+        try:
+            external_operator._assign_func(values)
+        except ValueError:
+            # Keep the old behaviour for diagnostics; re-raise with a clearer message.
+            raise
         external_operator.ref_coefficient.x.scatter_forward()
         evaluated_operators.append(external_operator_eval)
 
