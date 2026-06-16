@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 doc = ["jupyter-book<2.0", "jupytext"]
-demo = ["gmsh", "numba", "jax[cpu]", "pyvista", "mpltools"]
+demo = ["gmsh", "numba", "jax[cpu]", "pyvista", "mpltools", "torch"]
 test = ["pytest"]
 lint = ["ruff"]
 ci = [

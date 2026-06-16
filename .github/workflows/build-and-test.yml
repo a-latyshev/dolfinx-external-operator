@@ -24,6 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       
+      - name: Install CPU PyTorch
+        run: |
+          python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
       - name: Install
         run: |
           python3 -m pip install '.[ci]'
