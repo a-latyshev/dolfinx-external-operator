@@ -159,9 +159,9 @@ model = ICNN(n_input=n_input,
                 n_output=n_output,
                 dropout=dropout)
 
-# model.load_state_dict(torch.load('ArrudaBoyce_noise=high.pth'))
+model.load_state_dict(torch.load('ArrudaBoyce_noise=high.pth'))
 # model.load_state_dict(torch.load('Isihara_noise=high.pth'))
-model.load_state_dict(torch.load('NeoHookean_noise=high.pth'))
+# model.load_state_dict(torch.load('NeoHookean_noise=high.pth'))
 model.eval()
 
 # %%
@@ -413,26 +413,31 @@ I = ufl.variable(ufl.Identity(d))
 # Deformation gradient
 F_ = ufl.variable(I + ufl.grad(u_UFL))
 
-C = ufl.variable(F_.T * F_)
-J_ = ufl.variable(ufl.det(F_))
-I1 = ufl.variable(ufl.tr(C) + 1.0)
-I2 = ufl.variable(I1 + J_**2 - 1.0)
-I1_tilde = ufl.variable(J_ ** (-2.0/3.0) * I1)
-I2_tilde = ufl.variable(J_ ** (-4.0/3.0) * I2)
+C = F_.T * F_
+J_ = ufl.det(F_)
+I1 = ufl.tr(C) + 1.0
+I2 = I1 + J_**2 - 1.0
 
-# W = 0.5 * (I1_tilde - 3.0) + (I2_tilde - 3.0) + (I1_tilde - 3.0)**2 + 1.5 * (J_ - 1.0)**2
-W = 0.5 * (I1_tilde - 3.0) + 1.5 * (J_ - 1.0)**2
-# W = (
-#     0.5 * (I1_tilde - 3.0)
-#     + (I2_tilde - 3.0)
-#     + 0.7 * (I1_tilde - 3.0) * (I2_tilde - 3.0)
-#     + 0.2 * (I1_tilde - 3.0) ** 3
-#     + 1.5 * (J_ - 1.0) ** 2
-# )
-# W = 0.5 * (I1_tilde - 3.0) + ufl.ln(I2_tilde / 3.0) + 1.5 * (J_ - 1.0)**2
+# Arruda-Boyce model parameters
+mu = fem.Constant(domain, 2.5)
+N_c = fem.Constant(domain, 28.0)
+K = fem.Constant(domain, 3.0)
 
-# P = ufl.diff(psi, F_)
-P = ufl.diff(W, F_)
+C1 = 1.0 / 2.0
+C2 = 1.0 / 20.0
+C3 = 11.0 / 1050.0
+C4 = 19.0 / 7000.0
+C5 = 519.0 / 673750.0
+
+I1_bar = (J_ ** (-2.0/3.0)) * I1
+
+W_AB = mu * (C1 * (I1_bar - 3.0) +
+             (C2 / N_c) * (I1_bar**2 - 3.0**2) +
+             (C3 / N_c**2) * (I1_bar**3 - 3.0**3) +
+             (C4 / N_c**3) * (I1_bar**4 - 3.0**4) +
+             (C5 / N_c**4) * (I1_bar**5 - 3.0**5)) + (K / 2.0) * (J_ - 1.0)**2
+
+P = ufl.diff(W_AB, F_)
 
 # %%
 metadata = {"quadrature_degree": 2}
@@ -465,6 +470,20 @@ u_diff = u.x.array[:] - u_UFL.x.array[:]
 vals[:, : len(u)] = u_diff.reshape((x.shape[0], len(u)))
 # vals[:, : len(u_UFL)] = u_UFL.x.array.reshape((x.shape[0], len(u_UFL)))
 
+# grid["u"] = vals
+# warped = grid.warp_by_vector("u", factor=1)
+# plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
+# plotter.view_xy()
+# plotter.camera.tight()
+# image = plotter.screenshot(None, transparent_background=True, return_img=True)
+# plt.imshow(image)
+# plt.axis("off")
+
+plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
+topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
+grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+vals = np.zeros((x.shape[0], 3))
+vals[:, : len(u_UFL)] = u.x.array.reshape((x.shape[0], len(u_UFL)))
 grid["u"] = vals
 warped = grid.warp_by_vector("u", factor=1)
 plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
