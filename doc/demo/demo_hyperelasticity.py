@@ -1,11 +1,62 @@
-# %%
-"""
-Demo: Neo-Hookean Hyperelasticity - Tensile Test of a Rectangular Specimen (2D)
-Author: Adapted from FEniCSx/dolfinx and jorgensd/dolfinx-tutorial
-"""
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: tags,-all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.19.3
+#   kernelspec:
+#     display_name: dolfinx-env (3.12.3)
+#     language: python
+#     name: python3
+# ---
+
+# %% [markdown]
+# # Hyperelasticity with PyTorch and Input-Convex Neural Networks (ICNN)
+#
+# This tutorial demonstrates how to define a complex hyperelastic constitutive model 
+# using PyTorch automatic differentiation (AD) and integrate it with FEniCSx. In solid 
+# mechanics, standard models (like Neo-Hookean) have simple analytical derivatives. 
+# However, data-driven constitutive equations (like neural network surrogates) require 
+# automatic differentiation to evaluate stresses and tangent operators (Jacobians) 
+# at the quadrature points of the finite element mesh.
+#
+# Here, we stick to the Arruda-Boyce hyperelasticity model. The tutorial is based on 
+# the work of Thakolkaran et al. (2022) {cite}`thakolkaran2022nn` on unsupervised 
+# deep-learning hyperelasticity without stress data (NN-EUCLID): https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN.
+#
+# To get familiarized with hyperelasticity problems, we advise to take a look first at the following basic tutorials:
+# * [Numerical Tours of Computational Mechanics with FEniCSx](https://bleyerj.github.io/comet-fenicsx/intro/hyperelasticity/hyperelasticity.html) by Jérémy Bleyer.
+# * [The FEniCSx tutorial](https://jsdokken.com/dolfinx-tutorial/chapter2/hyperelasticity.html) by Jørgen S. Dokken and Garth N. Wells.
+#
+# ## Problem Formulation
+#
+# We solve a hyperelasticity boundary value problem on a 2D square domain $\Omega$ containing 
+# elliptic holes, subjected to displacement-controlled tensile loading.
+#
+# Let $V$ be the functional space of admissible displacement fields. Under the assumption of 
+# quasi-static displacement-controlled loading and in the absence of body forces, the weak formulation of the 
+# equilibrium equation is expressed as:
+#
+# Find $\mathbf{u} \in V$ satisfying the Dirichlet boundary conditions such that:
+#
+# $$
+#     F(\mathbf{u}; \mathbf{v}) = \int\limits_\Omega \mathbf{P}(\mathbf{F}) : \nabla\mathbf{v} \, \mathrm{d}\mathbf{x} = 0, \quad \forall \mathbf{v} \in V
+# $$
+#
+# where:
+# - $\mathbf{F} = \mathbf{I} + \nabla\mathbf{u}$ is the deformation gradient.
+# - $\mathbf{P}(\mathbf{F}) = \frac{\partial W}{\partial \mathbf{F}}$ is the first Piola-Kirchhoff stress tensor derived from the strain energy density $W(\mathbf{F})$.
+# - $\mathbf{v}$ is a test function vanishing on the Dirichlet boundaries.
+#
+# ## Implementation
+#
+# ### Preamble
 
 # %%
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
@@ -28,8 +79,14 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 
+# %% [markdown]
+# ### Geometry and boundary conditions
+#
+# We solve a 2D tension problem of a square specimen with elliptic holes. The boundary
+# conditions consist of zero displacement at the bottom, and a prescribed vertical
+# displacement at the top. We use quadratic Lagrange elements for the displacement field $\mathbf{u}$.
+
 # %%
-# Geometry and mesh (2D)
 L = 1.0  # Length
 W = 1.0  # Height
 
@@ -67,7 +124,10 @@ bcs_u = [
 
 
 # %% [markdown]
-# ### Ex ops
+# ### Input-Convex Neural Network (ICNN) in PyTorch
+#
+# We construct the ICNN model in PyTorch using custom layers that enforce positive 
+# weights in the hidden layers to maintain input-convexity.
 
 # %%
 import numpy as np
@@ -160,9 +220,16 @@ model = ICNN(n_input=n_input,
                 dropout=dropout)
 
 model.load_state_dict(torch.load('ArrudaBoyce_noise=high.pth'))
-# model.load_state_dict(torch.load('Isihara_noise=high.pth'))
-# model.load_state_dict(torch.load('NeoHookean_noise=high.pth'))
 model.eval()
+
+# %% [markdown]
+# ### PyTorch-based Tangent and Stress Evaluation
+#
+# We define the FEniCSx function variables and set up the PyTorch-based consistent 
+# tangent stiffness evaluation. In contrast to JAX, where vectorization over 
+# batch dimensions is natively supported using `jax.vmap` and `jax.jacfwd`, PyTorch 
+# requires iterating row-by-row over components to compute the full consistent tangent 
+# Jacobian tensor $\mathbb{C}$.
 
 # %%
 u = fem.Function(V)
@@ -261,6 +328,50 @@ def P_external(derivatives):
     else:
         raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
 
+# %% [markdown]
+# ## Constitutive Formulation
+#
+# We model the hyperelastic response using an Input-Convex Neural Network (ICNN) 
+# designed to output a strain energy density $W(\mathbf{F})$ that is convex with respect 
+# to the right Cauchy-Green strain invariants. Objectivity is satisfied by expressing $W$ 
+# as a function of the right Cauchy-Green deformation tensor $\mathbf{C} = \mathbf{F}^T\mathbf{F}$.
+#
+# Following Thakolkaran et al. (2022), the strain energy density is formulated as:
+#
+# $$
+#     W(\mathbf{F}) = W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) + W^0 + \mathbf{H}:\mathbf{E}
+# $$
+# where:
+# - $W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}$ is the neural network mapping the strain invariants $\mathbf{E}(\mathbf{F})$ to a scalar energy.
+# - $W^0$ is a scalar correction offsetting the energy density to zero in the reference configuration:
+#   $$
+#       W^0 = -W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{I}))
+#   $$
+# - $\mathbf{H}$ is a stress correction tensor ensuring that the stress vanishes in the undeformed state ($\mathbf{F}=\mathbf{I}$):
+#   $$
+#       \mathbf{H} = -\left. \frac{\partial W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})}{\partial \mathbf{F}} \right|_{\mathbf{F}=\mathbf{I}}
+#   $$
+# - $\mathbf{E}$ is the Green-Lagrange strain tensor $\mathbf{E} = \frac{1}{2}(\mathbf{C} - \mathbf{I})$.
+#
+# The first Piola-Kirchhoff stress $\mathbf{P}$ is computed as:
+#
+# $$
+#     \mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}} = \frac{\partial W^{\text{NN}}}{\partial \mathbf{F}} + \mathbf{F}\mathbf{H}
+# $$
+# and the tangent modulus is:
+#
+# $$
+#     \mathbb{C}_{ijkl} = \frac{\partial P_{ij}(\mathbf{F})}{\partial F_{kl}} = \frac{\partial^2 W^{\text{NN}}}{\partial F_{kl} \partial F_{ij}} + \delta_{ik} H_{lj}
+# $$
+#
+# We will load a pre-trained network modeling the Arruda-Boyce material behaviour, and integrate it into FEniCSx as a `FEMExternalOperator`.
+#
+# ### FEniCSx Integration and External Operator
+#
+# We wrap the PyTorch execution code into a python callable, `dP_dF_impl`, and define 
+# a `FEMExternalOperator` in UFL.
+
+# %%
 # Create a quadrature element and function space for tensor-valued P
 quadrature_degree = 2
 cell_name = domain.topology.cell_name()
@@ -269,6 +380,24 @@ Q = fem.functionspace(domain, Qe)
 
 # Replace P with FEMExternalOperator
 P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
+
+# %% [markdown]
+# ## JAX AD vs. PyTorch AD
+#
+# While both JAX and PyTorch are powerful libraries for deep learning and automatic 
+# differentiation, they have distinct paradigms:
+#
+# 1. **Execution Model**:
+#    - **JAX** is strictly functional and trace-based. Functions are traced to generate 
+#      an intermediate representation (jaxpr) that is then JIT-compiled to XLA.
+#    - **PyTorch** builds dynamic computation graphs on-the-fly (tape-based). It executes 
+#      imperatively, making it highly interactive but requiring tracking of tensor histories.
+# 2. **Batch Jacobians / Tangents**:
+#    - **JAX** has first-class support for vectorization via `jax.vmap` and forward-mode/reverse-mode 
+#      Jacobian calculations via `jax.jacfwd` and `jax.jacrev`. This allows native batch-wise consistent tangent stiffness evaluation.
+#    - **PyTorch** traditionally evaluates gradients for scalar values or needs manual looping for Jacobian rows (`torch.autograd.grad` with one-hot output vectors) in batch mode. Modern PyTorch supports `torch.func` (inspired by JAX), but in finite element environments, tape-based automatic differentiation using custom batch wrappers is still common.
+#
+# In this tutorial, we will use PyTorch's dynamic graph features and manual batch looping to compute the first Piola-Kirchhoff stress tensor and its consistent tangent stiffness matrix for each quadrature point.
 
 # %%
 # Measures for integration
@@ -308,6 +437,12 @@ dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 # F_func = Function(Q)
 # F_func.x.array[:] = F_eval.flatten()
 
+# %% [markdown]
+# ### Variational Forms and Residual Replacing
+#
+# We define the weak form using the UFL representation of the external operator, 
+# compute its directional derivative, and replace it with the `replace_external_operators` function.
+
 # %%
 metadata = {"quadrature_degree": 2}
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
@@ -323,6 +458,12 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)
 
+
+# %% [markdown]
+# ### Newton Solver and Constitutive Update Callback
+#
+# We set up the PETSc SNES solver using a Newton solver with line search, wrapping 
+# the constitutive update in a callback function.
 
 # %%
 def constitutive_update(
@@ -369,6 +510,11 @@ problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 # solver.rtol = 1e-8
 # solver.convergence_criterion = "incremental"
 
+# %% [markdown]
+# ### Solving the Problem
+#
+# We incrementally apply a displacement-controlled tensile load by moving the top boundary.
+
 # %%
 # Apply a tensile load by incrementally increasing traction on the right edge
 n_steps = 100
@@ -382,6 +528,11 @@ for step in range(1, n_steps + 1):
     u.x.scatter_forward()
     if domain.comm.rank == 0:
         print(f"Step {step}: Traction {u_D_top.value:.2f}, Newton its: {num_its}")
+
+# %% [markdown]
+# ### Visualizing the Deformation
+#
+# We use PyVista to plot the deformed configuration of the specimen.
 
 # %%
 # pyvista.start_xvfb()
@@ -403,7 +554,12 @@ plt.axis("off")
 # plotter.show()
 
 # %% [markdown]
-# ### Standard hyper-elasticity
+# ## Verification against Analytical UFL Baseline
+#
+# To verify the accuracy of the neural network external operator solver, we compare 
+# its results against the analytical UFL implementation of the Arruda-Boyce model 
+# (relying on a 5-term Taylor series expansion). We solve the same problem and calculate 
+# the maximum relative $L^2$ error between the displacement fields.
 
 # %%
 u_UFL = fem.Function(V)
