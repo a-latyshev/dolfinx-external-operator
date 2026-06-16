@@ -357,36 +357,47 @@ def evaluate_operands(
     ref_function_space = external_operators[0].ref_function_space
     ufl_element = ref_function_space.ufl_element()
     mesh = ref_function_space.mesh
-    # quadrature_points = basix.make_quadrature(ufl_element.cell_type, ufl_element.degree)[0]
 
     assert isinstance(ufl_element.pullback, ufl.pullback.IdentityPullback)
-    # If no entity map is provided, assume that there is no sub-meshing
+
+    # Cache the default entities array on the mesh object to avoid re-allocation
     if entities is None:
-        map_c = mesh.topology.index_map(mesh.topology.dim)
-        num_cells = map_c.size_local + map_c.num_ghosts
-        cells = np.arange(0, num_cells, dtype=np.int32)
-        entities = cells
-    # Evaluate unique operands in external operators
+        entities = getattr(mesh, "_full_cells", None)
+        if entities is None:
+            map_c = mesh.topology.index_map(mesh.topology.dim)
+            num_cells = map_c.size_local + map_c.num_ghosts
+            entities = np.arange(0, num_cells, dtype=np.int32)
+            mesh._full_cells = entities
+
+    # Evaluate unique operands in external operators using lazily cached expressions
     evaluated_operands = {}
     for external_operator in external_operators:
-        # TODO: Is it possible to get the basix information out here?
+        if not hasattr(external_operator, "_compiled_operands"):
+            external_operator._compiled_operands = {}
+
         for operand in external_operator.ufl_operands:
             try:
                 evaluated_operands[operand]
             except KeyError:
-                # Check if we have a sub-mesh with different codim
-                operand_domain = ufl.domain.extract_unique_domain(operand)
-                operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
-                # TODO: Stop recreating the expression every time
                 if isinstance(operand, ufl.ExternalOperator):
                     evaluated_operand = evaluate_operands([operand], entities)
                 else:
-                    expr = fem.Expression(
-                        operand,
-                        external_operator.eval_points,
-                        dtype=external_operator.ref_coefficient.dtype,
-                    )
-                    # NOTE: Using expression eval might be expensive
+                    cached = external_operator._compiled_operands.get(operand)
+                    if cached is None:
+                        operand_domain = ufl.domain.extract_unique_domain(operand)
+                        if operand_domain == ref_function_space.ufl_domain():
+                            operand_mesh = mesh
+                        else:
+                            operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
+                        expr = fem.Expression(
+                            operand,
+                            external_operator.eval_points,
+                            dtype=external_operator.ref_coefficient.dtype,
+                        )
+                        cached = (expr, operand_mesh)
+                        external_operator._compiled_operands[operand] = cached
+
+                    expr, operand_mesh = cached
                     evaluated_operand = expr.eval(operand_mesh, entities)
                 evaluated_operands[operand] = evaluated_operand
     return evaluated_operands
