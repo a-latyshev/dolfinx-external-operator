@@ -332,8 +332,38 @@ model.eval()
 # %% [markdown]
 # #### PyTorch-based Tangent and Stress Evaluation
 #
-# To optimize the evaluation of stress and tangent stiffness within the Newton solver, we use:
+# Previously, we defined the first Piola-Kirchhoff stress as
 #
+# $$\mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}}
+#     = \mathbf{P}^{\text{NN}} + \mathbf{P}^{\text{cor}}$$,
+#
+# where the first term  is $\mathbf{P}^{\text{NN}} := \frac{\partial
+# W^{\text{NN}}}{\partial \mathbf{F}}$ and the second is the correction on the
+# reference configuration: $P_{\text{cor}} := \mathbf{F}\mathbf{H}$. We first
+# precompute the correction $P_{\text{cor}}$ and its derivative
+# $\mathbb{C}^\text{cor} = \frac{\partial
+# \mathbf{P}^{\text{cor}}(\mathbf{F})}{\partial \mathbf{F}}$.
+#
+# %% Zero input deformation gradient + track gradients
+F_0 = torch.zeros((1, 4))
+F_0[:, 0] = 1
+F_0[:, 3] = 1
+
+F_0.requires_grad = True
+W_NN_0 = model(F_0)
+P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
+
+# Precompute correction matrix H for stress correction
+C_cor = -P_NN_0.detach()
+H = torch.tensor([
+    [C_cor[0], C_cor[1], 0, 0],
+    [C_cor[2], C_cor[3], 0, 0],
+    [0, 0, C_cor[0], C_cor[1]],
+    [0, 0, C_cor[2], C_cor[3]]
+], dtype=P_NN_0.dtype, device=P_NN_0.device)
+
+
+# %% [markdown]
 # **Modern Vectorized Autograd using `torch.func` and JIT Compilation (`torch.compile`)**:
 # PyTorch 2.0+ includes the `torch.func` API (inspired by JAX) and the `torch.compile` compiler.
 # We combine these techniques to maximize performance:
@@ -346,26 +376,6 @@ model.eval()
 # For code efficiency and to avoid reshaping overhead, we represent the $2 \times 2$ tensors $\mathbf{F}$ and $\mathbf{H}$ in flattened vector and matrix forms.
 
 # %%
-# Zero input deformation gradient + track gradients
-F_0 = torch.zeros((1, 4))
-F_0[:, 0] = 1
-F_0[:, 3] = 1
-
-F_0.requires_grad = True
-W_NN_0 = model(F_0)
-P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
-
-# Precompute correction matrix H for stress correction
-# We detach the reference stress to prevent UserWarnings during tensor construction
-C_cor = -P_NN_0.detach()
-H = torch.tensor([
-    [C_cor[0], C_cor[1], 0, 0],
-    [C_cor[2], C_cor[3], 0, 0],
-    [0, 0, C_cor[0], C_cor[1]],
-    [0, 0, C_cor[2], C_cor[3]]
-], dtype=P_NN_0.dtype, device=P_NN_0.device)
-
-
 # Define vectorized stress and tangent computation using torch.func
 import torch.func
 
