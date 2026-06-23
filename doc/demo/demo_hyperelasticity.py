@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.3
 #   kernelspec:
-#     display_name: dolfinx-env (3.12.3)
+#     display_name: fenicsx-0.10.0
 #     language: python
 #     name: python3
 # ---
@@ -69,19 +69,12 @@
 # ### Preamble
 
 # %%
-from functools import partial
-
-import matplotlib.pyplot as plt
-import numpy as np
-import pyvista
-import torch
-from utilities import build_square_with_elliptic_holes
-
 import basix
-import dolfinx.plot
 import ufl
 from dolfinx import default_scalar_type, fem, mesh
 from dolfinx.fem.petsc import NonlinearProblem
+import dolfinx.plot
+from utilities import build_square_with_elliptic_holes
 
 # Define external function for Piola-Kirchhoff stress and its derivative
 from dolfinx_external_operator import (
@@ -91,6 +84,12 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 from dolfinx_external_operator.petsc import assemble_residual_with_callback
+
+from functools import partial
+import matplotlib.pyplot as plt
+import numpy as np
+import pyvista
+import torch
 
 # %% [markdown]
 # ### Geometry and boundary conditions
