@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # [Preview] Hyperelasticity with PyTorch and Input-Convex Neural Networks (ICNN)
+# # [Preview] Hyperelasticity via Input-Convex Neural Networks (ICNN) (PyTorch)
 #
 # This tutorial demonstrates how to define a complex hyperelastic constitutive
 # model using PyTorch automatic differentiation (AD) and integrate it with
@@ -109,11 +109,8 @@ W = 1.0  # Height
 domain, facet_tags, facet_tags_labels = build_square_with_elliptic_holes(L=L, lc=0.02)
 V = fem.functionspace(domain, ("Lagrange", 2, (domain.geometry.dim,)))
 
-
-# %%
 def bottom(x):
     return np.isclose(x[1], 0.0)
-
 
 def top(x):
     return np.isclose(x[1], W)
@@ -142,14 +139,68 @@ bcs_u = [
 
 
 # %% [markdown]
+# ### Constitutive Formulation - hyperelasticity via Input-Convex Neural Network (ICNN)
+#
+# We model the hyperelastic response using an Input-Convex Neural Network (ICNN)
+# designed to output a strain energy density $W(\mathbf{F})$ that is convex with
+# respect to the right Cauchy-Green strain invariants. Objectivity is satisfied
+# by expressing $W$ as a function of the right Cauchy-Green deformation tensor
+# $\mathbf{C} = \mathbf{F}^T\mathbf{F}$.
+#
+# Following {cite}`thakolkaranNNEUCLID2022`, the strain energy density is formulated
+# as:
+#
+# $$ W(\mathbf{F}) = W_{\mathbf{Q},
+#     \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) + W^0 +
+# \mathbf{H}:\mathbf{E} $$
+# where:
+# - $W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}$ is the neural network
+#   mapping the strain invariants $\mathbf{E}(\mathbf{F})$ to a scalar energy.
+# - $W^0$ is a scalar correction offsetting the energy density to zero in the
+#   reference configuration:
+#
+# $$ W^0 = -\left. W_{\mathbf{Q},
+#       \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F}))
+#   \right|_{\mathbf{F} = \mathbf{I}} $$
+#
+# - $\mathbf{H}$ is a stress correction tensor ensuring that the stress vanishes
+#   in the undeformed state ($\mathbf{F}=\mathbf{I}$):
+#
+# $$ \mathbf{H} = -\left.
+#       \frac{\partial W_{\mathbf{Q},
+#   \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})}{\partial \mathbf{F}}
+#   \right|_{\mathbf{F}=\mathbf{I}} $$
+#
+# - $\mathbf{E}$ is the Green-Lagrange strain tensor $\mathbf{E} =
+#   \frac{1}{2}(\mathbf{C} - \mathbf{I})$.
+#
+# The first Piola-Kirchhoff stress $\mathbf{P}$ is computed as:
+#
+# $$ \mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}}
+#     = \frac{\partial W^{\text{NN}}}{\partial \mathbf{F}} +
+# \mathbf{F}\mathbf{H} $$
+#
+# and the tangent modulus is:
+#
+# $$ \mathbb{C}_{ijkl} = \frac{\partial P_{ij}(\mathbf{F})}{\partial F_{kl}} =
+#     \frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}} +
+# \delta_{ik} H_{lj} $$
+#
+# We will load a pre-trained network modeling the Arruda-Boyce material
+# behaviour to evaluate the first Piola-Kirchhoff stress $\mathbf{P}$ values.
+# Then, using PyTorch automatic differentiation (AD), we compute the energy
+# derivative $\frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}}$
+# to evaluate values of the tangent $\mathbb{C}_{ijkl}$. Both
+# $\mathbf{P}(\mathbf{F})$ and $\mathbb{C}_{ijkl}$ can be then integrated into
+# FEniCSx as a `FEMExternalOperator`.
+
+# %% [markdown]
 # ### Input-Convex Neural Network (ICNN) in PyTorch
 #
 # We construct the ICNN model in PyTorch using custom layers that enforce positive
 # weights in the hidden layers to maintain input-convexity.
 
 # %%
-
-
 class convexLinear(torch.nn.Module):
     """Custom linear layer with positive weights and no bias"""
 
@@ -242,35 +293,6 @@ model.load_state_dict(torch.load("ArrudaBoyce_noise=high.pth"))
 model.eval()
 
 # %% [markdown]
-# ````{admonition} Train your own ICNN model!
-# :class: hint, dropdown
-# Here we are not studying how to train the ICNN model. Instead, we load the pretrained one `ArrudaBoyce_noise=high.pth`.
-# If you wish to explore other hyperelastic models we encourage you to follow the instructions in the [original repository of EUCLID](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run), which we outline here
-#
-# In the folder with `demo_hyperelasticity.py`, clone `EUCLID-hyperelasticity-NN`
-# ```shell
-# git clone https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN
-# ```
-# Install `pandas` and [other dependencies](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation), if needed
-# ```shell
-# pip install pandas
-# ```
-# Train a new model
-# ```shell
-# cd drivers/
-# python main.py Isihara high
-# ```
-# **Note**: Although we rely here on the CPU-based PyTorch installation, it is motivated by keeping the external operators demos light. For training of new models, we suggest to install the normal GPU-based PyTorch package.
-#
-# Then in the code above try
-# ```python
-# model.load_state_dict(torch.load("Isihara_noise=high.pth"))
-# model.eval()
-# ```
-# **Note**: there is a [bug](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2) related to NumPy>=2.0. If the error persists, try [this fork](https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main) with a fix.
-# ````
-
-# %% [markdown]
 # ### PyTorch-based Tangent and Stress Evaluation
 #
 # We define the FEniCSx function variables and set up the PyTorch-based consistent
@@ -337,61 +359,6 @@ def P_external(derivatives):
 
 
 # %% [markdown]
-# ## Constitutive Formulation
-#
-# We model the hyperelastic response using an Input-Convex Neural Network (ICNN)
-# designed to output a strain energy density $W(\mathbf{F})$ that is convex with
-# respect to the right Cauchy-Green strain invariants. Objectivity is satisfied
-# by expressing $W$ as a function of the right Cauchy-Green deformation tensor
-# $\mathbf{C} = \mathbf{F}^T\mathbf{F}$.
-#
-# Following Thakolkaran et al. (2022), the strain energy density is formulated
-# as:
-#
-# $$ W(\mathbf{F}) = W_{\mathbf{Q},
-#   \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) + W^0 +
-#     \mathbf{H}:\mathbf{E} $$
-#
-# where:
-# - $W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}$ is the neural network
-#   mapping the strain invariants $\mathbf{E}(\mathbf{F})$ to a scalar energy.
-# - $W^0$ is a scalar correction offsetting the energy density to zero in the
-#   reference configuration:
-#
-# $$ W^0 = -\left. W_{\mathbf{Q},
-#       \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F}))
-#   \right|_{\mathbf{F} = \mathbf{I}} $$
-#
-# - $\mathbf{H}$ is a stress correction tensor ensuring that the stress vanishes
-#   in the undeformed state ($\mathbf{F}=\mathbf{I}$):
-#
-# $$ \mathbf{H} = -\left. \frac{\partial W_{\mathbf{Q},
-#       \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})}{\partial \mathbf{F}}
-#   \right|_{\mathbf{F}=\mathbf{I}} $$
-#
-# - $\mathbf{E}$ is the Green-Lagrange strain tensor $\mathbf{E} =
-#   \frac{1}{2}(\mathbf{C} - \mathbf{I})$.
-#
-# The first Piola-Kirchhoff stress $\mathbf{P}$ is computed as:
-#
-# $$ \mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}}
-#     = \frac{\partial W^{\text{NN}}}{\partial \mathbf{F}} +
-# \mathbf{F}\mathbf{H} $$
-#
-# and the tangent modulus is:
-#
-# $$ \mathbb{C}_{ijkl} = \frac{\partial P_{ij}(\mathbf{F})}{\partial F_{kl}} =
-#     \frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}} +
-# \delta_{ik} H_{lj} $$
-#
-# We will load a pre-trained network modeling the Arruda-Boyce material
-# behaviour to evaluate the first Piola-Kirchhoff stress $\mathbf{P}$ values.
-# Then, using PyTorch automatic differentiation (AD), we compute the energy
-# derivative $\frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}}$
-# to evaluate values of the tangent $\mathbb{C}_{ijkl}$. Both
-# $\mathbf{P}(\mathbf{F})$ and $\mathbb{C}_{ijkl}$ can be then integrated into
-# FEniCSx as `FEMExternalOperator` objects.
-#
 # ### FEniCSx Integration and External Operator
 #
 # We wrap the PyTorch execution code into a python callable, `dP_dF_impl`, and
