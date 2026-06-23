@@ -139,7 +139,7 @@ bcs_u = [
 
 
 # %% [markdown]
-# ### Constitutive Formulation - hyperelasticity via Input-Convex Neural Network (ICNN)
+# ### Constitutive Formulation
 #
 # We model the hyperelastic response using an Input-Convex Neural Network (ICNN)
 # designed to output a strain energy density $W(\mathbf{F})$ that is convex with
@@ -195,10 +195,13 @@ bcs_u = [
 # FEniCSx as a `FEMExternalOperator`.
 
 # %% [markdown]
-# ### Input-Convex Neural Network (ICNN) in PyTorch
+# #### Input-Convex Neural Network (ICNN) in PyTorch
 #
-# We construct the ICNN model in PyTorch using custom layers that enforce positive
-# weights in the hidden layers to maintain input-convexity.
+# We preserve the same structure of `convexLinear` and `ICNN` as defined in the
+# [original
+# implementation](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/blob/main/drivers/model.py)
+# using custom layers that enforce positive weights in the hidden layers to
+# maintain input-convexity.
 
 # %%
 class convexLinear(torch.nn.Module):
@@ -289,24 +292,59 @@ n_hidden = [64, 64, 64]
 dropout = [True, 0.2]
 model = ICNN(n_input=n_input, n_hidden=n_hidden, n_output=n_output, dropout=dropout)
 
+# %% [markdown]
+# Once the structure of the ICNN model is defined we can load a pretained one. In
+# particular, we explore the Arruda-Boyce model {cite}`ARRUDA1993389` with high noise.
+
+# %%
 model.load_state_dict(torch.load("ArrudaBoyce_noise=high.pth"))
 model.eval()
 
 # %% [markdown]
-# ### PyTorch-based Tangent and Stress Evaluation
+# ````{admonition} Train your own ICNN model!
+# :class: hint, dropdown
+# Here we are not studying how to train the ICNN model. Instead, we load the pretrained one `ArrudaBoyce_noise=high.pth`.
+# If you wish to explore other hyperelastic models we encourage you to follow the instructions in the [original repository of EUCLID](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run), which we outline here
 #
-# We define the FEniCSx function variables and set up the PyTorch-based consistent
-# tangent stiffness evaluation. In contrast to JAX, where vectorization over
-# batch dimensions is natively supported using `jax.vmap` and `jax.jacfwd`, PyTorch
-# requires iterating row-by-row over components to compute the full consistent tangent
-# Jacobian tensor $\mathbb{C}$.
+# In the folder with `demo_hyperelasticity.py`, clone `EUCLID-hyperelasticity-NN`
+# ```shell
+# git clone https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN
+# ```
+# Install `pandas` and [other dependencies](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation), if needed
+# ```shell
+# pip install pandas
+# ```
+# Train a new model
+# ```shell
+# cd drivers/
+# python main.py Isihara high
+# ```
+# **Note**: Although we rely here on the CPU-based PyTorch installation, it is motivated by keeping the external operators demos light. For training of new models, we suggest to install the normal GPU-based PyTorch package.
+#
+# Then in the code above try
+# ```python
+# model.load_state_dict(torch.load("Isihara_noise=high.pth"))
+# model.eval()
+# ```
+# **Note**: there is a [bug](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2) related to NumPy>=2.0. If the error persists, try [this fork](https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main) with a fix.
+# ````
+
+# %% [markdown]
+# #### PyTorch-based Tangent and Stress Evaluation
+#
+# To optimize the evaluation of stress and tangent stiffness within the Newton solver, we:
+# 1. Express the linear stress correction term $P_{\text{cor}}$ as a single matrix multiplication:
+#
+#    $$P_{\text{cor}} = F \cdot H$$
+#
+#    where $H$ is a constant $4 \times 4$ block-diagonal matrix representing the right-multiplication by the reference stress correction tensor $\mathbf{H}$. For code efficiency and to avoid reshaping overhead, we represent the $2 \times 2$ tensors $\mathbf{F}$ and $\mathbf{H}$ in flattened vector and matrix forms.
+# 2. Use a **semi-analytical Jacobian** approach: since $P_{\text{cor}}$ is linear in $F$, its derivative is constant and equals the transpose $H^T$ (precomputed as `dH`). By linearity of differentiation:
+#
+#    $$\frac{\partial P}{\partial F} = \frac{\partial P_{\text{NN}}}{\partial F} + H^T$$
+#
+#    We compute the Jacobian of the neural network stress $P_{\text{NN}}$ via `torch.autograd.grad` and directly add the flat $4 \times 4$ representation of the tangent correction $H^T$ (precomputed as `dH`). This avoids backpropagating through the correction operations, improving performance.
 
 # %%
-u = fem.Function(V)
-v = ufl.TestFunction(V)
-d = len(u)
-gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))
-
 # Zero input deformation gradient + track gradients
 F_0 = torch.zeros((1, 4))
 F_0[:, 0] = 1
@@ -315,7 +353,17 @@ F_0[:, 3] = 1
 F_0.requires_grad = True
 W_NN_0 = model(F_0)
 P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
-# P_cor = torch.zeros_like(P_NN)
+
+# Precompute correction matrix H and its transpose dH for stress and tangent evaluation
+# We detach the reference stress to prevent UserWarnings during tensor construction
+C_cor = -P_NN_0.detach()
+H = torch.tensor([
+    [C_cor[0], C_cor[1], 0, 0],
+    [C_cor[2], C_cor[3], 0, 0],
+    [0, 0, C_cor[0], C_cor[1]],
+    [0, 0, C_cor[2], C_cor[3]]
+], dtype=P_NN_0.dtype, device=P_NN_0.device)
+dH = H.t()
 
 
 def dP_dF_impl(Fvals):
@@ -327,26 +375,22 @@ def dP_dF_impl(Fvals):
     # Compute the gradient of W_NN with respect to the entire F tensor
     P_NN = torch.autograd.grad(W_NN, F, torch.ones_like(W_NN), create_graph=True)[0]
 
-    P_cor = torch.zeros_like(P_NN)
-
-    P_cor[:, 0] = F[:, 0] * -P_NN_0[0] + F[:, 1] * -P_NN_0[2]
-    P_cor[:, 1] = F[:, 0] * -P_NN_0[1] + F[:, 1] * -P_NN_0[3]
-    P_cor[:, 2] = F[:, 2] * -P_NN_0[0] + F[:, 3] * -P_NN_0[2]
-    P_cor[:, 3] = F[:, 2] * -P_NN_0[1] + F[:, 3] * -P_NN_0[3]
-
+    # Stress correction P_cor = F * H (using flat matrix multiplication for efficiency)
+    P_cor = F @ H.to(F)
     P = P_NN + P_cor
 
-    # Initialize a tensor to store the full Jacobian (second derivative)
+    # Initialize a tensor to store the full Jacobian of P_NN (second derivative)
     _batch_size, num_components = F.shape
     jacobian_rows = []
 
-    # Compute the Jacobian row by row
+    # Compute the Jacobian of P_NN row by row (bypassing P_cor in autograd graph)
     for i in range(num_components):
-        grad_output = torch.zeros_like(P)
+        grad_output = torch.zeros_like(P_NN)
         grad_output[:, i] = 1.0  # Select the i-th component
-        jacobian_rows.append(torch.autograd.grad(P, F, grad_output, create_graph=True)[0])
+        jacobian_rows.append(torch.autograd.grad(P_NN, F, grad_output, create_graph=True)[0])
 
-    dP = torch.stack(jacobian_rows, dim=1)  # Shape: (batch_size, num_components, num_components)
+    # Add the analytical derivative dH of the linear correction term
+    dP = torch.stack(jacobian_rows, dim=1) + dH.to(F)
 
     return dP.reshape(-1).detach(), P.reshape(-1).detach()
 
@@ -359,12 +403,17 @@ def P_external(derivatives):
 
 
 # %% [markdown]
-# ### FEniCSx Integration and External Operator
+# #### FEniCSx Integration of PyTorch model via External Operators
 #
 # We wrap the PyTorch execution code into a python callable, `dP_dF_impl`, and
 # define a `FEMExternalOperator` in UFL.
 
 # %%
+u = fem.Function(V)
+v = ufl.TestFunction(V)
+d = len(u)
+gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))
+
 # Create a quadrature element and function space for tensor-valued P
 quadrature_degree = 2
 cell_name = domain.topology.cell_name()
