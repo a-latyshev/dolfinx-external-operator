@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.3
 #   kernelspec:
-#     display_name: dolfinx-env (3.12.3)
+#     display_name: fenicsx-0.10.0
 #     language: python
 #     name: python3
 # ---
@@ -237,48 +237,6 @@ v = ufl.TestFunction(V)
 d = len(u)
 I = ufl.variable(ufl.Identity(d))
 gradU = ufl.variable(I + ufl.grad(u))
-# C = ufl.variable(F.T * F)
-# Ic = ufl.variable(ufl.tr(C))
-# detF = ufl.variable(ufl.det(F))
-
-# # Material parameters (neo-Hookean)
-# E = default_scalar_type(1.0e4)
-# nu = default_scalar_type(0.3)
-# mu = fem.Constant(domain, E / (2 * (1 + nu)))
-# lmbda = fem.Constant(domain, E * nu / ((1 + nu) * (1 - 2 * nu)))
-# # Strain energy and first Piola-Kirchhoff stress
-# psi = (mu / 2) * (Ic - 2) - mu * ufl.ln(detF) + (lmbda / 2) * (ufl.ln(detF)) ** 2
-# P = ufl.diff(psi, F)
-# dP = ufl.diff(P, F)
-
-# # Fval: (num_cells, 2, 2)
-# mu_val = float(mu.value)
-# lmbda_val = float(lmbda.value)
-# I = np.eye(2)
-# C = np.matmul(Fval.transpose(0, 2, 1), Fval)
-# Ic = np.trace(C, axis1=1, axis2=2)
-# J = np.linalg.det(Fval)
-# psi = (mu_val / 2) * (Ic - 2) - mu_val * np.log(J) + (lmbda_val / 2) * (np.log(J)) ** 2
-# # dpsi/dF (analytical, as in original code)
-# FinvT = np.linalg.inv(Fval).transpose(0, 2, 1)
-# P = mu_val * (Fval - FinvT) + lmbda_val * np.log(J)[:, None, None] * FinvT
-
-# quadrature_degree = 2
-# cell_name = domain.topology.cell_name()
-# quadrature_points, _ = basix.make_quadrature(getattr(basix.CellType, cell_name), quadrature_degree)
-# map_c = domain.topology.index_map(domain.topology.dim)
-# num_cells = map_c.size_local + map_c.num_ghosts
-# cells = np.arange(num_cells, dtype=np.int32)
-# P_expr = Expression(P, quadrature_points, dtype=default_scalar_type)
-# dP_expr = Expression(dP, quadrature_points, dtype=default_scalar_type)
-
-# def P_impl(Fval):
-#     P_eval = P_expr.eval(domain, cells)
-#     return P_eval.reshape(-1)
-
-# def dP_dF_impl(Fval):
-#     dP_eval = dP_expr.eval(domain, cells)
-#     return dP_eval.reshape(-1)
 
 # Zero input deformation gradient + track gradients
 F_0 = torch.zeros((1, 4))
@@ -331,10 +289,11 @@ def P_external(derivatives):
 # %% [markdown]
 # ## Constitutive Formulation
 #
-# We model the hyperelastic response using an Input-Convex Neural Network (ICNN) 
-# designed to output a strain energy density $W(\mathbf{F})$ that is convex with respect 
-# to the right Cauchy-Green strain invariants. Objectivity is satisfied by expressing $W$ 
-# as a function of the right Cauchy-Green deformation tensor $\mathbf{C} = \mathbf{F}^T\mathbf{F}$.
+# We model the hyperelastic response using an Input-Convex Neural Network (ICNN)
+# designed to output a strain energy density $W(\mathbf{F})$ that is convex with
+# respect to the right Cauchy-Green strain invariants. Objectivity is satisfied by
+# expressing $W$ as a function of the right Cauchy-Green deformation tensor
+# $\mathbf{C} = \mathbf{F}^T\mathbf{F}$.
 #
 # Following Thakolkaran et al. (2022), the strain energy density is formulated as:
 #
@@ -345,7 +304,7 @@ def P_external(derivatives):
 # - $W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}$ is the neural network mapping the strain invariants $\mathbf{E}(\mathbf{F})$ to a scalar energy.
 # - $W^0$ is a scalar correction offsetting the energy density to zero in the reference configuration:
 #   $$
-#       W^0 = -W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{I}))
+#       W^0 = -\left. W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) \right|_{\mathbf{F} = \mathbf{I}}
 #   $$
 # - $\mathbf{H}$ is a stress correction tensor ensuring that the stress vanishes in the undeformed state ($\mathbf{F}=\mathbf{I}$):
 #   $$
@@ -361,10 +320,16 @@ def P_external(derivatives):
 # and the tangent modulus is:
 #
 # $$
-#     \mathbb{C}_{ijkl} = \frac{\partial P_{ij}(\mathbf{F})}{\partial F_{kl}} = \frac{\partial^2 W^{\text{NN}}}{\partial F_{kl} \partial F_{ij}} + \delta_{ik} H_{lj}
+#     \mathbb{C}_{ijkl} = \frac{\partial P_{ij}(\mathbf{F})}{\partial F_{kl}} = \frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}} + \delta_{ik} H_{lj}
 # $$
 #
-# We will load a pre-trained network modeling the Arruda-Boyce material behaviour, and integrate it into FEniCSx as a `FEMExternalOperator`.
+# We will load a pre-trained network modeling the Arruda-Boyce material behaviour
+# to evaluate the first Piola-Kirchhoff stress $\mathbf{P}$ values. Then, using
+# PyTorch automatic differentiation (AD), we compute the energy derivative
+# $\frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}}$ to evaluate
+# values of the tangent $\mathbb{C}_{ijkl}$. Both $\mathbf{P}(\mathbf{F})$ and
+# $\mathbb{C}_{ijkl}$ can be then integrated into FEniCSx as a
+# `FEMExternalOperator`.
 #
 # ### FEniCSx Integration and External Operator
 #
@@ -404,38 +369,6 @@ P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 metadata = {"quadrature_degree": 2}
 ds = ufl.Measure("ds", domain=domain, subdomain_data=facet_tag, metadata=metadata)
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
-
-# %%
-# from dolfinx.fem import Expression, Function
-# import basix
-
-# # Choose quadrature degree and get quadrature points for the cell type
-# quadrature_degree = 2
-# cell_name = domain.topology.cell_name()
-# quadrature_points, _ = basix.make_quadrature(getattr(basix.CellType, cell_name), quadrature_degree)
-
-# # Create Expression for P at quadrature points
-# P_expr = Expression(P, quadrature_points, dtype=default_scalar_type)
-
-# # Evaluate P at all cells (including ghosts)
-# map_c = domain.topology.index_map(domain.topology.dim)
-# num_cells = map_c.size_local + map_c.num_ghosts
-# cells = np.arange(num_cells, dtype=np.int32)
-# P_eval = P_expr.eval(domain, cells)
-
-# # Optionally, assemble into a Function for visualization/post-processing
-# P_func = Function(Q)
-# P_func.x.array[:] = P_eval.flatten()
-
-# # Create Expression for F at quadrature points
-# F_expr = Expression(F, quadrature_points, dtype=default_scalar_type)
-
-# # Evaluate F at all cells (including ghosts)
-# F_eval = F_expr.eval(domain, cells)
-
-# # Optionally, assemble into a Function for visualization/post-processing
-# F_func = Function(Q)
-# F_func.x.array[:] = F_eval.flatten()
 
 # %% [markdown]
 # ### Variational Forms and Residual Replacing
@@ -672,3 +605,9 @@ np.abs(u.x.array[:] - u_UFL.x.array[:]).max()/np.abs(u_UFL.x.array[:]).max()
 #     xdmf.write_mesh(domain)
 #     stresses.name = "von_mises"
 #     xdmf.write_function(stresses)
+
+# %% [markdown]
+# ## References
+# ```{bibliography}
+# :filter: docname in docnames
+# ```
