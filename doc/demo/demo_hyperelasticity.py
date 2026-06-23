@@ -332,17 +332,16 @@ model.eval()
 # %% [markdown]
 # #### PyTorch-based Tangent and Stress Evaluation
 #
-# To optimize the evaluation of stress and tangent stiffness within the Newton solver, we:
-# 1. Express the linear stress correction term $P_{\text{cor}}$ as a single matrix multiplication:
+# To optimize the evaluation of stress and tangent stiffness within the Newton solver, we use:
 #
-#    $$P_{\text{cor}} = F \cdot H$$
+# **Modern Vectorized Autograd using `torch.func`**:
+# PyTorch 2.0+ includes the `torch.func` API (inspired by JAX), which enables vectorization over batch dimensions.
+# Instead of iterating component-by-component in a Python loop (requiring multiple sequential backward passes), we:
+# 1. Define a function `compute_stress_single` that evaluates both the neural network stress and the flat linear correction $P_{\text{cor}} = F \cdot H$ for a single element.
+# 2. Use `torch.func.value_and_jacrev` to compute both the stress vector and its Jacobian with respect to the deformation gradient in one functional differentiation step.
+# 3. Vectorize this operation over all quadrature points in the mesh using `torch.func.vmap`, resulting in a single vectorized pass.
 #
-#    where $H$ is a constant $4 \times 4$ block-diagonal matrix representing the right-multiplication by the reference stress correction tensor $\mathbf{H}$. For code efficiency and to avoid reshaping overhead, we represent the $2 \times 2$ tensors $\mathbf{F}$ and $\mathbf{H}$ in flattened vector and matrix forms.
-# 2. Use a **semi-analytical Jacobian** approach: since $P_{\text{cor}}$ is linear in $F$, its derivative is constant and equals the transpose $H^T$ (precomputed as `dH`). By linearity of differentiation:
-#
-#    $$\frac{\partial P}{\partial F} = \frac{\partial P_{\text{NN}}}{\partial F} + H^T$$
-#
-#    We compute the Jacobian of the neural network stress $P_{\text{NN}}$ via `torch.autograd.grad` and directly add the flat $4 \times 4$ representation of the tangent correction $H^T$ (precomputed as `dH`). This avoids backpropagating through the correction operations, improving performance.
+# For code efficiency and to avoid reshaping overhead, we represent the $2 \times 2$ tensors $\mathbf{F}$ and $\mathbf{H}$ in flattened vector and matrix forms.
 
 # %%
 # Zero input deformation gradient + track gradients
@@ -354,7 +353,7 @@ F_0.requires_grad = True
 W_NN_0 = model(F_0)
 P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
 
-# Precompute correction matrix H and its transpose dH for stress and tangent evaluation
+# Precompute correction matrix H for stress correction
 # We detach the reference stress to prevent UserWarnings during tensor construction
 C_cor = -P_NN_0.detach()
 H = torch.tensor([
@@ -363,34 +362,38 @@ H = torch.tensor([
     [0, 0, C_cor[0], C_cor[1]],
     [0, 0, C_cor[2], C_cor[3]]
 ], dtype=P_NN_0.dtype, device=P_NN_0.device)
-dH = H.t()
+
+
+# Define vectorized stress and tangent computation using torch.func
+import torch.func
+
+
+def compute_stress_single(F_single):
+    # F_single: shape (4,)
+    # Define local energy function for the neural network
+    def energy_fn(f):
+        return model(f.unsqueeze(0)).squeeze()
+
+    # Stress from neural network (first derivative)
+    P_NN = torch.func.grad(energy_fn)(F_single)
+
+    # Stress correction P_cor = F_single @ H (using flat matrix multiplication for efficiency)
+    P_cor = F_single @ H.to(F_single)
+
+    return P_NN + P_cor
+
+
+# Vectorize stress and Jacobian evaluation over the batch dimension
+batched_stress = torch.func.vmap(compute_stress_single, in_dims=(0,))
+batched_jac = torch.func.vmap(torch.func.jacrev(compute_stress_single), in_dims=(0,))
 
 
 def dP_dF_impl(Fvals):
     F = torch.from_numpy(np.ascontiguousarray(Fvals)).reshape(-1, 4)  # modify a -> t_shared changes
-    F.requires_grad = True
 
-    # Predict strain energy (uncorrected)
-    W_NN = model(F)
-    # Compute the gradient of W_NN with respect to the entire F tensor
-    P_NN = torch.autograd.grad(W_NN, F, torch.ones_like(W_NN), create_graph=True)[0]
-
-    # Stress correction P_cor = F * H (using flat matrix multiplication for efficiency)
-    P_cor = F @ H.to(F)
-    P = P_NN + P_cor
-
-    # Initialize a tensor to store the full Jacobian of P_NN (second derivative)
-    _batch_size, num_components = F.shape
-    jacobian_rows = []
-
-    # Compute the Jacobian of P_NN row by row (bypassing P_cor in autograd graph)
-    for i in range(num_components):
-        grad_output = torch.zeros_like(P_NN)
-        grad_output[:, i] = 1.0  # Select the i-th component
-        jacobian_rows.append(torch.autograd.grad(P_NN, F, grad_output, create_graph=True)[0])
-
-    # Add the analytical derivative dH of the linear correction term
-    dP = torch.stack(jacobian_rows, dim=1) + dH.to(F)
+    # Evaluate stress and Jacobian in a single vectorized pass
+    P = batched_stress(F)
+    dP = batched_jac(F)
 
     return dP.reshape(-1).detach(), P.reshape(-1).detach()
 
