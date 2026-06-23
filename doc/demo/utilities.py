@@ -97,7 +97,14 @@ def interpolate_quadrature(ufl_expr, fem_func: Function) -> None:
     np.copyto(fem_func.x.array, expr_eval.reshape(-1))
 
 
-def build_square_with_elliptic_holes(lc=0.05, L=1.0, hole1_center=(0.375, 0.25), hole1_radii=(0.25, 0.125), hole2_center=(0.75, 0.625), hole2_radii=(0.25, 0.125)):
+def build_square_with_elliptic_holes(
+    lc=0.05,
+    L=1.0,
+    hole1_center=(0.375, 0.25),
+    hole1_radii=(0.25, 0.125),
+    hole2_center=(0.75, 0.625),
+    hole2_radii=(0.25, 0.125),
+):
     """
     Build a square domain with two asymmetric elliptical holes using GMSH.
 
@@ -126,19 +133,23 @@ def build_square_with_elliptic_holes(lc=0.05, L=1.0, hole1_center=(0.375, 0.25),
         p2 = model.occ.addPoint(L, 0, 0, lc)
         p3 = model.occ.addPoint(L, L, 0, lc)
         p4 = model.occ.addPoint(0, L, 0, lc)
-        square_loop = model.occ.addCurveLoop([
-            model.occ.addLine(p1, p2, tag=facet_tags_labels["bottom"]),
-            model.occ.addLine(p2, p3, tag=facet_tags_labels["right"]),
-            model.occ.addLine(p3, p4, tag=facet_tags_labels["top"]),
-            model.occ.addLine(p4, p1, tag=facet_tags_labels["left"])
-        ])
+        square_loop = model.occ.addCurveLoop(
+            [
+                model.occ.addLine(p1, p2, tag=facet_tags_labels["bottom"]),
+                model.occ.addLine(p2, p3, tag=facet_tags_labels["right"]),
+                model.occ.addLine(p3, p4, tag=facet_tags_labels["top"]),
+                model.occ.addLine(p4, p1, tag=facet_tags_labels["left"]),
+            ]
+        )
 
         # Create the first elliptical hole
         hole1 = model.occ.addEllipse(hole1_center[0], hole1_center[1], 0, hole1_radii[0], hole1_radii[1])
         hole1_loop = model.occ.addCurveLoop([hole1])
 
         # Create the second elliptical hole
-        hole2 = model.occ.addEllipse(hole2_center[0], hole2_center[1], 0, hole2_radii[0], hole2_radii[1], zAxis=[0, 0, 1], xAxis=[0, 1, 0])
+        hole2 = model.occ.addEllipse(
+            hole2_center[0], hole2_center[1], 0, hole2_radii[0], hole2_radii[1], zAxis=[0, 0, 1], xAxis=[0, 1, 0]
+        )
         hole2_loop = model.occ.addCurveLoop([hole2])
 
         # Find all points in the model and assign the same mesh size to all of them
