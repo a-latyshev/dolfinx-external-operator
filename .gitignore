@@ -21,5 +21,4 @@ build/
 *.msh
 *.geo_unrolled
 *.xao
-*.pth
 .venv/
