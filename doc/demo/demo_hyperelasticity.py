@@ -69,12 +69,13 @@
 # ### Preamble
 
 # %%
+from utilities import build_square_with_elliptic_holes
+
 import basix
+import dolfinx.plot
 import ufl
 from dolfinx import default_scalar_type, fem, mesh
 from dolfinx.fem.petsc import NonlinearProblem
-import dolfinx.plot
-from utilities import build_square_with_elliptic_holes
 
 # Define external function for Piola-Kirchhoff stress and its derivative
 from dolfinx_external_operator import (
@@ -85,7 +86,10 @@ from dolfinx_external_operator import (
 )
 from dolfinx_external_operator.petsc import assemble_residual_with_callback
 
+# isort: split
+
 from functools import partial
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
