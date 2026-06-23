@@ -487,47 +487,14 @@ P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 
 # %% [markdown] 
 # 
-# ```{note} We don't need to cover the case `if derivatives == (0,)` for just
+# ```{note} 
+# We don't need to cover the case `if derivatives == (0,)` for just
 # calling evaluation of `P` because, as it was previously mentioned, thanks to
 # AD we can compute the values of `P` while computing its derivative. Yet, we
 # still need to properly update the values of `P`, which will be done in
 # `constitutive_update`, a function defined later below while defining a
 # nonlinear solver.
 # ```
-
-# %% [markdown]
-# ## JAX AD vs. PyTorch AD
-#
-# While both JAX and PyTorch are powerful libraries for deep learning and
-# automatic differentiation, they have distinct paradigms:
-#
-# 1. **Execution Model**:
-#    - **JAX** is strictly functional and trace-based. Functions are traced to
-#      generate an intermediate representation (jaxpr) that is then JIT-compiled
-#      to XLA.
-#    - **PyTorch** builds dynamic computation graphs on-the-fly (tape-based). It
-#      executes imperatively, making it highly interactive but requiring
-#      tracking of tensor histories.
-# 2. **Batch Jacobians / Tangents**:
-#    - **JAX** has first-class support for vectorization via `jax.vmap` and
-#      forward-mode/reverse-mode Jacobian calculations via `jax.jacfwd` and
-#      `jax.jacrev`. This allows native batch-wise consistent tangent stiffness
-#      evaluation.
-#    - **PyTorch** traditionally evaluates gradients for scalar values or needs
-#      manual looping for Jacobian rows (`torch.autograd.grad` with one-hot
-#      output vectors) in batch mode. Modern PyTorch supports `torch.func`
-#      (inspired by JAX), but in finite element environments, tape-based
-#      automatic differentiation using custom batch wrappers is still common.
-#
-# In this tutorial, we will use PyTorch's dynamic graph features and manual
-# batch looping to compute the first Piola-Kirchhoff stress tensor and its
-# consistent tangent stiffness matrix for each quadrature point.
-
-# %%
-# Measures for integration
-metadata = {"quadrature_degree": 2}
-ds = ufl.Measure("ds", domain=domain, subdomain_data=facet_tag, metadata=metadata)
-dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 
 # %% [markdown]
 # ### Variational Forms and Residual Replacing
