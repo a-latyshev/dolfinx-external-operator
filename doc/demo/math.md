@@ -1,4 +1,4 @@
-# External operators and functional analysis
+# [Preview] External operators and functional analysis
 
 # Formalizing External Operators in Variational Forms
 

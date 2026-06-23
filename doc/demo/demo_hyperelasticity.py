@@ -25,9 +25,10 @@
 # differentiation to evaluate stresses and tangent operators (Jacobians) at the
 # quadrature points of the finite element mesh.
 #
-# Here, we stick to the Arruda-Boyce hyperelasticity model. The tutorial is
-# based on the work of {cite:t}`thakolkaranNNEUCLID2022` on unsupervised
-# deep-learning hyperelasticity without stress data (NN-EUCLID):
+# Here, we stick to the Arruda-Boyce hyperelasticity model
+# {cite}`ARRUDA1993389`. The tutorial is based on the work of
+# {cite:t}`thakolkaranNNEUCLID2022` on unsupervised deep-learning
+# hyperelasticity without stress data (NN-EUCLID):
 # https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN.
 #
 # To get familiarized with hyperelasticity problems, we advise to take a look
@@ -440,7 +441,7 @@ def dP_dF_impl(Fvals):
     # Evaluate stress and tangent simultaneously in a single vectorized pass
     dP, P = vectorized_stress_and_tangent(F)
 
-    return dP.reshape(-1).detach(), P.reshape(-1).detach()
+    return dP.reshape(-1).detach().numpy(), P.reshape(-1).detach().numpy()
 
 # %% [markdown]
 #
@@ -454,15 +455,16 @@ def dP_dF_impl(Fvals):
 # %% [markdown]
 # #### FEniCSx Integration of PyTorch model via External Operators
 #
-# The stress state has one operand, which is the strain tensor $\mathbf{F}$ that
-# depends on the displacement field $\mathbf{u}$. Here we define both of them
-# and the quadrature space `Q`, where the external operator will live.
+# The stress state has one operand, which is the strain tensor $\mathbf{F}$
+# (defined as `gradU`) that depends on the displacement field $\mathbf{u}$. Here
+# we define both of them and the quadrature space `Q`, where the external
+# operator will live.
 
 # %%
 u = fem.Function(V)
 v = ufl.TestFunction(V)
 d = len(u)
-gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))
+gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u)) # \mathb{F} tensor
 
 # Create a quadrature element and function space for tensor-valued P
 quadrature_degree = 2
@@ -497,10 +499,11 @@ P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 # ```
 
 # %% [markdown]
-# ### Variational Forms and Residual Replacing
+# ### Variational Forms
 #
-# We define the weak form using the UFL representation of the external operator,
-# compute its directional derivative, and replace it with the `replace_external_operators` function.
+# We define the weak form using UFL as usual, compute its directional
+# derivative, and replace it with the `replace_external_operators` function to
+# let DOLFINx assembling the forms.
 
 # %%
 metadata = {"quadrature_degree": 2}
@@ -519,11 +522,12 @@ J_form = fem.form(J_replaced)
 
 
 # %% [markdown]
-# ### Newton Solver and Constitutive Update Callback
+# ### Solving the Problem
 #
-# We set up the PETSc SNES solver using a Newton solver with line search, wrapping
-# the constitutive update in a callback function.
-
+# We set up the PETSc SNES solver using a Newton solver, wrapping the
+# constitutive update in a callback function. This function affects the
+# performance the most, since it will be called on every single iteration of the
+# Newton solver to update the values of $\mathbf{P}$ and $\mathbb{C}$.
 
 # %%
 def constitutive_update(
@@ -532,9 +536,10 @@ def constitutive_update(
 ):
     """Update the constitutive model by evaluating the external operators."""
     evaluated_operands = evaluate_operands(F_external_operators)
+    # `dP_dF_impl` will be called here
     ((_, P_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
+    # manual update the values of the external operator
     P.ref_coefficient.x.array[:] = P_new
-
 
 petsc_options = {
     "snes_type": "vinewtonrsls",
@@ -564,7 +569,6 @@ assemble_residual_with_callback_ = partial(
 problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
 # %% [markdown]
-# ### Solving the Problem
 #
 # We incrementally apply a displacement-controlled tensile load by moving the top boundary.
 
@@ -576,7 +580,7 @@ u.name = "displacement"
 u.x.array[:] = 0
 n_steps_total_tmp = 10
 for step in range(1, n_steps_total_tmp + 1):
-    u_D_top.value = step * max_traction / n_steps
+    u_D_top.value = step * max_traction / n_steps # moving the top boundary
     num_its, converged = problem.solve()
     assert converged, f"Newton solver did not converge at step {step}"
     u.x.scatter_forward()
@@ -584,15 +588,12 @@ for step in range(1, n_steps_total_tmp + 1):
         print(f"Step {step}: Traction {u_D_top.value:.2f}, Newton its: {num_its}")
 
 # %% [markdown]
-# ### Visualizing the Deformation
 #
-# We use PyVista to plot the deformed configuration of the specimen.
+# Visualize the deformed configuration of the specimen.
 
 # %%
 try:
     import pyvista
-
-    print(pyvista.global_theme.jupyter_backend)
     import dolfinx.plot
 
     plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
@@ -712,20 +713,6 @@ np.abs(u.x.array[:] - u_UFL.x.array[:]).max() / np.abs(u_UFL.x.array[:]).max()
 
 # %%
 # MPI.COMM_WORLD.allreduce(fem.assemble_scalar(fem.form((u - u_UFL)**2), op=MPI.SUM))
-
-# %%
-# # Post-processing: compute von Mises stress
-# s = P * F.T / J  # Cauchy stress
-# s_dev = s - 1.0 / 2 * ufl.tr(s) * ufl.Identity(d)
-# von_Mises = ufl.sqrt(3.0 / 2 * ufl.inner(s_dev, s_dev))
-# V_von_mises = fem.functionspace(domain, ("DG", 0))
-# stress_expr = fem.Expression(von_Mises, V_von_mises.element.interpolation_points)
-# stresses = fem.Function(V_von_mises)
-# stresses.interpolate(stress_expr)
-# with XDMFFile(domain.comm, "tensile2d_vonmises.xdmf", "w") as xdmf:
-#     xdmf.write_mesh(domain)
-#     stresses.name = "von_mises"
-#     xdmf.write_function(stresses)
 
 # %% [markdown]
 # ## References
