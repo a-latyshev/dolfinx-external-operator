@@ -334,12 +334,14 @@ model.eval()
 #
 # To optimize the evaluation of stress and tangent stiffness within the Newton solver, we use:
 #
-# **Modern Vectorized Autograd using `torch.func`**:
-# PyTorch 2.0+ includes the `torch.func` API (inspired by JAX), which enables vectorization over batch dimensions.
-# Instead of iterating component-by-component in a Python loop (requiring multiple sequential backward passes), we:
-# 1. Define a function `compute_stress_single` that evaluates both the neural network stress and the flat linear correction $P_{\text{cor}} = F \cdot H$ for a single element.
-# 2. Use `torch.func.value_and_jacrev` to compute both the stress vector and its Jacobian with respect to the deformation gradient in one functional differentiation step.
-# 3. Vectorize this operation over all quadrature points in the mesh using `torch.func.vmap`, resulting in a single vectorized pass.
+# **Modern Vectorized Autograd using `torch.func` and JIT Compilation (`torch.compile`)**:
+# PyTorch 2.0+ includes the `torch.func` API (inspired by JAX) and the `torch.compile` compiler.
+# We combine these techniques to maximize performance:
+# 1. Define `compute_stress_single` to compute both the neural network stress and the flat linear correction $P_{\text{cor}} = F \cdot H$ for a single element.
+# 2. Vectorize the evaluations over the batch of quadrature points using `torch.func.vmap` and `torch.func.jacrev`.
+# 3. Apply `torch.compile` to the vectorized functions `batched_stress` and `batched_jac`. This compiles the entire PyTorch execution graph into optimized kernels, performing operator fusion and eliminating Python interpreter overhead.
+#
+# *Note: The very first iteration of the Newton solver will trigger the JIT compiler, resulting in a brief compilation latency (warm-up). Subsequent iterations will run at compiled speed.*
 #
 # For code efficiency and to avoid reshaping overhead, we represent the $2 \times 2$ tensors $\mathbf{F}$ and $\mathbf{H}$ in flattened vector and matrix forms.
 
@@ -383,9 +385,9 @@ def compute_stress_single(F_single):
     return P_NN + P_cor
 
 
-# Vectorize stress and Jacobian evaluation over the batch dimension
-batched_stress = torch.func.vmap(compute_stress_single, in_dims=(0,))
-batched_jac = torch.func.vmap(torch.func.jacrev(compute_stress_single), in_dims=(0,))
+# Vectorize and compile stress and Jacobian evaluation over the batch dimension
+batched_stress = torch.compile(torch.func.vmap(compute_stress_single, in_dims=(0,)))
+batched_jac = torch.compile(torch.func.vmap(torch.func.jacrev(compute_stress_single), in_dims=(0,)))
 
 
 def dP_dF_impl(Fvals):
