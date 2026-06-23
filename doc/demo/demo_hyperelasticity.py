@@ -320,18 +320,25 @@ def P_external(derivatives):
 #
 # $$ W(\mathbf{F}) = W_{\mathbf{Q},
 #     \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) + W^0 +
-# \mathbf{H}:\mathbf{E} $$ where:
+# \mathbf{H}:\mathbf{E} $$
+# where:
 # - $W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}$ is the neural network
 #   mapping the strain invariants $\mathbf{E}(\mathbf{F})$ to a scalar energy.
 # - $W^0$ is a scalar correction offsetting the energy density to zero in the
-#   reference configuration: $$ W^0 = -\left. W_{\mathbf{Q},
+#   reference configuration:
+#
+# $$ W^0 = -\left. W_{\mathbf{Q},
 #       \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F}))
 #   \right|_{\mathbf{F} = \mathbf{I}} $$
+#
 # - $\mathbf{H}$ is a stress correction tensor ensuring that the stress vanishes
-#   in the undeformed state ($\mathbf{F}=\mathbf{I}$): $$ \mathbf{H} = -\left.
+#   in the undeformed state ($\mathbf{F}=\mathbf{I}$):
+#
+# $$ \mathbf{H} = -\left.
 #       \frac{\partial W_{\mathbf{Q},
 #   \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})}{\partial \mathbf{F}}
 #   \right|_{\mathbf{F}=\mathbf{I}} $$
+#
 # - $\mathbf{E}$ is the Green-Lagrange strain tensor $\mathbf{E} =
 #   \frac{1}{2}(\mathbf{C} - \mathbf{I})$.
 #
@@ -339,7 +346,9 @@ def P_external(derivatives):
 #
 # $$ \mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}}
 #     = \frac{\partial W^{\text{NN}}}{\partial \mathbf{F}} +
-# \mathbf{F}\mathbf{H} $$ and the tangent modulus is:
+# \mathbf{F}\mathbf{H} $$
+#
+# and the tangent modulus is:
 #
 # $$ \mathbb{C}_{ijkl} = \frac{\partial P_{ij}(\mathbf{F})}{\partial F_{kl}} =
 #     \frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}} +
@@ -469,14 +478,6 @@ assemble_residual_with_callback_ = partial(
 )
 problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
-# %%
-# # Nonlinear problem and Newton solver
-# problem = NonlinearProblem(F, u, bcs_u)
-# solver = NewtonSolver(domain.comm, problem)
-# solver.atol = 1e-8
-# solver.rtol = 1e-8
-# solver.convergence_criterion = "incremental"
-
 # %% [markdown]
 # ### Solving the Problem
 #
@@ -488,7 +489,8 @@ n_steps = 100
 max_traction = 0.5
 u.name = "displacement"
 u.x.array[:] = 0
-for step in range(1, n_steps + 1):
+n_steps_total_tmp = 10
+for step in range(1, n_steps_total_tmp + 1):
     u_D_top.value = step * max_traction / n_steps
     num_its, converged = problem.solve()
     assert converged, f"Newton solver did not converge at step {step}"
@@ -502,7 +504,7 @@ for step in range(1, n_steps + 1):
 # We use PyVista to plot the deformed configuration of the specimen.
 
 # %%
-# pyvista.start_xvfb()
+pyvista.start_xvfb()
 plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
 topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
 grid = pyvista.UnstructuredGrid(topology, cell_types, x)
@@ -516,9 +518,6 @@ plotter.camera.tight()
 image = plotter.screenshot(None, transparent_background=True, return_img=True)
 plt.imshow(image)
 plt.axis("off")
-
-# plotter.add_axes()
-# plotter.show()
 
 # %% [markdown]
 # ## Verification against Analytical UFL Baseline
@@ -577,13 +576,13 @@ problem_UFL = NonlinearProblem(
     F, u_UFL, bcs=bcs_u, petsc_options=petsc_options, petsc_options_prefix="UFL_hyperelasticity_"
 )
 
-# %%
+# %% tags=["scroll-output"]
 # Apply a tensile load by incrementally increasing traction on the right edge
 n_steps = 100
 max_traction = 0.5
 u_UFL.name = "displacement"
 u_UFL.x.array[:] = 0
-for step in range(1, n_steps + 1):
+for step in range(1, n_steps_total_tmp + 1):
     u_D_top.value = step * max_traction / n_steps
     num_its, converged = problem_UFL.solve()
     assert converged, f"Newton solver did not converge at step {step}"
@@ -592,23 +591,12 @@ for step in range(1, n_steps + 1):
         print(f"Step {step}: Traction {u_D_top.value:.3f}, Newton its: {num_its}")
 
 # %%
-# pyvista.start_xvfb()
-plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
-topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
-grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-vals = np.zeros((x.shape[0], 3))
-u_diff = u.x.array[:] - u_UFL.x.array[:]
-vals[:, : len(u)] = u_diff.reshape((x.shape[0], len(u)))
-# vals[:, : len(u_UFL)] = u_UFL.x.array.reshape((x.shape[0], len(u_UFL)))
-
-# grid["u"] = vals
-# warped = grid.warp_by_vector("u", factor=1)
-# plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
-# plotter.view_xy()
-# plotter.camera.tight()
-# image = plotter.screenshot(None, transparent_background=True, return_img=True)
-# plt.imshow(image)
-# plt.axis("off")
+# plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
+# topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
+# grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+# vals = np.zeros((x.shape[0], 3))
+# u_diff = u.x.array[:] - u_UFL.x.array[:]
+# vals[:, : len(u)] = u_diff.reshape((x.shape[0], len(u)))
 
 plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
 topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
@@ -623,9 +611,6 @@ plotter.camera.tight()
 image = plotter.screenshot(None, transparent_background=True, return_img=True)
 plt.imshow(image)
 plt.axis("off")
-
-# plotter.add_axes()
-# plotter.show()
 
 # %%
 np.abs(u.x.array[:] - u_UFL.x.array[:]).max() / np.abs(u_UFL.x.array[:]).max()
