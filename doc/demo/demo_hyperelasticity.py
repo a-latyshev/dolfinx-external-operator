@@ -242,6 +242,35 @@ model.load_state_dict(torch.load("ArrudaBoyce_noise=high.pth"))
 model.eval()
 
 # %% [markdown]
+# ````{admonition} Train your own ICNN model!
+# :class: hint, dropdown
+# Here we are not studying how to train the ICNN model. Instead, we load the pretrained one `ArrudaBoyce_noise=high.pth`.
+# If you wish to explore other hyperelastic models we encourage you to follow the instructions in the [original repository of EUCLID](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run), which we outline here
+#
+# In the folder with `demo_hyperelasticity.py`, clone `EUCLID-hyperelasticity-NN`
+# ```shell
+# git clone https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN
+# ```
+# Install `pandas` and [other dependencies](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation), if needed
+# ```shell
+# pip install pandas
+# ```
+# Train a new model
+# ```shell
+# cd drivers/
+# python main.py Isihara high
+# ```
+# **Note**: Although we rely here on the CPU-based PyTorch installation, it is motivated by keeping the external operators demos light. For training of new models, we suggest to install the normal GPU-based PyTorch package.
+#
+# Then in the code above try
+# ```python
+# model.load_state_dict(torch.load("Isihara_noise=high.pth"))
+# model.eval()
+# ```
+# **Note**: there is a [bug](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2) related to NumPy>=2.0. If the error persists, try [this fork](https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main) with a fix.
+# ````
+
+# %% [markdown]
 # ### PyTorch-based Tangent and Stress Evaluation
 #
 # We define the FEniCSx function variables and set up the PyTorch-based consistent
@@ -320,8 +349,9 @@ def P_external(derivatives):
 # as:
 #
 # $$ W(\mathbf{F}) = W_{\mathbf{Q},
-#     \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) + W^0 +
-# \mathbf{H}:\mathbf{E} $$
+#   \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) + W^0 +
+#     \mathbf{H}:\mathbf{E} $$
+#
 # where:
 # - $W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}$ is the neural network
 #   mapping the strain invariants $\mathbf{E}(\mathbf{F})$ to a scalar energy.
@@ -335,9 +365,8 @@ def P_external(derivatives):
 # - $\mathbf{H}$ is a stress correction tensor ensuring that the stress vanishes
 #   in the undeformed state ($\mathbf{F}=\mathbf{I}$):
 #
-# $$ \mathbf{H} = -\left.
-#       \frac{\partial W_{\mathbf{Q},
-#   \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})}{\partial \mathbf{F}}
+# $$ \mathbf{H} = -\left. \frac{\partial W_{\mathbf{Q},
+#       \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})}{\partial \mathbf{F}}
 #   \right|_{\mathbf{F}=\mathbf{I}} $$
 #
 # - $\mathbf{E}$ is the Green-Lagrange strain tensor $\mathbf{E} =
@@ -361,7 +390,7 @@ def P_external(derivatives):
 # derivative $\frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}}$
 # to evaluate values of the tangent $\mathbb{C}_{ijkl}$. Both
 # $\mathbf{P}(\mathbf{F})$ and $\mathbb{C}_{ijkl}$ can be then integrated into
-# FEniCSx as a `FEMExternalOperator`.
+# FEniCSx as `FEMExternalOperator` objects.
 #
 # ### FEniCSx Integration and External Operator
 #
@@ -505,20 +534,28 @@ for step in range(1, n_steps_total_tmp + 1):
 # We use PyVista to plot the deformed configuration of the specimen.
 
 # %%
-pyvista.start_xvfb()
-plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
-topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
-grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-vals = np.zeros((x.shape[0], 3))
-vals[:, : len(u)] = u.x.array.reshape((x.shape[0], len(u)))
-grid["u"] = vals
-warped = grid.warp_by_vector("u", factor=1)
-plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
-plotter.view_xy()
-plotter.camera.tight()
-image = plotter.screenshot(None, transparent_background=True, return_img=True)
-plt.imshow(image)
-plt.axis("off")
+try:
+    import pyvista
+
+    print(pyvista.global_theme.jupyter_backend)
+    import dolfinx.plot
+
+    plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
+    topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
+    grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+    vals = np.zeros((x.shape[0], 3))
+    vals[:, : len(u)] = u.x.array.reshape((x.shape[0], len(u)))
+    grid["u"] = vals
+    warped = grid.warp_by_vector("u", factor=1)
+    plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
+    plotter.view_xy()
+    plotter.camera.tight()
+    image = plotter.screenshot(None, transparent_background=True, return_img=True)
+    plt.imshow(image)
+    plt.axis("off")
+
+except ImportError:
+    print("pyvista required for this plot")
 
 # %% [markdown]
 # ## Verification against Analytical UFL Baseline
@@ -591,19 +628,28 @@ for step in range(1, n_steps_total_tmp + 1):
         print(f"Step {step}: Traction {u_D_top.value:.3f}, Newton its: {num_its}")
 
 # %%
-plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
-topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
-grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-vals = np.zeros((x.shape[0], 3))
-vals[:, : len(u_UFL)] = u.x.array.reshape((x.shape[0], len(u_UFL)))
-grid["u"] = vals
-warped = grid.warp_by_vector("u", factor=1)
-plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
-plotter.view_xy()
-plotter.camera.tight()
-image = plotter.screenshot(None, transparent_background=True, return_img=True)
-plt.imshow(image)
-plt.axis("off")
+try:
+    import pyvista
+
+    print(pyvista.global_theme.jupyter_backend)
+    import dolfinx.plot
+
+    plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
+    topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
+    grid = pyvista.UnstructuredGrid(topology, cell_types, x)
+    vals = np.zeros((x.shape[0], 3))
+    vals[:, : len(u_UFL)] = u.x.array.reshape((x.shape[0], len(u_UFL)))
+    grid["u"] = vals
+    warped = grid.warp_by_vector("u", factor=1)
+    plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
+    plotter.view_xy()
+    plotter.camera.tight()
+    image = plotter.screenshot(None, transparent_background=True, return_img=True)
+    plt.imshow(image)
+    plt.axis("off")
+    
+except ImportError:
+    print("pyvista required for this plot")
 
 # %%
 np.abs(u.x.array[:] - u_UFL.x.array[:]).max() / np.abs(u_UFL.x.array[:]).max()
