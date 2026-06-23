@@ -1,7 +1,7 @@
 # ---
 # jupyter:
 #   jupytext:
-#     cell_metadata_filter: tags,-all
+#     cell_metadata_filter: tags,title,-all
 #     custom_cell_magics: kql
 #     text_representation:
 #       extension: .py
@@ -18,12 +18,12 @@
 # # [Preview] Hyperelasticity via Input-Convex Neural Networks (ICNN) (PyTorch)
 #
 # This tutorial demonstrates how to define a complex hyperelastic constitutive
-# model using PyTorch automatic differentiation (AD) and integrate it with
-# FEniCSx. In solid mechanics, standard models (like Neo-Hookean) have simple
-# analytical derivatives. However, data-driven constitutive equations (like
-# neural network surrogates) require automatic differentiation to evaluate
-# stresses and tangent operators (Jacobians) at the quadrature points of the
-# finite element mesh.
+# model using [PyTorch](https://pytorch.org/) automatic differentiation (AD) and
+# integrate it with FEniCSx. In solid mechanics, standard models (like
+# Neo-Hookean) have simple analytical derivatives. However, data-driven
+# constitutive equations (like neural network surrogates) require automatic
+# differentiation to evaluate stresses and tangent operators (Jacobians) at the
+# quadrature points of the finite element mesh.
 #
 # Here, we stick to the Arruda-Boyce hyperelasticity model. The tutorial is
 # based on the work of {cite:t}`thakolkaranNNEUCLID2022` on unsupervised
@@ -202,6 +202,11 @@ bcs_u = [
 # implementation](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/blob/main/drivers/model.py)
 # using custom layers that enforce positive weights in the hidden layers to
 # maintain input-convexity.
+#
+# Here below, we represent the $2 \times 2$ tensors $\mathbf{F}, \mathbf{P}$,
+# and $\mathbf{H}$ in flattened vector forms, e.g. 
+# 
+# $$ \mathbf{P} = [P_{11}, P_{12}, P_{21}, P_{22}]^T .$$
 
 # %%
 class convexLinear(torch.nn.Module):
@@ -299,7 +304,6 @@ model = ICNN(n_input=n_input, n_hidden=n_hidden, n_output=n_output, dropout=drop
 # %%
 model.load_state_dict(torch.load("ArrudaBoyce_noise=high.pth"))
 model.eval()
-
 # %% [markdown]
 # ````{admonition} Train your own ICNN model!
 # :class: hint, dropdown
@@ -334,16 +338,15 @@ model.eval()
 #
 # Previously, we defined the first Piola-Kirchhoff stress as
 #
-# $$\mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}}
-#     = \mathbf{P}^{\text{NN}} + \mathbf{P}^{\text{cor}}$$,
+# $$\mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}} =
+#     \mathbf{P}^{\text{NN}} + \mathbf{P}^{\text{cor}},$$
 #
 # where the first term  is $\mathbf{P}^{\text{NN}} := \frac{\partial
 # W^{\text{NN}}}{\partial \mathbf{F}}$ and the second is the correction on the
-# reference configuration: $P_{\text{cor}} := \mathbf{F}\mathbf{H}$. We first
-# precompute the correction $P_{\text{cor}}$ and its derivative
-# $\mathbb{C}^\text{cor} = \frac{\partial
-# \mathbf{P}^{\text{cor}}(\mathbf{F})}{\partial \mathbf{F}}$.
-#
+# reference configuration: $P^{\text{cor}} := \mathbf{F}\mathbf{H}$. We first
+# precompute the correction $P^{\text{cor}}$ and its derivative
+# $\mathbb{C}^\text{cor}_{ijkl} = -\frac{\partial
+# \mathbf{P}^{\text{cor}}_{ij}}{\partial \mathbf{F}_{kl}} = \delta_{ik} H_{lj}$.
 # %% Zero input deformation gradient + track gradients
 F_0 = torch.zeros((1, 4))
 F_0[:, 0] = 1
@@ -364,23 +367,51 @@ H = torch.tensor([
 
 
 # %% [markdown]
-# **Modern Vectorized Autograd using `torch.func` and JIT Compilation (`torch.compile`)**:
-# PyTorch 2.0+ includes the `torch.func` API (inspired by JAX) and the `torch.compile` compiler.
-# We combine these techniques to maximize performance:
-# 1. Define `compute_stress_single` to compute both the neural network stress and the flat linear correction $P_{\text{cor}} = F \cdot H$ for a single element.
-# 2. Vectorize the evaluations over the batch of quadrature points using `torch.func.vmap` and `torch.func.jacrev`.
-# 3. Apply `torch.compile` to the vectorized functions `batched_stress` and `batched_jac`. This compiles the entire PyTorch execution graph into optimized kernels, performing operator fusion and eliminating Python interpreter overhead.
 #
-# *Note: The very first iteration of the Newton solver will trigger the JIT compiler, resulting in a brief compilation latency (warm-up). Subsequent iterations will run at compiled speed.*
+# We define the behaviour of the constitutive model locally, at a single Gauss
+# point, and then globally by leveraging the modern (JAX-inspired) PyTorch
+# features such that 
+# 1. automatic differentiation (`torch.func.jacfwd`) to compute
+#    $\mathbb{C}^\text{NN}$, 
+# 2. vectorization (`torch.func.vmap`) to extrapolate the local behaviour onto
+#    all Gauss points,
+# 3. and JIT compilation (`torch.compile`) to spead up computations.
 #
-# For code efficiency and to avoid reshaping overhead, we represent the $2 \times 2$ tensors $\mathbf{F}$ and $\mathbf{H}$ in flattened vector and matrix forms.
+# Overall, as you will see later, the workflow is very similar to the [previous
+# tutorial](https://a-latyshev.github.io/dolfinx-external-operator/demo/demo_plasticity_mohr_coulomb.html)
+# using [JAX](https://docs.jax.dev/en/latest/).
+#
+# ```{admonition} Install PyTorch 2.0 or later
+# :class: warning
+# To be able to use `torch.func.jacfwd`, `torch.func.vmap` and `torch.compile`, make sure that you use `torch=>2.0`.
+#
+# Currently, there is an [issue](https://github.com/pytorch/pytorch/issues/160508) with combining all three together. Compile just `model` instead.
+# ```
+#
+# Since PyTorch compiler Inductor currently has tracing limitations when
+# directly compiling nested higher-order functional AD operators (`vmap` /
+# `jacfwd`), we compile the underlying neural network `model` itself instead.
+# This avoids compiler-level limitations while capturing the bulk of the
+# compilation speedup, since the neural network evaluations dominate the
+# computational cost. 
+
+# %%
+# JIT-compile the model to optimize forward and backward passes
+model = torch.compile(model)
+
+# %% [markdown] 
+# 
+# Now we apply AD and vectorize the functions that compute the stress state. The
+# final `dP_dF_impl` computes both the stress state and the tanget at all Gauss
+# points at once.
+
 
 # %%
 # Define vectorized stress and tangent computation using torch.func
 import torch.func
 
 
-def compute_stress_single(F_single):
+def compute_stress_local(F_single):
     # F_single: shape (4,)
     # Define local energy function for the neural network
     def energy_fn(f):
@@ -392,36 +423,40 @@ def compute_stress_single(F_single):
     # Stress correction P_cor = F_single @ H (using flat matrix multiplication for efficiency)
     P_cor = F_single @ H.to(F_single)
 
-    return P_NN + P_cor
+    P = P_NN + P_cor
+    # Return stress as primary output and as auxiliary data
+    return P, P
 
 
-# Vectorize and compile stress and Jacobian evaluation over the batch dimension
-batched_stress = torch.compile(torch.func.vmap(compute_stress_single, in_dims=(0,)))
-batched_jac = torch.compile(torch.func.vmap(torch.func.jacrev(compute_stress_single), in_dims=(0,)))
-
+# Vectorize the tangent evaluation over the batch dimension using jacfwd
+# with has_aux=True returns a tuple of (tangent, auxiliary_stress)
+vectorized_stress_and_tangent = torch.func.vmap(
+    torch.func.jacfwd(compute_stress_local, has_aux=True),
+    in_dims=(0,)
+)
 
 def dP_dF_impl(Fvals):
-    F = torch.from_numpy(np.ascontiguousarray(Fvals)).reshape(-1, 4)  # modify a -> t_shared changes
-
-    # Evaluate stress and Jacobian in a single vectorized pass
-    P = batched_stress(F)
-    dP = batched_jac(F)
+    F = torch.from_numpy(np.ascontiguousarray(Fvals)).reshape(-1, 4) # NumPy-compatible without copy
+    # Evaluate stress and tangent simultaneously in a single vectorized pass
+    dP, P = vectorized_stress_and_tangent(F)
 
     return dP.reshape(-1).detach(), P.reshape(-1).detach()
 
-
-def P_external(derivatives):
-    if derivatives == (1,):
-        return dP_dF_impl
-    else:
-        raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
-
-
+# %% [markdown]
+#
+# Similarly to the previous examples with plasticity, we do not implement
+# explicitly the evaluation of the stress. Instead, we obtain its values during
+# the evaluation of its derivative and then update the values of the operator in
+# the main Newton loop. This happens because automatic differentiation may
+# evaluate the values of a functions while computing the values of its
+# derivatives.
+#
 # %% [markdown]
 # #### FEniCSx Integration of PyTorch model via External Operators
 #
-# We wrap the PyTorch execution code into a python callable, `dP_dF_impl`, and
-# define a `FEMExternalOperator` in UFL.
+# The stress state has one operand, which is the strain tensor $\mathbf{F}$ that
+# depends on the displacement field $\mathbf{u}$. Here we define both of them
+# and the quadrature space `Q`, where the external operator will live.
 
 # %%
 u = fem.Function(V)
@@ -435,8 +470,30 @@ cell_name = domain.topology.cell_name()
 Qe = basix.ufl.quadrature_element(cell_name, value_shape=(d, d), degree=quadrature_degree, scheme="default")
 Q = fem.functionspace(domain, Qe)
 
-# Replace P with FEMExternalOperator
+# %% [markdown]
+#
+# Finally, we wrap the PyTorch execution code into a Python callable,
+# `P_external`, and define a `FEMExternalOperator` that can be used to define
+# the variational formulation.
+
+# %%
+def P_external(derivatives):
+    if derivatives == (1,):
+        return dP_dF_impl
+    else:
+        raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
+
 P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
+
+# %% [markdown] 
+# 
+# ```{note} We don't need to cover the case `if derivatives == (0,)` for just
+# calling evaluation of `P` because, as it was previously mentioned, thanks to
+# AD we can compute the values of `P` while computing its derivative. Yet, we
+# still need to properly update the values of `P`, which will be done in
+# `constitutive_update`, a function defined later below while defining a
+# nonlinear solver.
+# ```
 
 # %% [markdown]
 # ## JAX AD vs. PyTorch AD
