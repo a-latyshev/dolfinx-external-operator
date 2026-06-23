@@ -74,6 +74,7 @@ from functools import partial
 import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
+import torch
 from utilities import build_square_with_elliptic_holes
 
 import basix
@@ -144,8 +145,6 @@ bcs_u = [
 # weights in the hidden layers to maintain input-convexity.
 
 # %%
-import numpy as np
-import torch
 
 
 class convexLinear(torch.nn.Module):
@@ -252,8 +251,7 @@ model.eval()
 u = fem.Function(V)
 v = ufl.TestFunction(V)
 d = len(u)
-I = ufl.variable(ufl.Identity(d))
-gradU = ufl.variable(I + ufl.grad(u))
+gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))
 
 # Zero input deformation gradient + track gradients
 F_0 = torch.zeros((1, 4))
@@ -531,9 +529,8 @@ plt.axis("off")
 u_UFL = fem.Function(V)
 v = ufl.TestFunction(V)
 d = len(u_UFL)
-I = ufl.variable(ufl.Identity(d))
 # Deformation gradient
-F_ = ufl.variable(I + ufl.grad(u_UFL))
+F_ = ufl.variable(ufl.Identity(d) + ufl.grad(u_UFL))
 
 C = F_.T * F_
 J_ = ufl.det(F_)
@@ -591,13 +588,6 @@ for step in range(1, n_steps_total_tmp + 1):
         print(f"Step {step}: Traction {u_D_top.value:.3f}, Newton its: {num_its}")
 
 # %%
-# plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
-# topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
-# grid = pyvista.UnstructuredGrid(topology, cell_types, x)
-# vals = np.zeros((x.shape[0], 3))
-# u_diff = u.x.array[:] - u_UFL.x.array[:]
-# vals[:, : len(u)] = u_diff.reshape((x.shape[0], len(u)))
-
 plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
 topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
 grid = pyvista.UnstructuredGrid(topology, cell_types, x)
