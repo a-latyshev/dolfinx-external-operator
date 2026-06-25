@@ -46,7 +46,7 @@
 # $\Omega$ containing elliptic holes, subjected to displacement-controlled
 # tensile loading.
 #
-# Let $V$ be the functional space of admissible displacement fields., Under the
+# Let $V$ be the functional space of admissible displacement fields. Under the
 # assumption of quasi-static displacement-controlled loading and in the absence
 # of body forces, the weak formulation of the equilibrium equation is expressed
 # as follows.
@@ -63,7 +63,7 @@
 # - $\mathbf{P}(\mathbf{F}) = \frac{\partial W}{\partial \mathbf{F}}$ is the
 #   first Piola-Kirchhoff stress tensor derived from the strain energy density
 #   $W(\mathbf{F})$.
-# - $\mathbf{v}$ is a test function vanishing on the Dirichlet boundaries.
+# - $\mathbf{v} \in V_0$ is a test function vanishing on the Dirichlet boundaries.
 #
 # ## Implementation
 #
@@ -149,15 +149,19 @@ bcs_u = [
 # by expressing $W$ as a function of the right Cauchy-Green deformation tensor
 # $\mathbf{C} = \mathbf{F}^T\mathbf{F}$.
 #
-# Following {cite}`thakolkaranNNEUCLID2022`, the strain energy density is formulated
-# as:
+# Following {cite}`thakolkaranNNEUCLID2022`, the strain energy density is
+# formulated as:
 #
 # $$ W(\mathbf{F}) = W_{\mathbf{Q},
 #     \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) + W^0 +
-# \mathbf{H}:\mathbf{E} $$
+# \mathbf{H}:\mathbf{E}, $$ 
+# 
 # where:
-# - $W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}$ is the neural network
-#   mapping the strain invariants $\mathbf{E}(\mathbf{F})$ to a scalar energy.
+# - $\mathbf{E} = \frac{1}{2}(\mathbf{C} - \mathbf{I})$ is the Green-Lagrange
+#   strain tensor, representing the deformation.
+# - $W_{\mathbf{Q}, \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})$ is the neural
+#   network mapping the strain tensor $\mathbf{E}$ (via its invariants) to a
+#   scalar energy.
 # - $W^0$ is a scalar correction offsetting the energy density to zero in the
 #   reference configuration:
 #
@@ -168,33 +172,31 @@ bcs_u = [
 # - $\mathbf{H}$ is a stress correction tensor ensuring that the stress vanishes
 #   in the undeformed state ($\mathbf{F}=\mathbf{I}$):
 #
-# $$ \mathbf{H} = -\left.
-#       \frac{\partial W_{\mathbf{Q},
-#   \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})}{\partial \mathbf{F}}
+# $$ \mathbf{H} = -\left. \frac{\partial W_{\mathbf{Q},
+#       \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E})}{\partial \mathbf{F}}
 #   \right|_{\mathbf{F}=\mathbf{I}} $$
-#
-# - $\mathbf{E}$ is the Green-Lagrange strain tensor $\mathbf{E} =
-#   \frac{1}{2}(\mathbf{C} - \mathbf{I})$.
 #
 # The first Piola-Kirchhoff stress $\mathbf{P}$ is computed as:
 #
 # $$ \mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}}
-#     = \frac{\partial W^{\text{NN}}}{\partial \mathbf{F}} +
-# \mathbf{F}\mathbf{H} $$
+#     = \mathbf{P}^\text{NN} + \mathbf{F}\mathbf{H}, $$
 #
-# and the tangent modulus is:
+# where $\mathbf{P}^\text{NN} := \frac{\partial W^{\text{NN}}}{\partial
+# \mathbf{F}}$ and the tangent modulus is:
 #
 # $$ \mathbb{C}_{ijkl} = \frac{\partial P_{ij}(\mathbf{F})}{\partial F_{kl}} =
-#     \frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}} +
-# \delta_{ik} H_{lj} $$
+#      \mathbb{C}^\text{NN}_{ijkl} + \delta_{ik} H_{lj} ,$$
 #
-# We will load a pre-trained network modeling the Isihara material
-# behaviour to evaluate the first Piola-Kirchhoff stress $\mathbf{P}$ values.
-# Then, using PyTorch automatic differentiation (AD), we compute the energy
-# derivative $\frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}}$
-# to evaluate values of the tangent $\mathbb{C}_{ijkl}$. Both
-# $\mathbf{P}(\mathbf{F})$ and $\mathbb{C}_{ijkl}$ can be then integrated into
-# FEniCSx as a `FEMExternalOperator`.
+# where $\mathbb{C}^\text{NN}_{ijkl} := \frac{\partial^2 W^{\text{NN}}}{\partial
+# F_{ij} \partial F_{kl}}$.
+#
+# We will load a pre-trained network modeling the Isihara material behaviour to
+# evaluate the strain energy density $W^{\text{NN}}$. Then, using PyTorch
+# automatic differentiation (AD) tools, we will compute the values of the first
+# Piola-Kirchhoff stress $\mathbf{P}$ and the tangent $\mathbb{C}$. The
+# resulting after AD programs will be then used to define the external
+# operators associated with $\mathbf{P}(\mathbf{F})$ and $\mathbb{C}$
+# respectively.
 
 # %% [markdown]
 # #### Input-Convex Neural Network (ICNN) in PyTorch
@@ -264,14 +266,14 @@ class ICNN(torch.nn.Module):
         C21 = F11 * F12 + F21 * F22
         C22 = F12**2 + F22**2
 
-        # Compute computeStrainInvariants
+        # Compute strain invariants
         I1 = C11 + C22 + 1.0
-        C11 + C22 - C12 * C21 + C11 * C22
+        I2 = C11 + C22 - C12 * C21 + C11 * C22
         I3 = C11 * C22 - C12 * C21
 
         # Apply transformation to invariants
         K1 = I1 * torch.pow(I3, -1 / 3) - 3.0
-        K2 = (I1 + I3 - 1) * torch.pow(I3, -2 / 3) - 3.0
+        K2 = I2 * torch.pow(I3, -2 / 3) - 3.0
         J = torch.sqrt(I3)
         K3 = (J - 1) ** 2
 
@@ -300,7 +302,7 @@ dropout = [True, 0.2]
 model = ICNN(n_input=n_input, n_hidden=n_hidden, n_output=n_output, dropout=dropout)
 
 # %% [markdown]
-# Once the structure of the ICNN model is defined we can load a pretained one. In
+# Once the structure of the ICNN model is defined we can load a pretrained one. In
 # particular, we explore the Isihara model {cite}`ISIHARA1951` with high noise.
 
 # %%
@@ -338,17 +340,11 @@ model.eval()
 # %% [markdown]
 # #### PyTorch-based Tangent and Stress Evaluation
 #
-# Previously, we defined the first Piola-Kirchhoff stress as
-#
-# $$\mathbf{P}(\mathbf{F}) = \frac{\partial W(\mathbf{F})}{\partial \mathbf{F}} =
-#     \mathbf{P}^{\text{NN}} + \mathbf{P}^{\text{cor}},$$
-#
-# where the first term  is $\mathbf{P}^{\text{NN}} := \frac{\partial
-# W^{\text{NN}}}{\partial \mathbf{F}}$ and the second is the correction on the
-# reference configuration: $P^{\text{cor}} := \mathbf{F}\mathbf{H}$. We first
-# precompute the correction $P^{\text{cor}}$ and its derivative
-# $\mathbb{C}^\text{cor}_{ijkl} = -\frac{\partial
-# \mathbf{P}^{\text{cor}}_{ij}}{\partial \mathbf{F}_{kl}} = \delta_{ik} H_{lj}$.
+# We first precompute the correction $P^{\text{cor}} := \mathbf{F} \mathbf{H}$
+# and its derivative $\mathbb{C}^\text{cor}_{ijkl} = \frac{\partial
+# \mathbf{P}^{\text{cor}}_{ij}}{\partial \mathbf{F}_{kl}} = \delta_{ik} H_{lj}$,
+# since they don't change throughout loading.
+
 # %% Zero input deformation gradient + track gradients
 F_0 = torch.zeros((1, 4))
 F_0[:, 0] = 1
@@ -359,25 +355,25 @@ W_NN_0 = model(F_0)
 P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=True)[0].squeeze()
 
 # Precompute correction matrix H for stress correction
-C_cor = -P_NN_0.detach()
+H_flat = -P_NN_0.detach()
 H = torch.tensor([
-    [C_cor[0], C_cor[1], 0, 0],
-    [C_cor[2], C_cor[3], 0, 0],
-    [0, 0, C_cor[0], C_cor[1]],
-    [0, 0, C_cor[2], C_cor[3]]
+    [H_flat[0], H_flat[1], 0, 0],
+    [H_flat[2], H_flat[3], 0, 0],
+    [0, 0, H_flat[0], H_flat[1]],
+    [0, 0, H_flat[2], H_flat[3]]
 ], dtype=P_NN_0.dtype, device=P_NN_0.device)
 
 
 # %% [markdown]
 #
-# We define the behaviour of the constitutive model locally, at a single Gauss
-# point, and then globally by leveraging the modern (JAX-inspired) PyTorch
-# features such that 
+# Secondly, we define the behaviour of the constitutive model locally, at a
+# single Gauss point, and then globally by leveraging the modern (JAX-inspired)
+# PyTorch features such that 
 # 1. automatic differentiation (`torch.func.jacfwd`) to compute
 #    $\mathbb{C}^\text{NN}$, 
 # 2. vectorization (`torch.func.vmap`) to extrapolate the local behaviour onto
 #    all Gauss points,
-# 3. and JIT compilation (`torch.compile`) to spead up computations.
+# 3. and JIT compilation (`torch.compile`) to speed up computations.
 #
 # Overall, as you will see later, the workflow is very similar to the [previous
 # tutorial](https://a-latyshev.github.io/dolfinx-external-operator/demo/demo_plasticity_mohr_coulomb.html)
@@ -404,7 +400,7 @@ model = torch.compile(model)
 # %% [markdown] 
 # 
 # Now we apply AD and vectorize the functions that compute the stress state. The
-# final `dP_dF_impl` computes both the stress state and the tanget at all Gauss
+# final `dP_dF_impl` computes both the stress state and the tangent at all Gauss
 # points at once.
 
 
@@ -446,12 +442,11 @@ def dP_dF_impl(Fvals):
 
 # %% [markdown]
 #
-# Similarly to the previous examples with plasticity, we do not implement
+# Similarly to the previous tutorials with plasticity, we do not implement
 # explicitly the evaluation of the stress. Instead, we obtain its values during
 # the evaluation of its derivative and then update the values of the operator in
 # the main Newton loop. This happens because automatic differentiation may
-# evaluate the values of a functions while computing the values of its
-# derivatives.
+# evaluate the value of a function while computing its derivative.
 #
 # %% [markdown]
 # #### FEniCSx Integration of PyTorch model via External Operators
@@ -574,19 +569,18 @@ problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 # We incrementally apply a displacement-controlled tensile load by moving the top boundary.
 
 # %% tags=["scroll-output"]
-# Apply a tensile load by incrementally increasing traction on the right edge
+# Apply a tensile load by incrementally increasing displacement on the top edge
 n_steps = 100
-max_traction = 0.5
+max_displacement = 0.5
 u.name = "displacement"
 u.x.array[:] = 0
-n_steps_total_tmp = 100
-for step in range(1, n_steps_total_tmp + 1):
-    u_D_top.value = step * max_traction / n_steps # moving the top boundary
+for step in range(1, n_steps + 1):
+    u_D_top.value = step * max_displacement / n_steps # moving the top boundary
     num_its, converged = problem.solve()
     assert converged, f"Newton solver did not converge at step {step}"
     u.x.scatter_forward()
     if domain.comm.rank == 0:
-        print(f"Step {step}: Traction {u_D_top.value:.2f}, Newton its: {num_its}")
+        print(f"Step {step}: Displacement {u_D_top.value:.2f}, Newton its: {num_its}")
 
 # %% [markdown]
 #
@@ -635,7 +629,7 @@ except ImportError:
 # %% [markdown]
 # ## Verification against Analytical UFL Baseline
 #
-# To verify the results obtained with the ICNN model wraped via external
+# To verify the results obtained with the ICNN model wrapped via external
 # operators, we implement the pure UFL implementation of the Isihara model.
 #
 # The variational formulation of the baseline problem is: 
@@ -665,8 +659,7 @@ except ImportError:
 # - $I_1 = \text{tr}(\mathbf{C}) = \text{tr}(\mathbf{F}^T\mathbf{F}) + 1.0$ and
 #   $I_2 = I_1 + J^2 - 1.0$ under the 2D plane strain assumption.
 #
-# We solve the same problem and calculate the maximum relative $L^2$ error
-# between the displacement fields.
+# The UFL formulation is very straightforward
 
 # %%
 u_UFL = fem.Function(V)
@@ -701,7 +694,7 @@ F_UFL = ufl.inner(ufl.grad(v), P) * dx
 # Jacobian `J_UFL` but this will be done automatically in `NonlinearProblem`
 # under the hood.
 #
-# Now we simply define te nonlinear problem with the same `petsc_options` as
+# Now we simply define the nonlinear problem with the same `petsc_options` as
 # previously and solve the UFL-based problem.
 
 # %% tags=["scroll-output"]
@@ -710,16 +703,16 @@ problem_UFL = NonlinearProblem(
     F_UFL, u_UFL, bcs=bcs_u, petsc_options=petsc_options, petsc_options_prefix="UFL_hyperelasticity_"
 )
 
-# Apply a tensile load by incrementally increasing traction on the right edge
+# Apply a tensile load by incrementally increasing displacement on the top edge
 u_UFL.name = "UFL_displacement"
 u_UFL.x.array[:] = 0
-for step in range(1, n_steps_total_tmp + 1):
-    u_D_top.value = step * max_traction / n_steps
+for step in range(1, n_steps + 1):
+    u_D_top.value = step * max_displacement / n_steps
     num_its, converged = problem_UFL.solve()
     assert converged, f"Newton solver did not converge at step {step}"
     u_UFL.x.scatter_forward()
     if domain.comm.rank == 0:
-        print(f"Step {step}: Traction {u_D_top.value:.3f}, Newton its: {num_its}")
+        print(f"Step {step}: Displacement {u_D_top.value:.3f}, Newton its: {num_its}")
 
 # %%
 try:
@@ -803,6 +796,9 @@ np.abs(u.x.array[:] - u_UFL.x.array[:]).max() / np.abs(u_UFL.x.array[:]).max()
 
 # %%
 np.sqrt(MPI.COMM_WORLD.allreduce(fem.assemble_scalar(fem.form((u - u_UFL)**2 * dx)), op=MPI.SUM))
+
+# %% [markdown]
+# Errors look quite promising :)
 
 # %% [markdown]
 # ## References
