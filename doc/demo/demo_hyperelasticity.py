@@ -194,7 +194,7 @@ bcs_u = [
 # evaluate the strain energy density $W^{\text{NN}}$. Then, using PyTorch
 # automatic differentiation (AD) tools, we will compute the values of the first
 # Piola-Kirchhoff stress $\mathbf{P}$ and the tangent $\mathbb{C}$. The
-# resulting after AD programs will be then used to define the external
+# programs resulting from AD will then be used to define the external
 # operators associated with $\mathbf{P}(\mathbf{F})$ and $\mathbb{C}$
 # respectively.
 
@@ -340,10 +340,10 @@ model.eval()
 # %% [markdown]
 # #### PyTorch-based Tangent and Stress Evaluation
 #
-# We first precompute the correction $P^{\text{cor}} := \mathbf{F} \mathbf{H}$
-# and its derivative $\mathbb{C}^\text{cor}_{ijkl} = \frac{\partial
+# We first precompute the constant stress correction tensor $\mathbf{H}$ and
+# the constant tangent correction $\mathbb{C}^\text{cor}_{ijkl} = \frac{\partial
 # \mathbf{P}^{\text{cor}}_{ij}}{\partial \mathbf{F}_{kl}} = \delta_{ik} H_{lj}$,
-# since they don't change throughout loading.
+# since they do not change throughout the loading.
 
 # %% Zero input deformation gradient + track gradients
 F_0 = torch.zeros((1, 4))
