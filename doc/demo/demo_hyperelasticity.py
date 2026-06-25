@@ -70,6 +70,7 @@
 # ### Preamble
 
 # %%
+from mpi4py import MPI
 from utilities import build_square_with_elliptic_holes
 
 import basix
@@ -595,6 +596,8 @@ for step in range(1, n_steps_total_tmp + 1):
 try:
     import pyvista
     import dolfinx.plot
+    import matplotlib.colors as mcolors
+    import matplotlib.cm as mcm
 
     plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
     topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
@@ -602,13 +605,29 @@ try:
     vals = np.zeros((x.shape[0], 3))
     vals[:, : len(u)] = u.x.array.reshape((x.shape[0], len(u)))
     grid["u"] = vals
+    
+    # Calculate displacement magnitude
+    mag = np.linalg.norm(vals[:, : len(u)], axis=1)
+    grid["mag"] = mag
+    
     warped = grid.warp_by_vector("u", factor=1)
-    plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
+    plotter.add_mesh(warped, scalars="mag", cmap="viridis", show_edges=False, show_scalar_bar=False)
     plotter.view_xy()
     plotter.camera.tight()
     image = plotter.screenshot(None, transparent_background=True, return_img=True)
-    plt.imshow(image)
-    plt.axis("off")
+    
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.imshow(image)
+    ax.axis("off")
+    
+    # Create matching colorbar using matplotlib
+    norm = mcolors.Normalize(vmin=mag.min(), vmax=mag.max())
+    smap = mcm.ScalarMappable(cmap="viridis", norm=norm)
+    smap.set_array([])
+    fig.colorbar(smap, ax=ax, label=r"Displacement magnitude, $\sqrt{u_x^2 + u_y^2}$")
+    
+    fig.savefig("displacement_nn.png", bbox_inches="tight", dpi=200, transparent=True)
+    plt.show()
 
 except ImportError:
     print("pyvista required for this plot")
@@ -686,33 +705,65 @@ for step in range(1, n_steps_total_tmp + 1):
 # %%
 try:
     import pyvista
-
-    print(pyvista.global_theme.jupyter_backend)
     import dolfinx.plot
+    import matplotlib.colors as mcolors
+    import matplotlib.cm as mcm
 
     plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
     topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
     grid = pyvista.UnstructuredGrid(topology, cell_types, x)
     vals = np.zeros((x.shape[0], 3))
-    vals[:, : len(u_UFL)] = u.x.array.reshape((x.shape[0], len(u_UFL)))
+    vals[:, : len(u_UFL)] = u_UFL.x.array.reshape((x.shape[0], len(u_UFL)))
     grid["u"] = vals
+    
+    # Calculate displacement magnitude
+    mag = np.linalg.norm(vals[:, : len(u_UFL)], axis=1)
+    grid["mag"] = mag
+    
     warped = grid.warp_by_vector("u", factor=1)
-    plotter.add_mesh(warped, show_edges=False, show_scalar_bar=False)
+    plotter.add_mesh(warped, scalars="mag", cmap="viridis", show_edges=False, show_scalar_bar=False)
     plotter.view_xy()
     plotter.camera.tight()
     image = plotter.screenshot(None, transparent_background=True, return_img=True)
-    plt.imshow(image)
-    plt.axis("off")
+    
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.imshow(image)
+    ax.axis("off")
+    
+    # Create matching colorbar using matplotlib
+    norm = mcolors.Normalize(vmin=mag.min(), vmax=mag.max())
+    smap = mcm.ScalarMappable(cmap="viridis", norm=norm)
+    smap.set_array([])
+    fig.colorbar(smap, ax=ax, label=r"Displacement magnitude, $\sqrt{u_x^2 + u_y^2}$")
+    
+    fig.savefig("displacement_ufl.png", bbox_inches="tight", dpi=200, transparent=True)
+    plt.show()
     
 except ImportError:
     print("pyvista required for this plot")
 
+# %% [markdown]
+# ### Comparison of Deformed Configurations
+#
+# Below, we compare the deformed configuration predicted by the Neural Network external operator against the analytical UFL baseline.
+#
+# ````{grid} 2
+# :gutter: 3
+#
+# ```{grid-item-card} Neural Network Operator
+# :img-top: displacement_nn.png
+# ```
+#
+# ```{grid-item-card} UFL Baseline (Analytical)
+# :img-top: displacement_ufl.png
+# ```
+# ````
+
 # %%
 np.abs(u.x.array[:] - u_UFL.x.array[:]).max() / np.abs(u_UFL.x.array[:]).max()
 
-
 # %%
-# MPI.COMM_WORLD.allreduce(fem.assemble_scalar(fem.form((u - u_UFL)**2), op=MPI.SUM))
+np.sqrt(MPI.COMM_WORLD.allreduce(fem.assemble_scalar(fem.form((u - u_UFL)**2 * dx)), op=MPI.SUM))
 
 # %% [markdown]
 # ## References
