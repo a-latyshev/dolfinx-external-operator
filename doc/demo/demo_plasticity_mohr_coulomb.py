@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # Plasticity of Mohr-Coulomb with apex-smoothing
+# # Plasticity of Mohr-Coulomb with apex-smoothing (JAX)
 #
 # This tutorial aims to demonstrate how modern automatic algorithmic
 # differentiation (AD) techniques may be used to define a complex constitutive

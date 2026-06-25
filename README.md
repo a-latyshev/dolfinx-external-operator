@@ -15,14 +15,18 @@ inverse problems.
 
 Implementations of external operators can be written in any library that
 supports the [array interface
-protocol](https://numpy.org/doc/stable/reference/arrays.interface.html) e.g. 
-[NumPy](https://numpy.org/), [JAX](https://github.com/google/jax) and
-[Numba](http://numba.pydata.org).
+protocol](https://numpy.org/doc/stable/reference/arrays.interface.html), e.g.
+[NumPy](https://numpy.org/), [Numba](http://numba.pydata.org),
+[JAX](https://github.com/google/jax) and [PyTorch](https://pytorch.org/).
 
-When using a library that supports program level automatic differentiation
-(AD), such as JAX, it is possible to automatically derive derivatives for use
-in local first and second-order solvers. Just-in-time compilation, batching and
-accelerators (GPUs, TPUs) are also supported.
+When using a library that supports program level automatic differentiation (AD),
+such as JAX or PyTorch, it is possible to automatically derive derivatives for
+use in local first and second-order solvers. Just-in-time compilation, batching
+and accelerators (GPUs, TPUs) are also supported.
+
+```{image} ../doc/diagram.png
+:align: center
+```
 
 ## Installation
 
@@ -52,6 +56,7 @@ mechanics, including:
 
 * von Mises plasticity using [Numba](https://numba.pydata.org/),
 * Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest).
+* Isihara hyperelasticity using [PyTorch](https://pytorch.org/).
 
 Introduction to External Operators — FEniCS 2024 Conference:
 
