@@ -71,6 +71,7 @@
 
 # %%
 from mpi4py import MPI
+
 from utilities import build_square_with_elliptic_holes
 
 import basix
@@ -96,6 +97,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyvista
 import torch
+import torch.func
 
 # %% [markdown]
 # ### Geometry and boundary conditions
@@ -111,8 +113,10 @@ W = 1.0  # Height
 domain, facet_tags, facet_tags_labels = build_square_with_elliptic_holes(L=L, lc=0.02)
 V = fem.functionspace(domain, ("Lagrange", 2, (domain.geometry.dim,)))
 
+
 def bottom(x):
     return np.isclose(x[1], 0.0)
+
 
 def top(x):
     return np.isclose(x[1], W)
@@ -154,8 +158,8 @@ bcs_u = [
 #
 # $$ W(\mathbf{F}) = W_{\mathbf{Q},
 #     \mathbf{\mathcal{A}}}^{\text{NN}}(\mathbf{E}(\mathbf{F})) + W^0 +
-# \mathbf{H}:\mathbf{E}, $$ 
-# 
+# \mathbf{H}:\mathbf{E}, $$
+#
 # where:
 # - $\mathbf{E} = \frac{1}{2}(\mathbf{C} - \mathbf{I})$ is the Green-Lagrange
 #   strain tensor, representing the deformation.
@@ -208,9 +212,10 @@ bcs_u = [
 # maintain input-convexity.
 #
 # Here below, we represent the $2 \times 2$ tensors $\mathbf{F}, \mathbf{P}$,
-# and $\mathbf{H}$ in flattened vector forms, e.g. 
-# 
+# and $\mathbf{H}$ in flattened vector forms, e.g.
+#
 # $$ \mathbf{P} = [P_{11}, P_{12}, P_{21}, P_{22}]^T .$$
+
 
 # %%
 class convexLinear(torch.nn.Module):
@@ -312,13 +317,16 @@ model.eval()
 # ````{admonition} Train your own ICNN model!
 # :class: hint, dropdown
 # Here we are not studying how to train the ICNN model. Instead, we load the pretrained one `Isihara_noise=high.pth`.
-# If you wish to explore other hyperelastic models we encourage you to follow the instructions in the [original repository of EUCLID](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run), which we outline here
+# If you wish to explore other hyperelastic models
+# we encourage you to follow the instructions in the [original repository of EUCLID]
+# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run), which we outline here
 #
 # In the folder with `demo_hyperelasticity.py`, clone `EUCLID-hyperelasticity-NN`
 # ```shell
 # git clone https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN
 # ```
-# Install `pandas` and [other dependencies](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation), if needed
+# Install `pandas` and [other dependencies]
+# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation), if needed
 # ```shell
 # pip install pandas
 # ```
@@ -327,14 +335,19 @@ model.eval()
 # cd drivers/
 # python main.py Isihara high
 # ```
-# **Note**: Although we rely here on the CPU-based PyTorch installation, it is motivated by keeping the external operators demos light. For training of new models, we suggest to install the normal GPU-based PyTorch package.
+# **Note**: Although we rely here on the CPU-based PyTorch installation, it is motivated
+# by keeping the external operators demos light. For training of new models, we suggest
+# to install the normal GPU-based PyTorch package.
 #
 # Then in the code above try
 # ```python
 # model.load_state_dict(torch.load("Isihara_noise=high.pth"))
 # model.eval()
 # ```
-# **Note**: there is a [bug](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2) related to NumPy>=2.0. If the error persists, try [this fork](https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main) with a fix.
+# **Note**: there is a [bug]
+# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2) related to NumPy>=2.0.
+# If the error persists, try [this fork]
+# (https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main) with a fix.
 # ````
 
 # %% [markdown]
@@ -356,21 +369,25 @@ P_NN_0 = torch.autograd.grad(W_NN_0, F_0, torch.ones_like(W_NN_0), create_graph=
 
 # Precompute correction matrix H for stress correction
 H_flat = -P_NN_0.detach()
-H = torch.tensor([
-    [H_flat[0], H_flat[1], 0, 0],
-    [H_flat[2], H_flat[3], 0, 0],
-    [0, 0, H_flat[0], H_flat[1]],
-    [0, 0, H_flat[2], H_flat[3]]
-], dtype=P_NN_0.dtype, device=P_NN_0.device)
+H = torch.tensor(
+    [
+        [H_flat[0], H_flat[1], 0, 0],
+        [H_flat[2], H_flat[3], 0, 0],
+        [0, 0, H_flat[0], H_flat[1]],
+        [0, 0, H_flat[2], H_flat[3]],
+    ],
+    dtype=P_NN_0.dtype,
+    device=P_NN_0.device,
+)
 
 
 # %% [markdown]
 #
 # Secondly, we define the behaviour of the constitutive model locally, at a
 # single Gauss point, and then globally by leveraging the modern (JAX-inspired)
-# PyTorch features such that 
+# PyTorch features such that
 # 1. automatic differentiation (`torch.func.jacfwd`) to compute
-#    $\mathbb{C}^\text{NN}$, 
+#    $\mathbb{C}^\text{NN}$,
 # 2. vectorization (`torch.func.vmap`) to extrapolate the local behaviour onto
 #    all Gauss points,
 # 3. and JIT compilation (`torch.compile`) to speed up computations.
@@ -383,7 +400,8 @@ H = torch.tensor([
 # :class: warning
 # To be able to use `torch.func.jacfwd`, `torch.func.vmap` and `torch.compile`, make sure that you use `torch=>2.0`.
 #
-# Currently, there is an [issue](https://github.com/pytorch/pytorch/issues/160508) with combining all three together. Compile just `model` instead.
+# Currently, there is an [issue]
+# (https://github.com/pytorch/pytorch/issues/160508) with combining all three together. Compile just `model` instead.
 # ```
 #
 # Since PyTorch compiler Inductor currently has tracing limitations when
@@ -391,14 +409,14 @@ H = torch.tensor([
 # `jacfwd`), we compile the underlying neural network `model` itself instead.
 # This avoids compiler-level limitations while capturing the bulk of the
 # compilation speedup, since the neural network evaluations dominate the
-# computational cost. 
+# computational cost.
 
 # %%
 # JIT-compile the model to optimize forward and backward passes
 model = torch.compile(model)
 
-# %% [markdown] 
-# 
+# %% [markdown]
+#
 # Now we apply AD and vectorize the functions that compute the stress state. The
 # final `dP_dF_impl` computes both the stress state and the tangent at all Gauss
 # points at once.
@@ -406,7 +424,6 @@ model = torch.compile(model)
 
 # %%
 # Define vectorized stress and tangent computation using torch.func
-import torch.func
 
 
 def compute_stress_local(F_single):
@@ -428,17 +445,16 @@ def compute_stress_local(F_single):
 
 # Vectorize the tangent evaluation over the batch dimension using jacfwd
 # with has_aux=True returns a tuple of (tangent, auxiliary_stress)
-vectorized_stress_and_tangent = torch.func.vmap(
-    torch.func.jacfwd(compute_stress_local, has_aux=True),
-    in_dims=(0,)
-)
+vectorized_stress_and_tangent = torch.func.vmap(torch.func.jacfwd(compute_stress_local, has_aux=True), in_dims=(0,))
+
 
 def dP_dF_impl(Fvals):
-    F = torch.from_numpy(np.ascontiguousarray(Fvals)).reshape(-1, 4) # NumPy-compatible without copy
+    F = torch.from_numpy(np.ascontiguousarray(Fvals)).reshape(-1, 4)  # NumPy-compatible without copy
     # Evaluate stress and tangent simultaneously in a single vectorized pass
     dP, P = vectorized_stress_and_tangent(F)
 
     return dP.reshape(-1).detach().numpy(), P.reshape(-1).detach().numpy()
+
 
 # %% [markdown]
 #
@@ -460,7 +476,7 @@ def dP_dF_impl(Fvals):
 u = fem.Function(V)
 v = ufl.TestFunction(V)
 d = len(u)
-gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u)) # \mathb{F} tensor
+gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))  # \mathb{F} tensor
 
 # Create a quadrature element and function space for tensor-valued P
 quadrature_degree = 2
@@ -474,6 +490,7 @@ Q = fem.functionspace(domain, Qe)
 # `P_external`, and define a `FEMExternalOperator` that can be used to define
 # the variational formulation.
 
+
 # %%
 def P_external(derivatives):
     if derivatives == (1,):
@@ -481,11 +498,12 @@ def P_external(derivatives):
     else:
         raise NotImplementedError(f"No external function is defined for the requested derivative {derivatives}.")
 
+
 P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 
-# %% [markdown] 
-# 
-# ```{note} 
+# %% [markdown]
+#
+# ```{note}
 # We don't need to cover the case `if derivatives == (0,)` for just
 # calling evaluation of `P` because, as it was previously mentioned, thanks to
 # AD we can compute the values of `P` while computing its derivative. Yet, we
@@ -525,6 +543,7 @@ J_form = fem.form(J_replaced)
 # performance the most, since it will be called on every single iteration of the
 # Newton solver to update the values of $\mathbf{P}$ and $\mathbb{C}$.
 
+
 # %%
 def constitutive_update(
     F_external_operators: list[FEMExternalOperator],
@@ -536,6 +555,7 @@ def constitutive_update(
     ((_, P_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
     # manual update the values of the external operator
     P.ref_coefficient.x.array[:] = P_new
+
 
 petsc_options = {
     "snes_type": "vinewtonrsls",
@@ -575,7 +595,7 @@ max_displacement = 0.5
 u.name = "displacement"
 u.x.array[:] = 0
 for step in range(1, n_steps + 1):
-    u_D_top.value = step * max_displacement / n_steps # moving the top boundary
+    u_D_top.value = step * max_displacement / n_steps  # moving the top boundary
     num_its, converged = problem.solve()
     assert converged, f"Newton solver did not converge at step {step}"
     u.x.scatter_forward()
@@ -588,10 +608,11 @@ for step in range(1, n_steps + 1):
 
 # %%
 try:
-    import pyvista
-    import dolfinx.plot
-    import matplotlib.colors as mcolors
     import matplotlib.cm as mcm
+    import matplotlib.colors as mcolors
+    import pyvista
+
+    import dolfinx.plot
 
     plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
     topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
@@ -599,27 +620,27 @@ try:
     vals = np.zeros((x.shape[0], 3))
     vals[:, : len(u)] = u.x.array.reshape((x.shape[0], len(u)))
     grid["u"] = vals
-    
+
     # Calculate displacement magnitude
     mag = np.linalg.norm(vals[:, : len(u)], axis=1)
     grid["mag"] = mag
-    
+
     warped = grid.warp_by_vector("u", factor=1)
     plotter.add_mesh(warped, scalars="mag", cmap="viridis", show_edges=False, show_scalar_bar=False)
     plotter.view_xy()
     plotter.camera.tight()
     image = plotter.screenshot(None, transparent_background=True, return_img=True)
-    
+
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.imshow(image)
     ax.axis("off")
-    
+
     # Create matching colorbar using matplotlib
     norm = mcolors.Normalize(vmin=mag.min(), vmax=mag.max())
     smap = mcm.ScalarMappable(cmap="viridis", norm=norm)
     smap.set_array([])
     fig.colorbar(smap, ax=ax, label=r"Displacement magnitude, $\sqrt{u_x^2 + u_y^2}$")
-    
+
     fig.savefig("displacement_nn.png", bbox_inches="tight", dpi=200, transparent=True)
     plt.show()
 
@@ -632,8 +653,8 @@ except ImportError:
 # To verify the results obtained with the ICNN model wrapped via external
 # operators, we implement the pure UFL implementation of the Isihara model.
 #
-# The variational formulation of the baseline problem is: 
-# 
+# The variational formulation of the baseline problem is:
+#
 # Find $\mathbf{u}_{\text{UFL}} \in V$ satisfying the Dirichlet boundary
 # conditions such that:
 #
@@ -677,19 +698,14 @@ I2 = I1 + J_**2 - 1.0
 I1_bar = (J_ ** (-2.0 / 3.0)) * I1
 I2_bar = (J_ ** (-4.0 / 3.0)) * I2
 
-W_Isihara = (
-    0.5 * (I1_bar - 3.0)
-    + (I2_bar - 3.0)
-    + (I1_bar - 3.0) ** 2
-    + 1.5 * (J_ - 1.0) ** 2
-)
+W_Isihara = 0.5 * (I1_bar - 3.0) + (I2_bar - 3.0) + (I1_bar - 3.0) ** 2 + 1.5 * (J_ - 1.0) ** 2
 
 P = ufl.diff(W_Isihara, F_)
 
 F_UFL = ufl.inner(ufl.grad(v), P) * dx
 
 # %% [markdown]
-# 
+#
 # We could then explicitely apply `ufl.derivative` to `F_UFL` to obtain the
 # Jacobian `J_UFL` but this will be done automatically in `NonlinearProblem`
 # under the hood.
@@ -716,10 +732,11 @@ for step in range(1, n_steps + 1):
 
 # %%
 try:
-    import pyvista
-    import dolfinx.plot
-    import matplotlib.colors as mcolors
     import matplotlib.cm as mcm
+    import matplotlib.colors as mcolors
+    import pyvista
+
+    import dolfinx.plot
 
     plotter = pyvista.Plotter(window_size=[600, 400], off_screen=True)
     topology, cell_types, x = dolfinx.plot.vtk_mesh(V)
@@ -727,37 +744,38 @@ try:
     vals = np.zeros((x.shape[0], 3))
     vals[:, : len(u_UFL)] = u_UFL.x.array.reshape((x.shape[0], len(u_UFL)))
     grid["u"] = vals
-    
+
     # Calculate displacement magnitude
     mag = np.linalg.norm(vals[:, : len(u_UFL)], axis=1)
     grid["mag"] = mag
-    
+
     warped = grid.warp_by_vector("u", factor=1)
     plotter.add_mesh(warped, scalars="mag", cmap="viridis", show_edges=False, show_scalar_bar=False)
     plotter.view_xy()
     plotter.camera.tight()
     image = plotter.screenshot(None, transparent_background=True, return_img=True)
-    
+
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.imshow(image)
     ax.axis("off")
-    
+
     # Create matching colorbar using matplotlib
     norm = mcolors.Normalize(vmin=mag.min(), vmax=mag.max())
     smap = mcm.ScalarMappable(cmap="viridis", norm=norm)
     smap.set_array([])
     fig.colorbar(smap, ax=ax, label=r"Displacement magnitude, $\sqrt{u_x^2 + u_y^2}$")
-    
+
     fig.savefig("displacement_ufl.png", bbox_inches="tight", dpi=200, transparent=True)
     plt.show()
-    
+
 except ImportError:
     print("pyvista required for this plot")
 
 # %% [markdown]
 # ### Comparison of Deformed Configurations
 #
-# Below, we compare the deformed configuration predicted by the Neural Network external operator against the analytical UFL baseline.
+# Below, we compare the deformed configuration predicted by the Neural Network
+# external operator against the analytical UFL baseline.
 #
 # ````{grid} 2
 # :gutter: 3
@@ -775,13 +793,14 @@ except ImportError:
 #
 # ### Error Analysis
 #
-# To quantitatively assess the difference between the Input-Convex Neural Network (ICNN) external operator and the analytical UFL baseline, we compute two error metrics at the end of the simulation:
+# To quantitatively assess the difference between the Input-Convex Neural
+# Network (ICNN) external operator and the analytical UFL baseline, we compute
+# two error metrics at the end of the simulation:
 #
 # 1. **Relative Maximum Nodal Displacement Error (relative $L^\infty$ norm)**:
 #
-# $$
-#     e_{\infty, \text{rel}} = \frac{\max_i |u_i - u_{\text{UFL}, i}|}{\max_i |u_{\text{UFL}, i}|}
-# $$
+# $$ e_{\infty, \text{rel}} = \frac{\max_i |u_i - u_{\text{UFL}, i}|}{\max_i
+#     |u_{\text{UFL}, i}|} $$
 
 # %%
 np.abs(u.x.array[:] - u_UFL.x.array[:]).max() / np.abs(u_UFL.x.array[:]).max()
@@ -795,7 +814,7 @@ np.abs(u.x.array[:] - u_UFL.x.array[:]).max() / np.abs(u_UFL.x.array[:]).max()
 # $$
 
 # %%
-np.sqrt(MPI.COMM_WORLD.allreduce(fem.assemble_scalar(fem.form((u - u_UFL)**2 * dx)), op=MPI.SUM))
+np.sqrt(MPI.COMM_WORLD.allreduce(fem.assemble_scalar(fem.form((u - u_UFL) ** 2 * dx)), op=MPI.SUM))
 
 # %% [markdown]
 # Errors look quite promising :)
