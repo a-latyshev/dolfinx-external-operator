@@ -25,8 +25,8 @@
 # differentiation to evaluate stresses and tangent operators (Jacobians) at the
 # quadrature points of the finite element mesh.
 #
-# Here, we stick to the Arruda-Boyce hyperelasticity model
-# {cite}`ARRUDA1993389`. The tutorial is based on the work of
+# Here, we stick to the Isihara hyperelasticity model
+# {cite}`ISIHARA1951`. The tutorial is based on the work of
 # {cite:t}`thakolkaranNNEUCLID2022` on unsupervised deep-learning
 # hyperelasticity without stress data (NN-EUCLID):
 # https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN.
@@ -46,17 +46,17 @@
 # $\Omega$ containing elliptic holes, subjected to displacement-controlled
 # tensile loading.
 #
-# Let $V$ be the functional space of admissible displacement fields. Under the
+# Let $V$ be the functional space of admissible displacement fields., Under the
 # assumption of quasi-static displacement-controlled loading and in the absence
 # of body forces, the weak formulation of the equilibrium equation is expressed
-# as:
+# as follows.
 #
 # Find $\mathbf{u} \in V$ satisfying the Dirichlet boundary conditions such
 # that:
 #
 # $$ F(\mathbf{u}; \mathbf{v}) = \int\limits_\Omega \mathbf{P}(\mathbf{F}) :
 #     \nabla\mathbf{v} \, \mathrm{d}\mathbf{x} = 0, \quad \forall \mathbf{v} \in
-# V $$
+# V_0 $$
 #
 # where:
 # - $\mathbf{F} = \mathbf{I} + \nabla\mathbf{u}$ is the deformation gradient.
@@ -188,7 +188,7 @@ bcs_u = [
 #     \frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}} +
 # \delta_{ik} H_{lj} $$
 #
-# We will load a pre-trained network modeling the Arruda-Boyce material
+# We will load a pre-trained network modeling the Isihara material
 # behaviour to evaluate the first Piola-Kirchhoff stress $\mathbf{P}$ values.
 # Then, using PyTorch automatic differentiation (AD), we compute the energy
 # derivative $\frac{\partial^2 W^{\text{NN}}}{\partial F_{ij} \partial F_{kl}}$
@@ -301,15 +301,15 @@ model = ICNN(n_input=n_input, n_hidden=n_hidden, n_output=n_output, dropout=drop
 
 # %% [markdown]
 # Once the structure of the ICNN model is defined we can load a pretained one. In
-# particular, we explore the Arruda-Boyce model {cite}`ARRUDA1993389` with high noise.
+# particular, we explore the Isihara model {cite}`ISIHARA1951` with high noise.
 
 # %%
-model.load_state_dict(torch.load("ArrudaBoyce_noise=high.pth"))
+model.load_state_dict(torch.load("Isihara_noise=high.pth"))
 model.eval()
 # %% [markdown]
 # ````{admonition} Train your own ICNN model!
 # :class: hint, dropdown
-# Here we are not studying how to train the ICNN model. Instead, we load the pretrained one `ArrudaBoyce_noise=high.pth`.
+# Here we are not studying how to train the ICNN model. Instead, we load the pretrained one `Isihara_noise=high.pth`.
 # If you wish to explore other hyperelastic models we encourage you to follow the instructions in the [original repository of EUCLID](https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run), which we outline here
 #
 # In the folder with `demo_hyperelasticity.py`, clone `EUCLID-hyperelasticity-NN`
@@ -579,7 +579,7 @@ n_steps = 100
 max_traction = 0.5
 u.name = "displacement"
 u.x.array[:] = 0
-n_steps_total_tmp = 10
+n_steps_total_tmp = 100
 for step in range(1, n_steps_total_tmp + 1):
     u_D_top.value = step * max_traction / n_steps # moving the top boundary
     num_its, converged = problem.solve()
@@ -635,10 +635,38 @@ except ImportError:
 # %% [markdown]
 # ## Verification against Analytical UFL Baseline
 #
-# To verify the accuracy of the neural network external operator solver, we compare
-# its results against the analytical UFL implementation of the Arruda-Boyce model
-# (relying on a 5-term Taylor series expansion). We solve the same problem and calculate
-# the maximum relative $L^2$ error between the displacement fields.
+# To verify the results obtained with the ICNN model wraped via external
+# operators, we implement the pure UFL implementation of the Isihara model.
+#
+# The variational formulation of the baseline problem is: 
+# 
+# Find $\mathbf{u}_{\text{UFL}} \in V$ satisfying the Dirichlet boundary
+# conditions such that:
+#
+# $$ F_{\text{UFL}}(\mathbf{u}_{\text{UFL}}; \mathbf{v}) = \int\limits_\Omega
+#     \mathbf{P}(\mathbf{F}) : \nabla\mathbf{v} \, \mathrm{d}\mathbf{x} = 0,
+# \quad \forall \mathbf{v} \in V_0 $$
+#
+# where the stress tensor is evaluated symbolically via $\mathbf{P}(\mathbf{F})
+# = \frac{\partial W_{\text{Isihara}}}{\partial \mathbf{F}}$ using UFL's
+# automatic differentiation tool `ufl.diff`.
+#
+# The strain energy density function $W_{\text{Isihara}}(\mathbf{F})$ is defined
+# explicitly as:
+#
+# $$ W_{\text{Isihara}}(\mathbf{F}) = 0.5(\bar{I}_1 - 3) + (\bar{I}_2 - 3) +
+#     (\bar{I}_1 - 3)^2 + 1.5(J - 1)^2 $$
+#
+# where the deviatoric invariants $\bar{I}_1$ and $\bar{I}_2$ are:
+# - $\bar{I}_1 = J^{-2/3} I_1$
+# - $\bar{I}_2 = J^{-4/3} I_2$
+# - $J = \det(\mathbf{F})$ is the volume ratio (determinant of the deformation
+#   gradient tensor $\mathbf{F}$).
+# - $I_1 = \text{tr}(\mathbf{C}) = \text{tr}(\mathbf{F}^T\mathbf{F}) + 1.0$ and
+#   $I_2 = I_1 + J^2 - 1.0$ under the 2D plane strain assumption.
+#
+# We solve the same problem and calculate the maximum relative $L^2$ error
+# between the displacement fields.
 
 # %%
 u_UFL = fem.Function(V)
@@ -652,47 +680,38 @@ J_ = ufl.det(F_)
 I1 = ufl.tr(C) + 1.0
 I2 = I1 + J_**2 - 1.0
 
-# Arruda-Boyce model parameters
-mu = fem.Constant(domain, 2.5)
-N_c = fem.Constant(domain, 28.0)
-K = fem.Constant(domain, 3.0)
-
-C1 = 1.0 / 2.0
-C2 = 1.0 / 20.0
-C3 = 11.0 / 1050.0
-C4 = 19.0 / 7000.0
-C5 = 519.0 / 673750.0
-
+# Isihara model parameters
 I1_bar = (J_ ** (-2.0 / 3.0)) * I1
+I2_bar = (J_ ** (-4.0 / 3.0)) * I2
 
-W_AB = (
-    mu
-    * (
-        C1 * (I1_bar - 3.0)
-        + (C2 / N_c) * (I1_bar**2 - 3.0**2)
-        + (C3 / N_c**2) * (I1_bar**3 - 3.0**3)
-        + (C4 / N_c**3) * (I1_bar**4 - 3.0**4)
-        + (C5 / N_c**4) * (I1_bar**5 - 3.0**5)
-    )
-    + (K / 2.0) * (J_ - 1.0) ** 2
+W_Isihara = (
+    0.5 * (I1_bar - 3.0)
+    + (I2_bar - 3.0)
+    + (I1_bar - 3.0) ** 2
+    + 1.5 * (J_ - 1.0) ** 2
 )
 
-P = ufl.diff(W_AB, F_)
+P = ufl.diff(W_Isihara, F_)
 
-# %%
-metadata = {"quadrature_degree": 2}
-dx = ufl.Measure("dx", domain=domain, metadata=metadata)
-F = ufl.inner(ufl.grad(v), P) * dx
+F_UFL = ufl.inner(ufl.grad(v), P) * dx
 
-problem_UFL = NonlinearProblem(
-    F, u_UFL, bcs=bcs_u, petsc_options=petsc_options, petsc_options_prefix="UFL_hyperelasticity_"
-)
+# %% [markdown]
+# 
+# We could then explicitely apply `ufl.derivative` to `F_UFL` to obtain the
+# Jacobian `J_UFL` but this will be done automatically in `NonlinearProblem`
+# under the hood.
+#
+# Now we simply define te nonlinear problem with the same `petsc_options` as
+# previously and solve the UFL-based problem.
 
 # %% tags=["scroll-output"]
+
+problem_UFL = NonlinearProblem(
+    F_UFL, u_UFL, bcs=bcs_u, petsc_options=petsc_options, petsc_options_prefix="UFL_hyperelasticity_"
+)
+
 # Apply a tensile load by incrementally increasing traction on the right edge
-n_steps = 100
-max_traction = 0.5
-u_UFL.name = "displacement"
+u_UFL.name = "UFL_displacement"
 u_UFL.x.array[:] = 0
 for step in range(1, n_steps_total_tmp + 1):
     u_D_top.value = step * max_traction / n_steps
@@ -759,8 +778,28 @@ except ImportError:
 # ```
 # ````
 
+# %% [markdown]
+#
+# ### Error Analysis
+#
+# To quantitatively assess the difference between the Input-Convex Neural Network (ICNN) external operator and the analytical UFL baseline, we compute two error metrics at the end of the simulation:
+#
+# 1. **Relative Maximum Nodal Displacement Error (relative $L^\infty$ norm)**:
+#
+# $$
+#     e_{\infty, \text{rel}} = \frac{\max_i |u_i - u_{\text{UFL}, i}|}{\max_i |u_{\text{UFL}, i}|}
+# $$
+
 # %%
 np.abs(u.x.array[:] - u_UFL.x.array[:]).max() / np.abs(u_UFL.x.array[:]).max()
+
+# %% [markdown]
+#
+# 2. **Absolute $L^2$ Displacement Difference**:
+#
+# $$
+#     e_{L^2} = \sqrt{\int\limits_\Omega (\mathbf{u} - \mathbf{u}_{\text{UFL}})^2 \, \mathrm{d}\mathbf{x}}
+# $$
 
 # %%
 np.sqrt(MPI.COMM_WORLD.allreduce(fem.assemble_scalar(fem.form((u - u_UFL)**2 * dx)), op=MPI.SUM))
