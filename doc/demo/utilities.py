@@ -173,7 +173,7 @@ def build_square_with_elliptic_holes(
         gmsh.write("square_with_elliptic_holes.geo_unrolled")
         gmsh.write("square_with_elliptic_holes.msh")
     # Convert to dolfinx mesh
-    mesh_data = gmshio.model_to_mesh(model, MPI.COMM_WORLD, 0, gdim=2)
+    mesh_data = gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0, gdim=2)
     mesh, _cell_tags, facet_tags = mesh_data.mesh, mesh_data.cell_tags, mesh_data.facet_tags
     mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
 
