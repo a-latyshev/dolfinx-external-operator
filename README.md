@@ -56,7 +56,7 @@ The [tutorials](https://a-latyshev.github.io/dolfinx-external-operator/)
 contains various examples focusing on complex constitutive behaviour in solid
 mechanics, including:
 
-* Nonlinear heat equation using [NumPy](https://numpy.org/doc/stable/index.html),
+* nonlinear heat equation using [NumPy](https://numpy.org/doc/stable/index.html),
 * von Mises plasticity using [Numba](https://numba.pydata.org/),
 * Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest),
 * Isihara hyperelasticity using [PyTorch](https://pytorch.org/).
@@ -70,7 +70,7 @@ mechanics, including:
 * Poster - CSMA 2026 and FEniCS 2026 conferences: [Download PDF](https://hdl.handle.net/10993/68619).
 ```{image} ../img/poster_CSMA26_FEniCS26_A0.png
 :align: center
-:width: 300px
+:width: 250px
 ```
 
 ## Citations 
@@ -88,17 +88,6 @@ the following references:
   year       = {2025},
   month      = {Sep},
   keywords   = {automated finite element solvers, Numba, JAX, FEniCSx, external operators, algorithmic automatic differentiation, constitutive models}
-}
-
-@inproceedings{latyshev_2024_external_paper,
-  author = {Latyshev, Andrey and Bleyer, Jérémy and Hale, Jack and Maurini, Corrado},
-  title = {A framework for expressing general constitutive models in FEniCSx},
-  booktitle = {16ème Colloque National en Calcul de Structures},
-  year = {2024},
-  month = {May},
-  publisher = {CNRS, CSMA, ENS Paris-Saclay, CentraleSupélec},
-  address = {Giens, France},
-  url = {https://hal.science/hal-04610881}
 }
 
 @software{latyshev_2024_external_code,
