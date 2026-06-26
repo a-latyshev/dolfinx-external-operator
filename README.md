@@ -24,7 +24,7 @@ such as JAX or PyTorch, it is possible to automatically derive derivatives for
 use in local first and second-order solvers. Just-in-time compilation, batching
 and accelerators (GPUs, TPUs) are also supported.
 
-```{image} ../doc/diagram.png
+```{image} ../img/diagram.png
 :align: center
 ```
 
@@ -50,17 +50,28 @@ pip install -e .
 
 ## Documentation
 
-The [documentation](https://a-latyshev.github.io/dolfinx-external-operator/)
+### Tutorials 
+
+The [tutorials](https://a-latyshev.github.io/dolfinx-external-operator/)
 contains various examples focusing on complex constitutive behaviour in solid
 mechanics, including:
 
+* Nonlinear heat equation using [NumPy](https://numpy.org/doc/stable/index.html),
 * von Mises plasticity using [Numba](https://numba.pydata.org/),
-* Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest).
+* Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest),
 * Isihara hyperelasticity using [PyTorch](https://pytorch.org/).
 
-Introduction to External Operators — FEniCS 2024 Conference:
+### Supplementary materials
+
+* Introduction to External Operators — FEniCS 2024 Conference:
 
 <iframe width="700" height="400" src="https://www.youtube.com/embed/y8goeapqfsw?si=BQwDcdwqS3EF5rwW" frameborder="0" allowfullscreen></iframe>
+
+* Poster - CSMA 2026 and FEniCS 2026 conferences: [Download PDF](https://hdl.handle.net/10993/68619).
+```{image} ../img/poster_CSMA26_FEniCS26_A0.png
+:align: center
+:width: 300px
+```
 
 ## Citations 
 
