@@ -32,6 +32,8 @@ and accelerators (GPUs, TPUs) are also supported.
 
 ![diagram](../img/diagram.png)
 
+![diagram](./img/diagram.png)
+
 ## Installation
 
 `dolfinx-external-operator` is a pure Python package that depends on the
