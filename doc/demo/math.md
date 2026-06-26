@@ -1,7 +1,7 @@
 $$
-  \gdef\F{{\color{#ff7f0e} F}}
-  \gdef\u{{\color{#1f77b4} u}}
-  \gdef\hu{{\color{#2ca02c} \hat{u}}}
+\def\F{{\color{#ff7f0e} F}}
+\def\u{{\color{#1f77b4} u}}
+\def\hu{{\color{#2ca02c} \hat{u}}}
 $$
 # [Preview] External operators and functional analysis
 
@@ -30,11 +30,13 @@ $$
 $$
 
 We call this derivate as Jacobian of $F$ and denote:
+
 $$
     J(\u ; \hu, v) := D_\u[\F(\u ; v)]\{ \hu \},
 $$
-where semicolon ($;$) separates non-linear (on the left) and linear (on the right)
-operands of $J$ (similar to $F$).
+
+where semicolon ($;$) separates non-linear (on the left) and linear (on the
+right) operands of $J$ (similar to $F$).
 
 _Note: although this notation may look overloaded, in the presence of functionals with multiple arguments and compositions (see the chain rule below), it makes clear expressing derivatives of complex variational forms._
 
@@ -70,10 +72,12 @@ where $\hat{N} = D_u[N] \{ \hat{u} \}$.
 
 The external operator $N$ may itself depend on an operand $o(u)$, thus we apply
 the chain rule here again but this time we don't work with functional:
+
 $$
     D_u[N(o(u))]\{ \hat{u} \} = \frac{\partial N}{\partial o} \cdot
     D_u [o(u)]\{ \hat{u} \}.
 $$
+
 Thus, the Gâteaux derivative of $N$ consists of two parts: 
 1. The partial derivative of $N$ with respect to its operand: $\frac{\partial
    N}{\partial o}$. This part can be treated as a "normal" derivative of $N$. **This is
@@ -87,6 +91,7 @@ Thus, the Gâteaux derivative of $N$ consists of two parts:
    $o(u)$ is another external operator.
 
 External operator may, of course, depend on multiple operands:
+
 $$
     D_u[N(o_1(u), o_2(w), o_3(u))]\{ \hat{u} \} = \frac{\partial N}{\partial o_1} \cdot
     D_u [o_1(u)]\{ \hat{u} \} + \frac{\partial N}{\partial o_3} \cdot
@@ -133,13 +138,17 @@ $$
 
 Let's assume that the external operator $\boldsymbol{N}$ is from a mixed element
 space $Q$ which consists of $m$ subspaces:
+
 $$
     Q = Q_1 \times \cdots \times Q_m,
 $$
+
 so the external operator is represented as a block object
+
 $$
     \boldsymbol{N} = (\boldsymbol{N}_1, \dots, \boldsymbol{N}_m),
 $$
+
 where each "sub" external operator is from the corresponding subspace:
 $\boldsymbol{N}_i \in Q_i$.
 
@@ -167,21 +176,27 @@ TODO: Do we truly create a new functional spaces?
 
 This is the case handled by the mixed-element branch in the implementation.
 When the operator is differentiated, the derivative tensor
+
 $$
     \boldsymbol{C} = \frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}}
 $$
+
 must be attached to each mixed block. If the original subspace has reference
 value shape $s_j$, and the operand has shape $p$, then the differentiated
 subspace has shape
+
 $$
     s_j + p.
 $$
+
 The code constructs this by taking each mixed subelement $Q_j$, appending the
 derivative tensor shape, and rebuilding the mixed element. In the notation of
 the previous section, this means that every block satisfies
+
 $$
     \boldsymbol{C}^{(j)} : D_u[\boldsymbol{o}(u)]\{\hat{u}\}
 $$
+
 independently, and the resulting blocks are then assembled back into the mixed
 coefficient vector.
 
