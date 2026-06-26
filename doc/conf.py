@@ -6,7 +6,7 @@
 author = "Andrey Latyshev, Jack S. Hale"
 bibtex_bibfiles = ["references.bib"]
 comments_config = {"hypothesis": False, "utterances": False}
-copyright = "2024"
+copyright = "2026"
 exclude_patterns = ["**.ipynb_checkpoints", ".DS_Store", "Thumbs.db", "_build"]
 extensions = [
     "sphinx_togglebutton",

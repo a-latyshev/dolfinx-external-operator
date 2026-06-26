@@ -16,7 +16,9 @@ build/
 *.synctex.gz
 *.tdo
 *.toc
+
+*.core
 *.msh
 *.geo_unrolled
-*.pth
+*.xao
 .venv/

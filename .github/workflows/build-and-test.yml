@@ -24,6 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       
+      - name: Install CPU PyTorch
+        run: |
+          python3 -m pip install torch>=2.0 --index-url https://download.pytorch.org/whl/cpu
+
       - name: Install
         run: |
           python3 -m pip install '.[ci]'
@@ -37,7 +41,7 @@ jobs:
         run: |
           python3 -m pytest test/
 
-      - name: Run tests (MPI, np=3)
+      - name: Run tests (MPI)
         run: |
           mpirun -n 3 python3 -m pytest test/
       
@@ -45,7 +49,7 @@ jobs:
         run: |
           python3 -m pytest -m mpi -v --num-proc=1 doc/demo
 
-      - name: Run demos (MPI, np=3)
+      - name: Run demos (MPI)
         run: |
           python3 -m pytest -m mpi -v --num-proc=2 doc/demo
           
