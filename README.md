@@ -28,6 +28,10 @@ and accelerators (GPUs, TPUs) are also supported.
 :align: center
 ```
 
+<iframe src="../img/diagram.png" width="100%" height="600px"></iframe>
+
+![diagram](../img/diagram.png)
+
 ## Installation
 
 `dolfinx-external-operator` is a pure Python package that depends on the
