@@ -24,7 +24,7 @@ such as JAX or PyTorch, it is possible to automatically derive derivatives for
 use in local first and second-order solvers. Just-in-time compilation, batching
 and accelerators (GPUs, TPUs) are also supported.
 
-![diagram](../img/diagram.png)
+![diagram](./img/diagram.png)
 
 ## Installation
 
