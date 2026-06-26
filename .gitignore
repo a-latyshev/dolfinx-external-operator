@@ -22,3 +22,5 @@ build/
 *.geo_unrolled
 *.xao
 .venv/
+!diagram.png
+!poster_CSMA26_FEniCS26_A0.png

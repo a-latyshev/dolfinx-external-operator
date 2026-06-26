@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # Plasticity of von Mises
+# # Plasticity of von Mises (Numba)
 #
 # This tutorial aims to demonstrate an efficient implementation of the plasticity
 # model of von Mises using an external operator defining the elastoplastic

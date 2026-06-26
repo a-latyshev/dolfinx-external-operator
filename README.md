@@ -15,14 +15,16 @@ inverse problems.
 
 Implementations of external operators can be written in any library that
 supports the [array interface
-protocol](https://numpy.org/doc/stable/reference/arrays.interface.html) e.g. 
-[NumPy](https://numpy.org/), [JAX](https://github.com/google/jax) and
-[Numba](http://numba.pydata.org).
+protocol](https://numpy.org/doc/stable/reference/arrays.interface.html), e.g.
+[NumPy](https://numpy.org/), [Numba](http://numba.pydata.org),
+[JAX](https://github.com/google/jax) and [PyTorch](https://pytorch.org/).
 
-When using a library that supports program level automatic differentiation
-(AD), such as JAX, it is possible to automatically derive derivatives for use
-in local first and second-order solvers. Just-in-time compilation, batching and
-accelerators (GPUs, TPUs) are also supported.
+When using a library that supports program level automatic differentiation (AD),
+such as JAX or PyTorch, it is possible to automatically derive derivatives for
+use in local first and second-order solvers. Just-in-time compilation, batching
+and accelerators (GPUs, TPUs) are also supported.
+
+![diagram](./img/diagram.png)
 
 ## Installation
 
@@ -46,16 +48,28 @@ pip install -e .
 
 ## Documentation
 
-The [documentation](https://a-latyshev.github.io/dolfinx-external-operator/)
+### Tutorials 
+
+The [tutorials](https://a-latyshev.github.io/dolfinx-external-operator/)
 contains various examples focusing on complex constitutive behaviour in solid
 mechanics, including:
 
+* nonlinear heat equation using [NumPy](https://numpy.org/doc/stable/index.html),
 * von Mises plasticity using [Numba](https://numba.pydata.org/),
-* Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest).
+* Mohr-Coulomb plasticity using [JAX](https://jax.readthedocs.io/en/latest),
+* Isihara hyperelasticity using [PyTorch](https://pytorch.org/).
 
-Introduction to External Operators — FEniCS 2024 Conference:
+### Supplementary materials
+
+* Introduction to External Operators — FEniCS 2024 Conference:
 
 <iframe width="700" height="400" src="https://www.youtube.com/embed/y8goeapqfsw?si=BQwDcdwqS3EF5rwW" frameborder="0" allowfullscreen></iframe>
+
+* Poster - CSMA 2026 and FEniCS 2026 conferences: [Download PDF](https://hdl.handle.net/10993/68619).
+```{image} ../img/poster_CSMA26_FEniCS26_A0.png
+:align: center
+:width: 250px
+```
 
 ## Citations 
 
@@ -72,17 +86,6 @@ the following references:
   year       = {2025},
   month      = {Sep},
   keywords   = {automated finite element solvers, Numba, JAX, FEniCSx, external operators, algorithmic automatic differentiation, constitutive models}
-}
-
-@inproceedings{latyshev_2024_external_paper,
-  author = {Latyshev, Andrey and Bleyer, Jérémy and Hale, Jack and Maurini, Corrado},
-  title = {A framework for expressing general constitutive models in FEniCSx},
-  booktitle = {16ème Colloque National en Calcul de Structures},
-  year = {2024},
-  month = {May},
-  publisher = {CNRS, CSMA, ENS Paris-Saclay, CentraleSupélec},
-  address = {Giens, France},
-  url = {https://hal.science/hal-04610881}
 }
 
 @software{latyshev_2024_external_code,

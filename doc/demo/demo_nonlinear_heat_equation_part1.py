@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # Non-linear heat equation
+# # Non-linear heat equation (NumPy)
 #
 # In this notebook, we assemble the Jacobian and residual of a steady-state heat
 # equation with an external operator to be used to define a non-linear flux law.
