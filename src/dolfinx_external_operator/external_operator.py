@@ -1,5 +1,6 @@
 from functools import singledispatchmethod
 
+# pyrefly: ignore [missing-import]
 import numpy as np
 import numpy.typing as npt
 

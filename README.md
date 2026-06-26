@@ -137,6 +137,15 @@ pip install .
 
 ### Building Documentation
 
+Note: If you plan to run the demos during the documentation build, you will need the optional `demo` dependencies (which includes PyTorch). To avoid downloading the large CUDA-enabled version of PyTorch, you can optionally install the CPU-only version first:
+
+```Shell
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install '.[doc,demo]'
+```
+
+Otherwise, standard build:
+
 ```Shell
 pip install '.[doc]'
 cd doc/

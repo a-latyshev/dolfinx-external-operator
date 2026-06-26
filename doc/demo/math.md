@@ -3,6 +3,7 @@ $$
   \gdef\u{{\color{#1f77b4} u}}
   \gdef\hu{{\color{#2ca02c} \hat{u}}}
 $$
+# [Preview] External operators and functional analysis
 
 # Formalizing notation for External Operators
 
