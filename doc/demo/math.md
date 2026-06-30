@@ -3,6 +3,8 @@ $$
 \def\u{{\color{#1f77b4} u}}
 \def\hu{{\color{#2ca02c} \hat{u}}}
 \def\bN{\boldsymbol{N}}
+\def\bQ{\boldsymbol{Q}}
+\def\bq{\boldsymbol{q}}
 \def\bV{\boldsymbol{V}}
 \def\bo{\boldsymbol{o}}
 \def\bx{\boldsymbol{x}}
@@ -12,12 +14,7 @@ $$
 $$
 # [Preview] Formalizing notation for External Operators
 
-This document formalizes notation around the use of external operators in
-FEniCSx. It bridges the continuous formulation of directional derivatives with
-the discrete tensor calculus required when constitutive laws or source terms are
-evaluated with external operators. We believe it facilitates formalizing
-variational problems when complex high-order tensors and functional spaces (e.g.
-mixed elements) are used in the context of external operators.
+This document formalizes the mathematical notation and discrete tensor calculus required to work with external operators in FEniCSx. It bridges directional derivatives with complex variational formulations, particularly those involving multiple arguments, nested compositions, high-order tensors, and complex functional spaces (e.g., mixed elements). Ultimately, this notation aims to help users systematically formalize, linearize, and understand variational problems involving external operators.
 
 ## The Directional Derivative of a Variational Form
 
@@ -30,7 +27,7 @@ $$
 To solve this nonlinear system using Newton-like methods, we must linearize the form. This requires computing the Gâteaux derivative (or directional derivative) of the ${ \color{#ff7f0e}\text{functional }} \F$ at the ${ \color{#1f77b4}\text{argument }}\u$ in the ${ \color{#2ca02c}\text{direction }} \hu \in V$:
 
 $$
-    D_\u {\color{#ff7f0e} [\F]} {\color{#2ca02c} \{ \hu \} }= 
+    D_\u { [\F]} { \{ \hu \} }= 
         \lim_{\epsilon \to 0} \frac{\F(\u + \epsilon \hu; v) - \F(\u; v) }{\epsilon},
 $$
 
@@ -44,7 +41,7 @@ where semicolon ($;$) separates non-linear (on the left) and linear (on the
 right) operands of $J$ (similar to $F$).
 
 ```{note} 
-Although this notation may look overloaded, in the presence of functionals with multiple arguments and compositions (see the chain rule below), it makes clear expressing derivatives of complex variational forms.
+Although this notation may look overloaded, in the presence of functionals with multiple arguments and compositions (see the chain rule below), it makes clear expressing derivatives of complex variational forms (see examples below).
 ```
 
 ### Chain rule
@@ -185,12 +182,8 @@ $$
 $$
 
 ```{important}
-Creation of a functional space is an expensive operation. When external operators and its operands are high-order tensors, a lot of memory will be allocated very easily.
+Creation of a functional space is an expensive operation. When external operators and its operands are high-order tensors, a lot of memory may be allocated automatically.
 ```
-
-TODO: What about the degree of plynomial?
-
-TODO: Do we truly create a new functional spaces?
 
 **Example:**
 
@@ -219,13 +212,17 @@ $$
 D_{\bu}[F]\{\hat{\bu}\} = D_{u_1}[F]\{ \hat{u}_1 \} + D_{\bu_2}[F] \{ \hat{\bu}_2 \},
 $$
 
-where, keeping in mind $F = F(N_1(o_1, \bo_2), \bN_2(o_1, \bo_2);\bv)$, we expand each term
+where, keeping in mind $F = F(N_1(o_1, \bo_2), \bN_2(o_1, \bo_2);\bv)$, we expand each term:
 
 $$
-D_{u_1}[F]\{ \hat{u}_1 \} = \partial_{N_1}[F]\{ D_{u_1}[N_1]\{ \hat{u}_1 \} \} + \partial_{\bN_2}[F]\{ D_{u_1}[N_2]\{ \hat{u}_1 \} \},
+D_{u_1}[F]\{ \hat{u}_1 \} = \partial_{N_1}[F]\{ D_{u_1}[N_1]\{ \hat{u}_1 \} \} + \partial_{\bN_2}[F]\{ D_{u_1}[\bN_2]\{ \hat{u}_1 \} \},
 $$
 
-where 
+$$
+D_{\bu_2}[F]\{ \hat{\bu}_2 \} = \partial_{N_1}[F]\{ D_{\bu_2}[N_1]\{ \hat{\bu}_2 \} \} + \partial_{\bN_2}[F]\{ D_{\bu_2}[\bN_2]\{ \hat{\bu}_2 \} \}.
+$$
+
+And finally, we expand the directional derivatives of the component of the external operator $\bN$.
 
 $$
     D_{u_1}[N_1]\{ \hat{u}_1 \} = \frac{\partial N_1}{\partial o_1} \cdot
@@ -251,9 +248,7 @@ $$
     D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
 $$
 
-While all directional derivatives of the operands $D_{\bu_i} [\bo_j]\{ \hat{\bu}_i  \}$ are handled automatically by UFL,
-
-What we need in practice is the partial derivatives of $\bN$ with respect to its operands
+While all directional derivatives of the operands $D_{\bu_i} [\bo_j]\{ \hat{\bu}_i  \}$ are handled automatically by UFL, the partial derivatives of $\bN$ with respect to its operands have to be provided by user explicitly. That's why, in practice, we just need to know the partial derivatives of the external operators:
 
 $$
 \frac{\partial \bN}{\partial o_1} = \left(\frac{\partial N_1}{\partial o_1}, \frac{\partial \bN_2}{\partial o_1} \right),
@@ -263,16 +258,15 @@ $$
 \frac{\partial \bN}{\partial \bo_2} = \left( \frac{\partial N_1}{\partial \bo_2}, \frac{\partial \bN_2}{\partial \bo_2} \right).
 $$
 
-Then the user needs to store the values of both derivatives $\frac{\partial N_1}{\partial \bo_i}$ and $\frac{\partial \bN_2}{\partial \bo_i}$ in a single flattened array. See the example `test_mixed_element_space`.
+As mentioned previously, in the context of mixed elements, we work with block objects, which means that the values of, e.g. $\frac{\partial N_1}{\partial o_1}$ and $\frac{\partial \bN_2}{\partial o_1}$ must be stored as a single contiguous flattened array preserving the order of the blocks. See examples in `test_mixed_element_space`: https://github.com/a-latyshev/dolfinx-external-operator/blob/main/test/test_external_operators_evaluation.py#L185.
 
-<!-- ### Substituting back into the Variational Form
+After UFL differentiation of the form $F$, a new mixed element space $\bQ_2 = \bQ_{12} \times \bQ_{22}$ will be allocated, with the following mathematical shapes
 
-Returning to the full directional derivative of the variational form:
+$$
+\mathrm{shape}(\bq_{12}) = (2), \quad \bq_{12} \in \bQ_{12},\\
+\mathrm{shape}(\bq_{22}) = (2,2), \quad \bq_{22} \in \bQ_{22}.\\
+$$
 
-$$DF(u; v)[\delta u] = \int_{\Omega} \left( \boldsymbol{C} : Do(u)[\delta u] \right) : \mathbf{M}(v) \, dx$$
-
-In an implementation (such as `dolfinx-external-operator`), the framework expects the user to provide two black-box functions evaluated at quadrature points:
-1.  The residual contribution: $\boldsymbol{N}(o(u))$
-2.  The tangent operator: $\mathbb{C}(o(u))$
-
-By formalizing the separation of the rank-$(k+p)$ external tangent tensor $\mathbb{C}$ from the rank-$p$ symbolic variations $Do(u)[\delta u]$ and $\mathbf{M}(v)$, the framework successfully constructs the exact Newton system for arbitrary external tensor functions without requiring symbolic transparency into $\boldsymbol{N}$. -->
+```{important}
+Since the operand $o_1$ is a scalar, the differentiation with respect to $o_1$ doesn't change the mathematical shape. Therefore, there is no need in allocation of a new functional space $\bQ_{1}$ and we can simply reuse $\bV$ for $\frac{\partial \bN}{\partial o_1}$. This behavior may change in future releases of `dolfinx-external-operator`, when it will be required to decrease the polynomial degree for the space where the derivative of the external operator will live.
+```
