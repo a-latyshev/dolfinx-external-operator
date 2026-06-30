@@ -192,39 +192,6 @@ TODO: What about the degree of plynomial?
 
 TODO: Do we truly create a new functional spaces?
 
-This is the case handled by the mixed-element branch in the implementation.
-When the operator is differentiated, the derivative tensor
-
-$$
-    \mathbb{C} = \frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}}
-$$
-
-must be attached to each mixed block. If the original subspace has reference
-value shape $s_j$, and the operand has shape $p$, then the differentiated
-subspace has shape
-
-$$
-    s_j + p.
-$$
-
-The code constructs this by taking each mixed subelement $Q_j$, appending the
-derivative tensor shape, and rebuilding the mixed element. In the notation of
-the previous section, this means that every block satisfies
-
-$$
-    \boldsymbol{C}^{(j)} : D_u[\boldsymbol{o}(u)]\{\hat{u}\}
-$$
-
-independently, and the resulting blocks are then assembled back into the mixed
-coefficient vector.
-
-Operationally, the discrete coefficient `ref_coefficient` stores the
-mixed blocks in the same order as the mixed function space, while the evaluation
-points are concatenated subspace by subspace. This is why a mixed external
-operator can be viewed as a product-space version of the same chain rule: the
-symbolic structure is unchanged, but the coefficient layout is block-wise rather
-than flat.
-
 **Example:**
 
 Let's suppose that the external operator $\bN$ is from the mixed functional
