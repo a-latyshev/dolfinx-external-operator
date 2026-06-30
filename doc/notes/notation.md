@@ -12,9 +12,15 @@ $$
 \def\bu{\boldsymbol{u}}
 \def\bzero{\boldsymbol{0}}
 $$
-# [Preview] Formalizing notation for External Operators
+# Some Notation for External Operators
 
-This document formalizes the mathematical notation and discrete tensor calculus required to work with external operators in FEniCSx. It bridges directional derivatives with complex variational formulations, particularly those involving multiple arguments, nested compositions, high-order tensors, and complex functional spaces (e.g., mixed elements). Ultimately, this notation aims to help users systematically formalize, linearize, and understand variational problems involving external operators.
+This document outlines the notation and discrete tensor calculus conventions
+used when working with external operators in FEniCSx. It bridges directional
+derivatives with complex variational formulations, particularly those involving
+multiple arguments, nested compositions, high-order tensors, and mixed function
+spaces. Ultimately, these conventions aim to help users systematically
+formulate, linearize, and understand variational problems involving external
+operators.
 
 ## The Directional Derivative of a Variational Form
 
