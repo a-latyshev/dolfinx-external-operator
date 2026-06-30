@@ -706,7 +706,7 @@ F_UFL = ufl.inner(ufl.grad(v), P) * dx
 
 # %% [markdown]
 #
-# We could then explicitely apply `ufl.derivative` to `F_UFL` to obtain the
+# We could then explicitly apply `ufl.derivative` to `F_UFL` to obtain the
 # Jacobian `J_UFL` but this will be done automatically in `NonlinearProblem`
 # under the hood.
 #
