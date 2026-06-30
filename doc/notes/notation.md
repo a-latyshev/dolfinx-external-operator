@@ -45,49 +45,49 @@ Although this notation may look verbose, in the presence of functionals with mul
 
 ### Chain rule
 
-If $\F$ depends on an intermediate operator $\bN(\u)$ (also known as an *external operator*), the derivative expands via the **chain rule**:
+If $\F$ depends on an intermediate operator $N(\u)$ (also known as an *external operator*), the derivative expands via the **chain rule**:
 
 $$
-    D_\u[\F \circ \bN(\u)]\{ \hu \} = D_\u[\F(\bN(\u); v)]\{ \hu \} = D_{\bN}[\F]\{
-    D_\u[\bN] \{ \hu \} \}
+    D_\u[\F \circ N(\u)]\{ \hu \} = D_\u[\F(N(\u); v)]\{ \hu \} = D_N[\F]\{
+    D_\u[N] \{ \hu \} \}
 $$
 
 Then the Jacobian can be defined as 
 
 $$
-    J(\u ; \hat{\bN}, v) = D_{\bN}[\F] \{ \hat{\bN} \},
+    J(\u ; \hat{N}, v) = D_N[\F] \{ \hat{N} \},
 $$
-where the direction $\hat{\bN} = D_\u[\bN] \{ \hu \}$ is itself a directional
-derivative of the operator $\bN$ in the direction $\hu$.
+where the direction $\hat{N} = D_\u[N] \{ \hu \}$ is itself a directional
+derivative of the operator $N$ in the direction $\hu$.
 
 If the functional $\F$ depends on multiple nonlinear operands, we distinguish between
 **total** ($D_\cdot[\cdot]\{ \cdot \}$) and **partial** Gâteaux ($\partial_\cdot[\cdot]\{ \cdot \}$) derivatives to clarify which argument the directional derivative is taken with respect to. For example:
 
 $$
-    D_\u[\F(\u, w, \bN(\u); v)]\{ \hu \} = \partial_\u [\F(\u, w, \bN(\u); v)]\{ \hu
-    \} + \partial_{\bN} [\F(\u, w, \bN(\u); v)]\{ \hat{\bN} \}, 
+    D_\u[\F(\u, w, N(\u); v)]\{ \hu \} = \partial_\u [\F(\u, w, N(\u); v)]\{ \hu
+    \} + \partial_N [\F(\u, w, N(\u); v)]\{ \hat{N} \}, 
 $$
-where $\hat{\bN} = D_\u[\bN] \{ \hu \}$.
+where $\hat{N} = D_\u[N] \{ \hu \}$.
 
 ## The Derivative of the External Operator
 
-The external operator $\bN$ may itself depend on an operand $\bo(\u)$, thus we apply the chain rule again:
+The external operator $N$ may itself depend on an operand $o(\u)$, thus we apply the chain rule again:
 
 $$
-    D_\u[\bN(\bo(\u))]\{ \hu \} = \frac{\partial \bN}{\partial \bo} \cdot
-    D_\u [\bo(\u)]\{ \hu \}.
+    D_\u[N(o(\u))]\{ \hu \} = \frac{\partial N}{\partial o} \cdot
+    D_\u [o(\u)]\{ \hu \}.
 $$
 
-Thus, the Gâteaux derivative of $\bN$ consists of two parts: 
-1. The partial derivative of $\bN$ with respect to its operand: $\frac{\partial \bN}{\partial \bo}$. This part can be treated as a standard derivative of $\bN$. **This is exactly what we mean by the "derivative of an external operator", which is itself a new external operator and must be explicitly provided by the user in the form of a program that computes the values of $\frac{\partial \bN}{\partial \bo}$**.
-2. The second part represents the derivative of an expression that depends on the main field $\u$ (typically a UFL expression like $\nabla \u$). This part is handled automatically by UFL, except when the operand $\bo(\u)$ is another external operator.
+Thus, the Gâteaux derivative of $N$ consists of two parts: 
+1. The partial derivative of $N$ with respect to its operand: $\frac{\partial N}{\partial o}$. This part can be treated as a standard derivative of $N$. **This is exactly what we mean by the "derivative of an external operator", which is itself a new external operator and must be explicitly provided by the user in the form of a program that computes the values of $\frac{\partial N}{\partial o}$**.
+2. The second part represents the derivative of an expression that depends on the main field $\u$ (typically a UFL expression like $\nabla \u$). This part is handled automatically by UFL, except when the operand $o(\u)$ is another external operator.
 
-An external operator may, of course, depend on multiple operands (e.g., $\bo_1$, $\bo_2$, and $\bo_3$), which in turn may depend on multiple main fields (e.g., $\u$, $w$):
+An external operator may, of course, depend on multiple operands (e.g., $o_1$, $o_2$, and $o_3$), which in turn may depend on multiple main fields (e.g., $\u$, $w$):
 
 $$
-    D_\u[\bN(\bo_1(\u), \bo_2(w), \bo_3(\u))]\{ \hu \} = \frac{\partial \bN}{\partial \bo_1} \cdot
-    D_\u [\bo_1(\u)]\{ \hu \} + \frac{\partial \bN}{\partial \bo_3} \cdot
-    D_\u [\bo_3(\u)]\{ \hu \}.
+    D_\u[N(o_1(\u), o_2(w), o_3(\u))]\{ \hu \} = \frac{\partial N}{\partial o_1} \cdot
+    D_\u [o_1(\u)]\{ \hu \} + \frac{\partial N}{\partial o_3} \cdot
+    D_\u [o_3(\u)]\{ \hu \}.
 $$
 
 ### The General Tensor Case
@@ -110,7 +110,7 @@ $$
 
 #### Explicit Index Notation
 
-Using the Einstein summation convention, let $\alpha_1 \dots \alpha_k$ denote the indices of the external operator $\boldsymbol{N}$, and $\beta_1 \dots \beta_p$ denote the indices of the kinematic operator $\boldsymbol{o}$.
+Using the Einstein summation convention, let $\alpha_1 \dots \alpha_k$ denote the indices of the external operator $\boldsymbol{N}$, and $\beta_1 \dots \beta_p$ denote the indices of the operand $\boldsymbol{o}$.
 
 The components of the tangent tensor $\mathbb{C}$ are:
 
@@ -174,7 +174,7 @@ The creation of a function space is an expensive operation. When external operat
 
 Let's suppose that the external operator $\bN$ is from the mixed function space $\bV = V_1 \times \bV_2$, consisting of two subspaces: a scalar space $V_1$ and a vector space $\bV_2$ in $\mathbb{R}^2$. Furthermore, $\bN$ depends on two operands $o_1(\cdot) \in V_1$ and $\bo_2(\cdot) \in \bV_2$:
 
-$$ \bN(o_1, \bo_2) = [N_1(o_1, \bo_2), \bN_2(o_1, \bo_2)]^T \in \bV = V_1 \times \bV_2$$
+$$ \bN(o_1, \bo_2) = (N_1(o_1, \bo_2), \bN_2(o_1, \bo_2)) \in \bV = V_1 \times \bV_2$$
 
 Here for simplicity we consider the following operands:
 
@@ -188,7 +188,7 @@ $$
 F(N_1, \bN_2;\bv) = \int\limits_\Omega N_1 v_1 + \bN_2 \cdot \bv_2 \, \mathrm{d}\bx
 $$
 
-For the trial function $\hat{\bu} = [\hat{u}_1, \hat{\bu}_2]^T \in \bV$ from the mixed element space, the directional derivative is as follows:
+For the trial function $\hat{\bu} = (\hat{u}_1, \hat{\bu}_2) \in \bV$ from the mixed element space, the directional derivative is as follows:
 
 $$
 D_{\bu}[F]\{\hat{\bu}\} = D_{u_1}[F]\{ \hat{u}_1 \} + D_{\bu_2}[F] \{ \hat{\bu}_2 \},
