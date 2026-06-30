@@ -92,22 +92,22 @@
 # To solve the nonlinear equation {eq}`eq_1` we apply Newton's method which
 # requires the computation of Jacobian, or the Gateaux derivative of $F$.
 #
-# \begin{equation*} 
+# \begin{equation*}
 # J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ]
 #   \lbrace \hat{T} \rbrace := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace
-#   \cdot \nabla \tilde{T} \; \mathrm{d}x 
+#   \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
 # Now we apply the product and chain rules to write
 #
-# \begin{align*} 
+# \begin{align*}
 # D_{T}[k(T) \nabla T]\lbrace \hat{T} \rbrace &= D_T [k(T)]\lbrace
 #   \hat{T} \rbrace\nabla T + k(T) D_T[\nabla T]\lbrace
 #   \hat{T} \rbrace \\
 #   &= D_T [k(T)]\lbrace \hat{T} \rbrace \nabla T + k(T) \boldsymbol{I} \cdot
 #   \nabla \hat{T},  \\
-# \end{align*} 
-# 
+# \end{align*}
+#
 # where $\boldsymbol{I}$ is the 2x2 identity matrix.
 #
 # ```{seealso}
@@ -119,18 +119,18 @@
 
 # ```
 # To fix ideas, we now assume the following explicit form for the material
-# conductivity 
-# 
-# \begin{equation*} 
-#   k(T) = \frac{1}{A + BT} 
-# \end{equation*} 
-# 
+# conductivity
+#
+# \begin{equation*}
+#   k(T) = \frac{1}{A + BT}
+# \end{equation*}
+#
 # where $A$ and $B$ are material constants. After some algebra we can derive
-# 
-# \begin{equation*} 
+#
+# \begin{equation*}
 #   D_T [k]\lbrace \hat{T} \rbrace = -Bk^2(T) \hat{T}
-# \end{equation*} 
-# 
+# \end{equation*}
+#
 # We now proceed to the definition of residual and Jacobian of
 # this problem where $\boldsymbol{q}$ will be defined using the
 # `FEMExternalOperator` approach and an external implementation using the
@@ -332,7 +332,7 @@ J = derivative(F, T, T_hat)
 #
 # To apply the chain rule and obtain a new form symbolically equivalent to
 #
-# \begin{equation*} 
+# \begin{equation*}
 # J(T; \hat{T}, \tilde{T}) = \int (D_T [k(T)]\lbrace \hat{T}
 #     \rbrace \nabla T + k(T) \boldsymbol{I} \cdot \nabla \hat{T}) \cdot \nabla
 #   \tilde{T} \; \mathrm{d}x \\
