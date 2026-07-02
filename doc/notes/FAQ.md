@@ -1,93 +1,78 @@
-# [Preview] External operators in FEniCSx - FAQ
+# [Preview] External Operators in FEniCSx: FAQ
 
-## When to use external operators and when not? Check-list!
+## Checklist: When should I use external operators?
 
-1. There is a certain variable $N$ in the variational formulation $F(N(u);v)$
-   that is **NOT** expressible via UFL, i.e. it cannot be easily expressed via
-   analytical expressions and you have to use numerical algorithm to compute its
-   values.
-2. When you deal with a nonlinear problem, which requires computing the
-   derivative of $F$ and you don't want to explicitly define this derivative
-   including.
+You should consider using external operators if:
+1. A variable $N$ in your variational form $F(N(u); v)$ **cannot be expressed in UFL** (e.g., it requires an external numerical algorithm to evaluate).
+2. The problem is **nonlinear**, requiring the derivative of $F$, and you want to avoid manually deriving, implementing, and updating the derivatives of the external operator.
 
-If your problem is complex enough, those two points are sufficient to save some time on implementation of your problem by using `dolfinx-external-operator`.
+If your problem meets these criteria, `dolfinx-external-operator` will save you significant implementation time.
 
 ```{note}
-The first point is already enough to envole external operators if you don't want to do extra work around wrapping the external calls. But may be your problem is "simple" enough to wrap your externally defined variables via `fem.Function` coefficients. See the next section.
+If your external dependency is linear and simple, you might not need this package. You can instead wrap the external variables as standard `dolfinx.fem.Function` coefficients (see the next section).
 ```
 
 (section-no-external-operators)=
-## If I plan to use external software alongside with FEniCSx, I have to use external operators, right?
+## If I plan to use external software alongside FEniCSx, do I have to use external operators?
 
-No. Even if you use external software it doesn't mean that you have to
-necessarily use external operators. If you problem is simple enough, then you
-always can manually (i) create a functional space and the associated coefficient
-`dolfinx.fem.Function` to wrap your external variable, (ii) define Python
-function that calls external software to evaluate values of the external
-variable, (iii) project the operands of the external variable onto the
-functional space of the latter.
+No. For simple problems, you can manually:
+1. Create a function space and an associated `dolfinx.fem.Function` to represent your external variable.
+2. Define a Python function that calls your external software to compute values.
+3. Interpolate/project the operands onto the target function space and update the function's values.
 
-For example, you solve a linear problem, where the right part $F$ depends on a variable $N = N(u) \in S$, which is evaluated via external software. For $u,v \in V$, we have
+For example, if you solve a linear problem where the residual $F$ depends on an external variable $N = N(u)$:
 
 $$
-F(N(u);v) = \int N(u) v \, \mathrm{d}x
+F(N(u); v) = \int_\Omega N(u) v \, \mathrm{d}x
 $$
+
+You can implement it manually like this:
 
 ```python
 S_element = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1)
 S = fem.functionspace(domain, S_element)
+N = fem.Function(S, name="external_variable")
 
-N = fem.Function(S, name="external variable")
-
-def N_eval(u: np.ndarray) -> np.ndarray
-    ... # call to external functions
+def N_eval(u: np.ndarray) -> np.ndarray:
+    # Call external software...
     return N_values.reshape(-1)
 
-F = N * v ulf.dx
+F = N * v * ufl.dx
 
-# if `u` is defined in another functional space,
-# we need to project it onto `S`, where `N` exists
+# Project u onto S to evaluate N
 eval_points = S_element.interpolation_points
-u_expr = fem.Expression(u, eval_points) 
+u_expr = fem.Expression(u, eval_points)
 
 ...
 
 for i in iterations:
-    u_eval = u_expr.eval(domain, cells) # evaluate u at quadratures
-    N.x.array[:] = N_eval(u_eval) # update external variable values
-    # solve problem
+    # Inside the solution loop:
+    u_eval = u_expr.eval(domain, cells)
+    N.x.array[:] = N_eval(u_eval)
 ```
 
-Wrapping anything that goes beyond UFL is simple: you just need a
-`dolfinx.fem.Function`, which values are simple to update via NumPy arrays. 
-
-Things become more complicated when one considers, for instance, nonlinearity. In this case, we should compute the Jacobian for the form $F$:
+This manual approach works well for simple linear cases. However, if the problem is **nonlinear**, you must also manually compute the Jacobian:
 
 $$
-J(u;\hat{u} , v) = \int N^\prime(u)\hat{u} v \, \mathrm{d}x
+J(u; \hat{u}, v) = \int_\Omega N^\prime(u) \hat{u} v \, \mathrm{d}x
 $$
 
-This forces us to allocate an extra field that will store the values of $N^\prime$ and manually define $J$.
+This requires allocating another field for the derivative $N^\prime$ and implementing its update logic:
 
 ```python
-dN = fem.Function(S, name="derivative of external variable")
+dN = fem.Function(S, name="derivative_of_external_variable")
 
-def dN_eval(u: np.ndarray) -> np.ndarray
-    ... # call to external functions
+def dN_eval(u: np.ndarray) -> np.ndarray:
+    # Call external software to evaluate derivative...
     return dN_values.reshape(-1)
 
-J = dN * u_hat * v ulf.dx
+J = dN * u_hat * v * ufl.dx
 ```
 
-Then we can further make this problem more complex by considering higher order
-tensors, nesting compositions, multiple main fields, etc. More complex setups
-will force us to write a lot of code manually: new functional spaces, new
-cofficients, Jacobains, evaluation of operands... What
-`dolfinx-external-operator` really does, it wraps all those steps automatically,
-so the user don't need to even...
+As the complexity grows — involving nested compositions, higher-order tensors, multiple fields, etc — managing function spaces, coefficients, Jacobians, and chain rule evaluations manually becomes tedious and error-prone. `dolfinx-external-operator` automates all of these steps.
 
 ```{seealso}
-Take a look at the example with the use of mixed elements on the page with [Some Notation for External Operators](./notation.md) for a "sufficiently" complex example to use the external operators. 
+For a demonstration of this complexity, see the mixed-element example in [Some Notation for External Operators](./notation.md).
 ```
 
 ## Does the use of external operators add extra numerical overheads regarding the overall performance?
@@ -97,12 +82,11 @@ Not really.
 As mentioned in the main article {cite:p}`latyshevExpressing2025`:
 > For non-trivial constitutive models, the runtime of the user’s implementation of the external operator usually dominates the runtime of the other aspects of evaluating an external operator, in particular, the data transfer between DOLFINx and users implemented external operators. As discussed previously, this data transfer is performed by copying the values from one `ndarray` to another. Time spent on such a copy is only a small fraction with respect to the time taken to execute the user’s implementation of the operator. Notwithstanding this argument, to reach the highest level of performance we recommend users implemented external operators using just-in-time (JIT) compilation features available in libraries like Numba and JAX, or in a compiled language.
 
-Generally speaking, if one wants to use external software with FEniCSx framework without `dolfinx-external-operator` (see {ref}`the previous section <section-no-external-operators>`), they will have to copy data from external software to the FEniCSx environment via the [`ndarray`-interface](https://numpy.org/doc/stable/reference/arrays.interface.html) in any case. This is possible thanks to the data-centric design of DOLFINx {cite:p}`barattaDOLFINx2023`.
+Generally speaking, if one wants to use external software with FEniCSx framework without `dolfinx-external-operator` (see {ref}`the previous section <section-no-external-operators>`), they will have to copy data from external software to the FEniCSx environment via the [`ndarray`-interface](https://numpy.org/doc/stable/reference/arrays.interface.html) **in any case**.
 
-<!-- ```{important}
-Nevertheless, 
-``` -->
+## I see that there are only tutorials on constitutive modelling in solid mechanics, so it cannot be applied to other branches of finite element simulations, right?
 
+No. The tutorials focus on constitutive modeling because of the authors backgrounds. The package just facilitates the use of the external software within FEniCSx in general and does not depend on types of applications. It has a potential to be applied to any kind of application envolving the use of external software.
 
 ## How to get an access to external operators created automatically after `ufl.derivative`?
 
@@ -124,10 +108,6 @@ Every external operator is associated with a `dolfinx.fem.Function` coefficient.
 ```python
 ex_op_values_numpy = ex_op.ref_coefficient.x.array
 ```
-
-## I see that there are only tutorials on constitutive modelling in solid mechanics, so it cannot be applied to other branches of finite element simulations, right?
-
-No. The tutorials focus on constitutive modeling because of the authors backgrounds. The package just facilitates the use of the external software within FEniCSx in general and does not depend on types of applications. It has a potential to be applied to any kind of application envolving the use of external software.
 
 ```{bibliography}
 :filter: docname in docnames
