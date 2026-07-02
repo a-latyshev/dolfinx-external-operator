@@ -16,6 +16,7 @@ If your problem is complex enough, those two points are sufficient to save some 
 The first point is already enough to envole external operators if you don't want to do extra work around wrapping the external calls. But may be your problem is "simple" enough to wrap your externally defined variables via `fem.Function` coefficients. See the next section.
 ```
 
+(section-no-external-operators)=
 ## If I plan to use external software alongside with FEniCSx, I have to use external operators, right?
 
 No. Even if you use external software it doesn't mean that you have to
@@ -58,7 +59,7 @@ for i in iterations:
 ```
 
 Wrapping anything that goes beyond UFL is simple: you just need a
-`fem.Function`, which values are simple to update via NumPy arrays. 
+`dolfinx.fem.Function`, which values are simple to update via NumPy arrays. 
 
 Things become more complicated when one considers, for instance, nonlinearity. In this case, we should compute the Jacobian for the form $F$:
 
@@ -77,7 +78,7 @@ def dN_eval(u: np.ndarray) -> np.ndarray
 
 J = dN * u_hat * v ulf.dx
 ```
-s
+
 Then we can further make this problem more complex by considering higher order
 tensors, nesting compositions, multiple main fields, etc. More complex setups
 will force us to write a lot of code manually: new functional spaces, new
@@ -89,7 +90,19 @@ so the user don't need to even...
 Take a look at the example with the use of mixed elements on the page with [Some Notation for External Operators](./notation.md) for a "sufficiently" complex example to use the external operators. 
 ```
 
-## Performance issues
+## Does the use of external operators add extra numerical overheads regarding the overall performance?
+
+Not really.
+
+As mentioned in the main article {cite:p}`latyshevExpressing2025`:
+> For non-trivial constitutive models, the runtime of the user’s implementation of the external operator usually dominates the runtime of the other aspects of evaluating an external operator, in particular, the data transfer between DOLFINx and users implemented external operators. As discussed previously, this data transfer is performed by copying the values from one `ndarray` to another. Time spent on such a copy is only a small fraction with respect to the time taken to execute the user’s implementation of the operator. Notwithstanding this argument, to reach the highest level of performance we recommend users implemented external operators using just-in-time (JIT) compilation features available in libraries like Numba and JAX, or in a compiled language.
+
+Generally speaking, if one wants to use external software with FEniCSx framework without `dolfinx-external-operator` (see {ref}`the previous section <section-no-external-operators>`), they will have to copy data from external software to the FEniCSx environment via the [`ndarray`-interface](https://numpy.org/doc/stable/reference/arrays.interface.html) in any case. This is possible thanks to the data-centric design of DOLFINx {cite:p}`barattaDOLFINx2023`.
+
+<!-- ```{important}
+Nevertheless, 
+``` -->
+
 
 ## How to get an access to external operators created automatically after `ufl.derivative`?
 
@@ -104,11 +117,18 @@ for dex_op in J_external_operators:
         print(dex_op)
         ...
 ```
-To get an access to the values is done via `ref_coefficient`:
+
+## Access to external operator values
+
+Every external operator is associated with a `dolfinx.fem.Function` coefficient. An access to the values of the external operator can be done through this coefficient via `ref_coefficient`:
 ```python
-values_numpy = dex_op.ref_coefficient.x.array
+ex_op_values_numpy = ex_op.ref_coefficient.x.array
 ```
 
 ## I see that there are only tutorials on constitutive modelling in solid mechanics, so it cannot be applied to other branches of finite element simulations, right?
 
-No. The tutorials focus on constitutive modeling because of the authors backgrounds. The package just facilitates the use of the external software within FEniCSx. It has a potential to be applied to any kind of application envolving the use of external software.
+No. The tutorials focus on constitutive modeling because of the authors backgrounds. The package just facilitates the use of the external software within FEniCSx in general and does not depend on types of applications. It has a potential to be applied to any kind of application envolving the use of external software.
+
+```{bibliography}
+:filter: docname in docnames
+```
