@@ -70,7 +70,7 @@
 # for notational convenience we can use the chain rule to write
 # \begin{align*}
 #   D_{T}[\boldsymbol{q}]\lbrace \hat{T} \rbrace &= D_T [\boldsymbol{q}]\lbrace
-#   D_T[T]\lbrace \hat{T} \rbrace \rbrace +
+#   \hat{T} \rbrace +
 #   D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace
 #   D_T[\boldsymbol{\sigma}]\lbrace \hat{T} \rbrace \rbrace \\
 #   &= D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
@@ -85,9 +85,9 @@
 # where $A$ and $B$ are material constants. After some algebra we can derive
 # \begin{align*}
 #   D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace &=
-#   [Bk^2(T)\boldsymbol{\sigma}(T)] \hat{T} \\
+#   Bk^2(T)\boldsymbol{\sigma}(T) \hat{T} \\
 #   D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace &=
-#   [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}
+#   -k(T) \boldsymbol{I} \cdot \nabla \hat{T}
 # \end{align*}
 # We now proceed to the definition of residual and Jacobian of this problem
 # where $\boldsymbol{q}$ will be defined using the `FEMExternalOperator` approach
@@ -197,7 +197,7 @@ F = inner(q_, grad(T_tilde)) * dx
 #
 # We begin by defining the Python functions for the left part of
 # \begin{equation*}
-#     [\boldsymbol{q}(T, \nabla T)] \cdot \nabla \tilde{T}
+#     \boldsymbol{q}(T, \nabla T) \cdot \nabla \tilde{T}
 # \end{equation*}
 # here we recall
 # \begin{align*}
@@ -235,7 +235,7 @@ def q_impl(T, sigma):
 # implementations of the left part of the derivative
 # \begin{equation*}
 #     D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace =
-#     [Bk^2(T)\boldsymbol{\sigma}(T)] \hat{T}
+#     Bk^2(T)\boldsymbol{\sigma}(T) \hat{T}
 # \end{equation*}
 
 
@@ -251,7 +251,7 @@ def dqdT_impl(T, sigma):
 # and the left part of the derivative
 # \begin{equation*}
 # D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace =
-# [-k(T) \boldsymbol{I}] \cdot \nabla \hat{T}
+# -k(T) \boldsymbol{I} \cdot \nabla \hat{T}
 # \end{equation*}
 
 
