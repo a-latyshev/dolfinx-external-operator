@@ -315,7 +315,7 @@ def test_mixed_cg_dg_space():
     Ve_u2 = basix.ufl.element("DG", domain.topology.cell_name(), degree=1, shape=(gdim,))
     V_u = fem.functionspace(domain, basix.ufl.mixed_element([Ve_u1, Ve_u2]))
     u = fem.Function(V_u)
-    u.sub(0).interpolate(lambda x: x[0]**2 + x[1])
+    u.sub(0).interpolate(lambda x: x[0] ** 2 + x[1])
     u.sub(1).interpolate(lambda x: (x[0] - x[1], x[0] + x[1]))
     u1, u2 = split(u)
 
@@ -337,7 +337,7 @@ def test_mixed_cg_dg_space():
         # output component size is 2 (since the maximum subspace value size is 2)
         out = np.zeros((n_cells, pts_total, 2), dtype=u1_.dtype)
         # N1 = u1**2 (continuous component stored in [:, :pts_V1, 0])
-        out[:, :pts_V1, 0] = u1_[:, :pts_V1]**2
+        out[:, :pts_V1, 0] = u1_[:, :pts_V1] ** 2
         # N2 = u1 * u2 (discontinuous vector component stored in [:, pts_V1:, 0:2])
         out[:, pts_V1:, 0:2] = u1_[:, pts_V1:, np.newaxis] * u2_[:, pts_V1:, :]
         return out.reshape(-1)
@@ -381,4 +381,3 @@ def test_mixed_cg_dg_space():
     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_vector_matrix(F, F_explicit, u)
-
