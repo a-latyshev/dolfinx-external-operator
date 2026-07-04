@@ -85,14 +85,12 @@ def test_operands_evaluation_real_space():
     d = domain.geometry.dim
     F = ufl.variable(ufl.Identity(d) + ufl.grad(u))
     C = F.T * F
-    J = ufl.det(F)
     I1 = ufl.tr(C)
 
     # Real function space (introduced in DOLFINx v0.11)
-    import basix.ufl
     el_real = basix.ufl.real_element(domain.basix_cell(), dtype=np.float64, value_shape=(3,))
     R = fem.functionspace(domain, el_real)
-    
+
     slope = fem.Function(R, name="slope")
     slope.x.array[:] = [1.0, 2.0, 3.0]
 
@@ -133,7 +131,7 @@ def test_operands_evaluation_real_space():
     J_form = ufl.derivative(Res, u, ufl.TrialFunction(V))
     _, J_external_operators = replace_external_operators(J_form)
     evaluated_operands = evaluate_operands(J_external_operators)
-    
+
     I1_expanded = N.ufl_operands[0]
     np.testing.assert_allclose(I1_values.reshape(-1), evaluated_operands[I1_expanded].reshape(-1))
     np.testing.assert_allclose(slope_values.reshape(-1), evaluated_operands[slope].reshape(-1))
