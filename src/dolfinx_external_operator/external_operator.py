@@ -46,6 +46,19 @@ def new_element_from_new_shape(element: _ElementBase, diff_shape: tuple[int, ...
     return element
 
 
+def _get_multi_indices(n_ops: int, order: int) -> list[tuple[int, ...]]:
+    """Generates all non-negative integer tuples of length n_ops that sum to order."""
+    if n_ops == 0:
+        return []
+    if n_ops == 1:
+        return [(order,)]
+    res = []
+    for i in range(order + 1):
+        for sub in _get_multi_indices(n_ops - 1, order - i):
+            res.append((i,) + sub)
+    return res
+
+
 @ufl_type(num_ops="varying", is_differential=True, use_default_hash=False)
 class FEMExternalOperator(ufl.ExternalOperator):
     """Finite element external operator.
@@ -69,6 +82,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         coefficient: fem.Function | None = None,
         argument_slots=(),
         dtype: npt.DTypeLike | None = None,
+        max_derivative_order: int | None | str = "auto",
     ) -> None:
         """Initializes `FEMExternalOperator`.
 
@@ -84,8 +98,39 @@ class FEMExternalOperator(ufl.ExternalOperator):
             name: Name of the external operator and the associated
             `fem.Function` coefficient.
             dtype: Data type of the external operator.
+            max_derivative_order: Maximum derivative order allowed before simplifying to Zero.
+                If "auto" (default), it is auto-detected by probing external_function.
         """
         self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
+
+        if max_derivative_order == "auto":
+            if external_function is None:
+                self.max_derivative_order = None
+            else:
+                n_ops = len(self.ufl_operands)
+                detected_order = None
+                # Probe orders from 1 to 4
+                for order in range(1, 5):
+                    multi_indices = _get_multi_indices(n_ops, order)
+                    any_supported = False
+                    for mi in multi_indices:
+                        try:
+                            res = external_function(mi)
+                            if res is not None:
+                                any_supported = True
+                                break
+                        except Exception:
+                            pass
+                    if not any_supported:
+                        detected_order = order - 1
+                        break
+                else:
+                    detected_order = None
+                self.max_derivative_order = detected_order
+        else:
+            self.max_derivative_order = max_derivative_order
+
+        self.original_function_space = function_space
 
         for operand in self.ufl_operands:
             if isinstance(operand, ufl.Coefficient) and operand.ufl_function_space().ufl_element().is_mixed:
@@ -226,6 +271,13 @@ class FEMExternalOperator(ufl.ExternalOperator):
         argument_slots=None,
         add_kwargs={},
     ):
+        if self.max_derivative_order is not None and derivatives is not None and sum(derivatives) > self.max_derivative_order:
+            original_shape = self.original_function_space.ufl_element().reference_value_shape
+            diff_shape = ()
+            for i, e in enumerate(derivatives):
+                diff_shape += operands[i].ufl_shape * e
+            return Zero(original_shape + diff_shape)
+
         if self.ufl_element().is_cellwise_constant():  # TODO: TEST THIS
             new_shape = self.ufl_shape
             for i, e in enumerate(self.derivatives):
@@ -241,7 +293,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             d_ops = "/" + "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
         dtype = self.ref_coefficient.dtype
         ex_op_name = d + self.ref_coefficient.name + d_ops
-        return type(self)(
+        res = type(self)(
             *operands,
             function_space=function_space or self.ref_function_space,
             external_function=self.external_function,
@@ -250,8 +302,11 @@ class FEMExternalOperator(ufl.ExternalOperator):
             name=ex_op_name,
             coefficient=coefficient,
             dtype=dtype,
+            max_derivative_order=self.max_derivative_order,
             **add_kwargs,
         )
+        res.original_function_space = self.original_function_space
+        return res
 
     def __hash__(self):
         """Hash code for UFL AD."""
@@ -371,6 +426,7 @@ def evaluate_operands(
 
     # Evaluate unique operands in external operators using lazily cached expressions
     evaluated_operands = {}
+
     for external_operator in external_operators:
         if not hasattr(external_operator, "_compiled_operands"):
             external_operator._compiled_operands = {}
@@ -379,7 +435,7 @@ def evaluate_operands(
         op_mesh = op_ref_fs.mesh
 
         for operand in external_operator.ufl_operands:
-            key = (id(op_ref_fs), operand)
+            key = (id(external_operator.original_function_space), operand)
             if key not in evaluated_operands:
                 if isinstance(operand, ufl.ExternalOperator):
                     evaluated_operand = evaluate_operands([operand], entities)
@@ -413,7 +469,7 @@ def evaluate_external_operators(
 
     Args:
         external_operators: A list with external operators to evaluate.
-        evaluated_operands: A dictionary mapping (id(ref_function_space), operand) to `ndarray`
+        evaluated_operands: A dictionary mapping (id(original_function_space), operand) to `ndarray`
                             containing their evaluation.
 
     Returns:
@@ -425,7 +481,7 @@ def evaluate_external_operators(
     for external_operator in external_operators:
         ufl_operands_eval = []
         for operand in external_operator.ufl_operands:
-            key = (id(external_operator.ref_function_space), operand)
+            key = (id(external_operator.original_function_space), operand)
             if isinstance(operand, ufl.ExternalOperator):
                 sub_eval_ops = evaluated_operands[key]
                 ufl_operands_eval.extend(evaluate_external_operators([operand], sub_eval_ops))
@@ -685,3 +741,36 @@ def replace_external_operators(
     form = ufl.algorithms.apply_derivatives.apply_derivatives(ufl.algorithms.expand_derivatives(form))
     new_form = map_integrands(rule, form)
     return new_form, rule.external_operators
+
+
+# Monkey-patch UFL's GateauxDerivativeRuleset for Grad containing BaseFormOperator
+try:
+    import ufl.algorithms.apply_derivatives as _ap
+    from ufl.classes import Grad as _Grad
+    from ufl.core.base_form_operator import BaseFormOperator as _BaseFormOperator
+    from ufl.constantvalue import Zero as _Zero
+
+    _p_descriptor = _ap.GateauxDerivativeRuleset.__dict__['process']
+    _orig_grad = _p_descriptor.dispatcher.registry[_Grad]
+
+    def _patched_grad(self, g):
+        ngrads = 0
+        o = g
+        while isinstance(o, _Grad):
+            (o,) = o.ufl_operands
+            ngrads += 1
+        if isinstance(o, _BaseFormOperator):
+            do = self(o)
+            if isinstance(do, _Zero):
+                return _Zero(g.ufl_shape)
+            res = do
+            for _ in range(ngrads):
+                res = _Grad(res)
+            return res
+        return _orig_grad(self, g)
+
+    _p_descriptor.register(_Grad, _patched_grad)
+except Exception:
+    # Fail-safe in case UFL internals change in different versions
+    pass
+

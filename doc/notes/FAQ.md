@@ -109,6 +109,37 @@ Every external operator is associated with a `dolfinx.fem.Function` coefficient.
 ex_op_values_numpy = ex_op.ref_coefficient.x.array
 ```
 
+## Why does UFL need symbolic zero-simplification for derivatives? Can't the callback just return zero?
+
+Suppose you have an external operator $N(u) = u$, which is linear. Its second derivative $N''(u)$ is mathematically zero. It is natural to ask: why can't the user's Python callback simply return a function of zeros for unsupported/zero higher-order derivatives? For example:
+```python
+def N_external(derivatives):
+    if derivatives == (0,):
+        return lambda u: u
+    elif derivatives == (1,):
+        return lambda u: np.ones_like(u)
+    elif derivatives == (2,):
+        return lambda u: np.zeros_like(u)  # returns zeros at runtime
+```
+
+While this runs, it is suboptimal and causes several compile-time and runtime issues:
+
+1. **Assembly Overhead (Multiplication by Zero)**:
+   If UFL does not know a derivative is symbolically `Zero` at compile-time, it compiles a C++ representation of the form that still includes the derivative operator. During assembly, DOLFINx will still execute the Python callback, allocate a coefficient `fem.Function`, evaluate all its operands at all quadrature points, and then perform cell-wise integration loops multiplying values by zero. For large 3D meshes, this adds significant computational overhead.
+
+2. **Compilation Failures (Empty Forms)**:
+   If a user takes the Gâteaux derivative of a bilinear form where some terms disappear, and the entire form evaluates to zero:
+   - If the derivative is simplified to `Zero` symbolically, the entire form reduces to an empty UFL Form (`Form([])`). UFL and DOLFINx detect this and avoid compiling it.
+   - If the derivative is *not* simplified symbolically, the form contains a `FEMExternalOperator` representing the derivative. When DOLFINx tries to compile it, it fails with a traceback containing:
+     `ValueError: not enough values to unpack (expected 1, got 0)`
+     because the compiler cannot find a valid integration domain for a form that only consists of zero-valued operators.
+
+3. **Symbolic Graph Expansion**:
+   Without a base case that simplifies to symbolic `Zero`, taking higher-order derivatives (e.g. for sensitivity analysis or Hessian-vector calculations) will lead to an infinitely growing symbolic expression tree, causing slow compile times and potential recursion limits.
+
+To avoid this, `dolfinx-external-operator` supports **auto-detection** (`max_derivative_order="auto"`, which is the default). It probes the user's callback at initialization to detect the maximum supported derivative order. Any higher-order derivative is immediately simplified to a symbolic UFL `Zero` of the correct tensor shape at compile-time, pruning the expression graph before C++ code generation.
+
+
 ```{bibliography}
 :filter: docname in docnames
 ```
