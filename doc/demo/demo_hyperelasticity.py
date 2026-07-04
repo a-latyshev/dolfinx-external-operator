@@ -526,10 +526,9 @@ dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 u_hat = ufl.TrialFunction(V)
 F = ufl.inner(ufl.grad(v), P) * dx
 J = ufl.derivative(F, u, u_hat)
-J_expanded = ufl.algorithms.expand_derivatives(J)
 
 F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
+J_replaced, J_external_operators = replace_external_operators(J)
 
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)

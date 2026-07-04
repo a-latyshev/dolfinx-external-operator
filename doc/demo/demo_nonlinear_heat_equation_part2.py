@@ -300,9 +300,8 @@ q_.external_function = q_external
 # %%
 T_hat = TrialFunction(V)
 J = derivative(F, T, T_hat)
-J_expanded = ufl.algorithms.expand_derivatives(J)
 F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
+J_replaced, J_external_operators = replace_external_operators(J)
 evaluated_operands = evaluate_operands(F_external_operators)
 _ = evaluate_external_operators(F_external_operators, evaluated_operands)
 

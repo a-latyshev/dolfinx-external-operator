@@ -369,6 +369,12 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 # `F` and `J_expanded`.
 # ```
 #
+# ```{note}
+# Starting from `v0.10.1`, the call of `ufl.algorithms.expand_derivatives(J)` is
+# not required anymore since the derivative is expanded in
+# `replace_external_operators`.
+# ```
+#
 # ### Assembly
 # We can now proceed with the finite element assembly in three key steps.
 # 1. Evaluate the operands (`T` and `sigma`) associated with the
