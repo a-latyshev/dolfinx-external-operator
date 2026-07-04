@@ -53,24 +53,24 @@ def check_block_vector_matrix(F, F_explicit, u_sol, W):
 
     num_blocks = W.num_sub_spaces()
     u_trial = ufl.TrialFunctions(W)
-    
+
     F_blocks = [ufl.extract_blocks(F, i) for i in range(num_blocks)]
     F_explicit_blocks = [ufl.extract_blocks(F_explicit, i) for i in range(num_blocks)]
-    
+
     J_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
     J_explicit_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
     for i in range(num_blocks):
         for j in range(num_blocks):
             J_blocks[i][j] = derivative(F_blocks[i], u_sol[j], u_trial[j])
             J_explicit_blocks[i][j] = derivative(F_explicit_blocks[i], u_sol[j], u_trial[j])
-            
+
     F_replaced_blocks = []
     F_ops = []
     for i in range(num_blocks):
         F_rep, F_op = replace_external_operators(F_blocks[i])
         F_replaced_blocks.append(F_rep)
         F_ops.extend(F_op)
-        
+
     J_replaced_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
     J_ops = []
     for i in range(num_blocks):
@@ -79,19 +79,19 @@ def check_block_vector_matrix(F, F_explicit, u_sol, W):
             J_rep, J_op = replace_external_operators(J_expanded)
             J_replaced_blocks[i][j] = J_rep
             J_ops.extend(J_op)
-            
+
     all_ops = list(dict.fromkeys(F_ops + J_ops))
     evaluated = evaluate_operands(all_ops)
     evaluate_external_operators(all_ops, evaluated)
-    
+
     def has_integrals(form_):
         return hasattr(form_, "integrals") and len(form_.integrals()) > 0
-        
+
     for i in range(num_blocks):
         b = fem.assemble_vector(fem.form(F_replaced_blocks[i]))
         b_explicit = fem.assemble_vector(fem.form(F_explicit_blocks[i]))
         assert np.allclose(b_explicit.array, b.array)
-        
+
     def to_dense(A):
         A.assemble()
         return A.convert("dense").getDenseArray()
@@ -100,14 +100,14 @@ def check_block_vector_matrix(F, F_explicit, u_sol, W):
         for j in range(num_blocks):
             J_rep = J_replaced_blocks[i][j]
             J_exp_expanded = ufl.algorithms.expand_derivatives(J_explicit_blocks[i][j])
-            
+
             A = None
             A_explicit = None
             if has_integrals(J_rep):
                 A = assemble_matrix_petsc(fem.form(J_rep))
             if has_integrals(J_exp_expanded):
                 A_explicit = assemble_matrix_petsc(fem.form(J_exp_expanded))
-                
+
             if A is not None and A_explicit is not None:
                 assert np.allclose(to_dense(A_explicit), to_dense(A))
             elif A is not None:
@@ -453,20 +453,20 @@ def test_mixed_cg_dg_space():
 
     check_vector_matrix(F, F_explicit, u)
 
+
 def test_mixed_function_space():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
-    gdim = domain.geometry.dim
 
     Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
     Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=())
     V1 = fem.functionspace(domain, Ve1)
     V2 = fem.functionspace(domain, Ve2)
-    
+
     u1 = fem.Function(V1)
     u2 = fem.Function(V2)
     u1.interpolate(lambda x: x[1] + 2.0)
     u2.interpolate(lambda x: x[1] + 1.0)
-    
+
     W = ufl.MixedFunctionSpace(V1, V2)
     v1, v2 = ufl.TestFunctions(W)
 
@@ -486,7 +486,7 @@ def test_mixed_function_space():
 
     N1 = FEMExternalOperator(u2, function_space=V1, name="N1", external_function=N_external)
     N2 = FEMExternalOperator(u2, function_space=V2, name="N2", external_function=N_external)
-    
+
     # Monolithic residual equation
     F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
 
@@ -506,12 +506,12 @@ def test_mixed_function_space_scalar_vector():
     Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=(gdim,))
     V1 = fem.functionspace(domain, Ve1)
     V2 = fem.functionspace(domain, Ve2)
-    
+
     u1 = fem.Function(V1)
     u2 = fem.Function(V2)
     u1.interpolate(lambda x: x[1] + 2.0)
     u2.interpolate(lambda x: (x[0], x[1]))
-    
+
     W = ufl.MixedFunctionSpace(V1, V2)
     v1, v2 = ufl.TestFunctions(W)
 
