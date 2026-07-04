@@ -381,3 +381,90 @@ def test_mixed_cg_dg_space():
     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_vector_matrix(F, F_explicit, u)
+
+def test_mixed_function_space():
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+    gdim = domain.geometry.dim
+
+    Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
+    Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=())
+    V1 = fem.functionspace(domain, Ve1)
+    V2 = fem.functionspace(domain, Ve2)
+    
+    u1 = fem.Function(V1)
+    u2 = fem.Function(V2)
+    u1.interpolate(lambda x: x[1] + 2.0)
+    u2.interpolate(lambda x: x[1] + 1.0)
+    
+    v1 = TestFunction(V1)
+    v2 = TestFunction(V2)
+
+    def N_impl(u2_):
+        return u2_.reshape(-1)
+
+    def dN_impl(u2_):
+        return np.ones_like(u2_).reshape(-1)
+
+    def N_external(derivatives):
+        if derivatives == (0,):
+            return N_impl
+        elif derivatives == (1,):
+            return dN_impl
+        else:
+            raise NotImplementedError
+
+    N1 = FEMExternalOperator(u2, function_space=V1, name="N1", external_function=N_external)
+    N2 = FEMExternalOperator(u2, function_space=V2, name="N2", external_function=N_external)
+    
+    # Residual equations for each block
+    F0 = N1 * v1 * ufl.dx
+    F1 = inner(grad(N2), grad(v2)) * ufl.dx
+    
+    # Jacobian blocks: derivative of F0 and F1 w.r.t u2
+    J0 = derivative(F0, u2, TrialFunction(V2))
+    J1 = derivative(F1, u2, TrialFunction(V2))
+
+    # Replace external operators
+    F0_replaced, F0_ops = replace_external_operators(F0)
+    F1_replaced, F1_ops = replace_external_operators(F1)
+
+    J0_expanded = ufl.algorithms.expand_derivatives(J0)
+    J0_replaced, J0_ops = replace_external_operators(J0_expanded)
+    
+    J1_expanded = ufl.algorithms.expand_derivatives(J1)
+    J1_replaced, J1_ops = replace_external_operators(J1_expanded)
+
+    all_ops = list(set(F0_ops + F1_ops + J0_ops + J1_ops))
+    print("DEBUG J0:", J0)
+    print("DEBUG expanded J0:", ufl.algorithms.expand_derivatives(J0))
+    print("DEBUG J0_replaced:", J0_replaced)
+    print("DEBUG J1:", J1)
+    print("DEBUG expanded J1:", ufl.algorithms.expand_derivatives(J1))
+    print("DEBUG J1_replaced:", J1_replaced)
+    evaluated = evaluate_operands(all_ops)
+    evaluate_external_operators(all_ops, evaluated)
+
+    # Assemble replaced forms
+    b0 = fem.assemble_vector(fem.form(F0_replaced))
+    b1 = fem.assemble_vector(fem.form(F1_replaced))
+    A0 = fem.assemble_matrix(fem.form(J0_replaced))
+    A1 = fem.assemble_matrix(fem.form(J1_replaced))
+
+    # Explicit counterparts
+    N1_explicit = u2
+    N2_explicit = u2
+    F0_explicit = N1_explicit * v1 * ufl.dx
+    F1_explicit = inner(grad(N2_explicit), grad(v2)) * ufl.dx
+    J0_explicit = derivative(F0_explicit, u2, TrialFunction(V2))
+    J1_explicit = derivative(F1_explicit, u2, TrialFunction(V2))
+
+    b0_explicit = fem.assemble_vector(fem.form(F0_explicit))
+    b1_explicit = fem.assemble_vector(fem.form(F1_explicit))
+    A0_explicit = fem.assemble_matrix(fem.form(J0_explicit))
+    A1_explicit = fem.assemble_matrix(fem.form(J1_explicit))
+
+    # Verify
+    assert np.allclose(b0_explicit.array, b0.array)
+    assert np.allclose(b1_explicit.array, b1.array)
+    assert np.allclose(A0_explicit.to_dense(), A0.to_dense())
+    assert np.allclose(A1_explicit.to_dense(), A1.to_dense())
