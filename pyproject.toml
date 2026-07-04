@@ -12,7 +12,7 @@ authors = [
 license = { file = "LICENSE" }
 readme = "README.md"
 dependencies = [
-    "fenics-dolfinx>=0.11.0,<0.12.0",
+    "fenics-dolfinx>=0.11.0,<0.12.0.dev0",
     "fenics-ufl>=2026.1.0,<2027.1.0",
 ]
 
