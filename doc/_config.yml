@@ -38,6 +38,12 @@ sphinx:
   config:
     bibtex_reference_style: author_year
     html_last_updated_fmt: "%b %d, %Y"
+    mathjax3_config:
+      tex:
+        macros:
+          F: "{\\color{#ff7f0e} F}"
+          u: "{\\color{#1f77b4} u}"
+          hu: "{\\color{#2ca02c} \\hat{u}}"
     nb_custom_formats:
       .py:
         - jupytext.reads

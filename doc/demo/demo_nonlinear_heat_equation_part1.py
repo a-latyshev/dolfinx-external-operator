@@ -38,13 +38,12 @@
 #
 # ## Recall
 #
-# The concept of external operators was originally introduced in {cite}`bouzianiEscaping2021`. According to
-# this work, if $W, V$ and $X$ are some functional spaces then the external
-# operator $N$ maps an *operand* $u \in W$ as follows
+# The concept of external operators was originally introduced in
+# {cite}`bouzianiEscaping2021`. According to this work, if $W, V$ and $X$ are
+# some functional spaces then the external operator $N$ maps an *operand* $u \in
+# W$ as follows
 #
-# $$
-#   u, v \mapsto N(u; v) \in X,
-# $$
+# $$ u, v \mapsto N(u; v) \in X, $$
 #
 # where $v \in V$ is an *argument* of $N$. The semicolon is used to explicitly
 # distinguish operands and arguments as the operator $N$ may be **nonlinear**
@@ -53,79 +52,89 @@
 # This concept is implemented in the form of a symbolic object of UFL and can be
 # naturally incorporated into linear and bilinear forms.
 #
-# The Gateaux derivative of the external operator $N$ at $u \in W$ in the direction of $\hat{u}
-# \in W$ looks as follows:
+# The Gateaux derivative of the external operator $N$ at $u \in W$ in the
+# direction of $\hat{u} \in W$ looks as follows:
 #
-# $$
-#   N^\prime(u;\hat{u}, v) = D_{u} [ N(u; v) ] \lbrace \hat{u} \rbrace.
-# $$
+# $$ N^\prime(u;\hat{u}, v) = D_{u} [ N(u; v) ] \lbrace \hat{u} \rbrace. $$
 #
-# This derivative is a new external operator with the same operand $u$ and two arguments $v$ and $\hat{u}$.
+# This derivative is a new external operator with the same operand $u$ and two
+# arguments $v$ and $\hat{u}$.
 #
 # ## Problem formulation
 #
 # Denoting the temperature field $T$ and its gradient $\boldsymbol{\sigma} :=
-# \nabla T$ we consider the following system on the square domain $\Omega :=
-# [0, 1]^2$ with boundary $\partial \Omega$
+# \nabla T$ we consider the following system on the square domain $\Omega := [0,
+# 1]^2$ with boundary $\partial \Omega$
 #
-# \begin{align*}
-#      \nabla \cdot \boldsymbol{q} &= f \quad \mathrm{on} \; \Omega, \\
+# \begin{align*} \nabla \cdot \boldsymbol{q} &= f \quad \mathrm{on} \; \Omega,
+#      \\
 #      \boldsymbol{q}(T) &= -k(T) \nabla T, \\
 # \end{align*}
 #
 # where $f$ is a given function and $\boldsymbol{q}(T)$ is the heat flux and
-# $k(T)$ the thermal conductivity. With $k = \mathrm{const}$ we
-# recover the standard linear Fourier heat problem. However, here we will assume that $k$
-# is some general function of $T$ that we would like to specify using some
-# external (non-UFL) piece of code.
+# $k(T)$ the thermal conductivity. With $k = \mathrm{const}$ we recover the
+# standard linear Fourier heat problem. However, here we will assume that $k$ is
+# some general function of $T$ that we would like to specify using some external
+# (non-UFL) piece of code.
 #
 # Let $V = H^1_0(\Omega)$ be the usual Sobolev space of square-integrable
 # functions with square-integrable derivatives and vanishing value on the
 # boundary $\partial \Omega$. Then in a variational setting, the problem can be
 # written in residual form as find $T \in V$ such that
 #
-# $$
-#   F(T; \tilde{T}) = - \int k(T) \nabla T \cdot \nabla \tilde{T} - f \cdot
-#   \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V,
-# $$ (eq_1)
+# $$ F(T; \tilde{T}) = - \int k(T) \nabla T \cdot \nabla \tilde{T} - f \cdot
+#   \tilde{T} \; \mathrm{d}x = 0 \quad \forall \tilde{T} \in V, $$ (eq_1)
 #
 # where the semi-colon denotes the split between operands (on the left) and
-# arguments (on the right) in which the form is non-linear and linear respectively.
+# arguments (on the right) in which the form is non-linear and linear
+# respectively.
 #
 # To solve the nonlinear equation {eq}`eq_1` we apply Newton's method which
 # requires the computation of Jacobian, or the Gateaux derivative of $F$.
 #
 # \begin{equation*}
-#   J(T; \hat{T}, \tilde{T})
-#   := D_{T} [ F(T; \tilde{T}) ] \lbrace \hat{T} \rbrace
-#   := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace \cdot \nabla \tilde{T} \; \mathrm{d}x
+# J(T; \hat{T}, \tilde{T}) := D_{T} [ F(T; \tilde{T}) ]
+#   \lbrace \hat{T} \rbrace := -\int D_T[k(T) \nabla T] \lbrace \hat{T} \rbrace
+#   \cdot \nabla \tilde{T} \; \mathrm{d}x
 # \end{equation*}
 #
 # Now we apply the product and chain rules to write
 #
 # \begin{align*}
-#   D_{T}[k \nabla T]\lbrace \hat{T} \rbrace &= D_T [k]\lbrace
-#   D_T[T]\lbrace \hat{T} \rbrace \rbrace\nabla T +
-#   k(T)
-#   D_T[\nabla T]\lbrace \hat{T} \rbrace \\
-#   &= D_T [k]\lbrace \hat{T} \rbrace \nabla T +
-#   [k(T) \boldsymbol{I}] \cdot \nabla \hat{T},  \\
+# D_{T}[k(T) \nabla T]\lbrace \hat{T} \rbrace &= D_T [k(T)]\lbrace
+#   \hat{T} \rbrace\nabla T + k(T) D_T[\nabla T]\lbrace
+#   \hat{T} \rbrace \\
+#   &= D_T [k(T)]\lbrace \hat{T} \rbrace \nabla T + k(T) \boldsymbol{I} \cdot
+#   \nabla \hat{T},  \\
 # \end{align*}
+#
 # where $\boldsymbol{I}$ is the 2x2 identity matrix.
 #
+# ```{seealso}
+
+# Here we used a specific notation to define the directional Gateaux derivative
+# within the use of external operators. This notation may be useful in the
+# context of more complex cases of multiple operands and main fields. You can
+# find details in [Some Notation for External Operators](../notes/notation.md).
+
+# ```
 # To fix ideas, we now assume the following explicit form for the material
 # conductivity
+#
 # \begin{equation*}
 #   k(T) = \frac{1}{A + BT}
 # \end{equation*}
+#
 # where $A$ and $B$ are material constants. After some algebra we can derive
+#
 # \begin{equation*}
-#   D_T [k]\lbrace \hat{T} \rbrace =
-#   [-Bk^2(T)] \hat{T}
+#   D_T [k]\lbrace \hat{T} \rbrace = -Bk^2(T) \hat{T}
 # \end{equation*}
-# We now proceed to the definition of residual and Jacobian of this problem
-# where $\boldsymbol{q}$ will be defined using the `FEMExternalOperator` approach
-# and an external implementation using the `NumPy` package.
+#
+# We now proceed to the definition of residual and Jacobian of
+# this problem where $\boldsymbol{q}$ will be defined using the
+# `FEMExternalOperator` approach and an external implementation using the
+#   `NumPy` package.
 # ```{note}
 # This simple model can also be implemented in pure UFL and the Jacobian
 # derived symbolically using UFL's `derivative` function.
@@ -253,7 +262,7 @@ def k_impl(T):
 # implementations of the left part of the derivative
 # \begin{equation*}
 #     D_{T}[k(T)] \lbrace \hat{T} \rbrace =
-#     [-Bk^2(T)] \cdot \hat{T}
+#     -Bk^2(T) \cdot \hat{T}
 # \end{equation*}
 
 # %%
@@ -324,15 +333,15 @@ J = derivative(F, T, T_hat)
 # To apply the chain rule and obtain a new form symbolically equivalent to
 #
 # \begin{equation*}
-#     J(T; \hat{T}, \tilde{T}) = \int (D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace +
-#     D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace) \cdot \nabla \tilde{T} \; \mathrm{d}x \\
+# J(T; \hat{T}, \tilde{T}) = \int (D_T [k(T)]\lbrace \hat{T}
+#     \rbrace \nabla T + k(T) \boldsymbol{I} \cdot \nabla \hat{T}) \cdot \nabla
+#   \tilde{T} \; \mathrm{d}x \\
 # \end{equation*}
 #
 # and which can be assembled via DOLFINx, we apply UFL's derivative expansion
 # algorithm. This algorithm is aware of the `FEMExternalOperator` semantics and
-# the chain rule, and creates a new form containing new `FEMExternalOperator`
-# objects associated with the terms $D_T [\boldsymbol{q}]\lbrace \hat{T} \rbrace$
-# and $D_{\boldsymbol{\sigma}}[\boldsymbol{q}] \lbrace \nabla \hat{T} \rbrace$.
+# the chain rule, and creates a new form containing a new `FEMExternalOperator`
+# object associated with the term $D_T [k(T)]\lbrace \hat{T} \rbrace$.
 
 # %%
 J_expanded = ufl.algorithms.expand_derivatives(J)

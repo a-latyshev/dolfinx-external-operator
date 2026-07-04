@@ -12,7 +12,7 @@ parts:
       - file: "demo/demo_hyperelasticity.py"
   - caption: "Notes"
     chapters:
-        - file: "demo/math.md"
-        - file: "demo/FAQ.md"
+        - file: "notes/notation.md"
+        - file: "notes/FAQ.md"
 
   
