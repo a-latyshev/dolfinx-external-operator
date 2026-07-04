@@ -120,7 +120,9 @@ Using the Einstein summation convention, let $\alpha_1 \dots \alpha_k$ denote th
 
 The components of the tangent tensor $\mathbb{C}$ are:
 
-$$\mathbb{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} = \frac{\partial \boldsymbol{N}_{\alpha_1 \dots \alpha_k}}{\partial \boldsymbol{o}_{\beta_1 \dots \beta_p}}$$
+$$
+\mathbb{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} = \frac{\partial \boldsymbol{N}_{\alpha_1 \dots \alpha_k}}{\partial \boldsymbol{o}_{\beta_1 \dots \beta_p}}
+$$
 
 The directional variation of the external operator is evaluated by contracting the tangent tensor $\mathbb{C}$ with the directional variation of operand $\bo$ over the $p$ indices of the latter:
 
@@ -184,12 +186,14 @@ The creation of a function space is an expensive operation. When external operat
 
 Let's suppose that the external operator $\bN$ is from the mixed function space $\bV = V_1 \times \bV_2$, consisting of two subspaces: a scalar space $V_1$ and a vector space $\bV_2$ in $\mathbb{R}^2$. Furthermore, $\bN$ depends on two operands $o_1(\cdot) \in V_1$ and $\bo_2(\cdot) \in \bV_2$:
 
-$$ \bN(o_1, \bo_2) = (N_1(o_1, \bo_2), \bN_2(o_1, \bo_2)) \in \bV = V_1 \times \bV_2$$
+$$
+\bN(o_1, \bo_2) = (N_1(o_1, \bo_2), \bN_2(o_1, \bo_2)) \in \bV = V_1 \times \bV_2
+$$
 
 Here for simplicity we consider the following operands:
 
 $$
-    o_1 = o_1(u_1), \quad \bo_2 = \bo_2(\bu_2)
+o_1 = o_1(u_1), \quad \bo_2 = \bo_2(\bu_2)
 $$
 
 For $\bu, \bv \in \bV$
@@ -217,27 +221,19 @@ $$
 And finally, we expand the directional derivatives of the component of the external operator $\bN$:
 
 $$
-    D_{u_1}[N_1]\{ \hat{u}_1 \} = \frac{\partial N_1}{\partial o_1}
-    D_{u_1} [o_1]\{ \hat{u}_1 \} + \frac{\partial N_1}{\partial \bo_2} \cdot
-    \underbrace{D_{u_1} [\bo_2]\{ \hat{u}_1 \}}_{=\bzero},
+D_{u_1}[N_1]\{ \hat{u}_1 \} = \frac{\partial N_1}{\partial o_1} D_{u_1} [o_1]\{ \hat{u}_1 \} + \frac{\partial N_1}{\partial \bo_2} \cdot \underbrace{D_{u_1} [\bo_2]\{ \hat{u}_1 \}}_{=\bzero},
 $$
 
 $$
-    D_{u_1}[\bN_2]\{ \hat{u}_1 \} = \frac{\partial \bN_2}{\partial o_1}
-    D_{u_1} [o_1]\{ \hat{u}_1 \} + \frac{\partial \bN_2}{\partial \bo_2} \cdot
-    \underbrace{D_{u_1} [\bo_2]\{ \hat{u}_1 \}}_{=\bzero},
+D_{u_1}[\bN_2]\{ \hat{u}_1 \} = \frac{\partial \bN_2}{\partial o_1} D_{u_1} [o_1]\{ \hat{u}_1 \} + \frac{\partial \bN_2}{\partial \bo_2} \cdot \underbrace{D_{u_1} [\bo_2]\{ \hat{u}_1 \}}_{=\bzero},
 $$
 
 $$
-    D_{\bu_2}[N_1]\{ \hat{\bu}_2 \} = \frac{\partial N_1}{\partial o_1}
-    \underbrace{D_{\bu_2} [o_1]\{ \hat{\bu}_2 \}}_{=0} + \frac{\partial N_1}{\partial \bo_2} \cdot
-    D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
+D_{\bu_2}[N_1]\{ \hat{\bu}_2 \} = \frac{\partial N_1}{\partial o_1} \underbrace{D_{\bu_2} [o_1]\{ \hat{\bu}_2 \}}_{=0} + \frac{\partial N_1}{\partial \bo_2} \cdot D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
 $$
 
 $$
-    D_{\bu_2}[\bN_2]\{ \hat{\bu}_2 \} = \frac{\partial \bN_2}{\partial o_1}
-    \underbrace{D_{\bu_2} [o_1]\{ \hat{\bu}_2 \}}_{=0} + \frac{\partial \bN_2}{\partial \bo_2} \cdot
-    D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
+D_{\bu_2}[\bN_2]\{ \hat{\bu}_2 \} = \frac{\partial \bN_2}{\partial o_1} \underbrace{D_{\bu_2} [o_1]\{ \hat{\bu}_2 \}}_{=0} + \frac{\partial \bN_2}{\partial \bo_2} \cdot D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
 $$
 
 In practice, we just need to know the partial derivatives of the external
@@ -254,8 +250,10 @@ $$
 After UFL differentiation of the form $F$, a new mixed element space $\bQ_2 = \bQ_{12} \times \bQ_{22}$ will be allocated, with the following mathematical shapes:
 
 $$
-\mathrm{shape}(\bq_{12}) = (2), \quad \bq_{12} \in \bQ_{12},\\
-\mathrm{shape}(\bq_{22}) = (2,2), \quad \bq_{22} \in \bQ_{22}.\\
+\begin{aligned}
+\mathrm{shape}(\bq_{12}) &= (2), \quad \bq_{12} \in \bQ_{12}, \\
+\mathrm{shape}(\bq_{22}) &= (2,2), \quad \bq_{22} \in \bQ_{22}.
+\end{aligned}
 $$
 
 ```{important}
@@ -299,7 +297,7 @@ Every component $N_i$ mathematically receives the exact same set of operands, re
 The tangent operators are grouped globally:
 
 $$
-\frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j} = \left( \frac{\partial N_1}{\partial \boldsymbol{o}_j}, \dots, \frac{\partial N_m}{\partial \boldsymbol{o}_j} \right)  \in \bQ_{ij}.
+\frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j} = \left( \frac{\partial N_1}{\partial \boldsymbol{o}_j}, \dots, \frac{\partial N_m}{\partial \boldsymbol{o}_j} \right)  \in \bQ_{j}.
 $$
 
 Their values must be stored in a single contiguous flattened array preserving the block order of the component subspaces.
@@ -336,10 +334,10 @@ Components $N_i$ do not need to share or align their operands, allowing each to 
 
 **Derivatives**
 
-The partial derivatives are computed and provided separately for each operator, similar to how it's done in the case of normal functional spaces
+The partial derivatives are computed and provided separately for each operator, similar to how it's done in the case of normal function spaces:
 
 $$
-\frac{\partial N_i}{\partial \boldsymbol{o}_{i, j}} \in \bQ_j.
+\frac{\partial N_i}{\partial \boldsymbol{o}_{i, j}} \in Q_{i, j}.
 $$
 
 No global vector concatenation or alignment of operand sets across components is required.
@@ -348,5 +346,5 @@ No global vector concatenation or alignment of operand sets across components is
 `````
 
 ```{seealso}
-Although the `ufl.MixedFunctionSpace` approach is more straightforward and allocates less memory, `dolfinx-external-operator` supports both approches. See examples for both cases in [`test_external_operators_evaluation.py`](https://github.com/a-latyshev/dolfinx-external-operator/blob/alatyshev/MixedFunctionSpace/test/test_external_operators_evaluation.py). 
+Although the `ufl.MixedFunctionSpace` approach is more straightforward and allocates less memory, `dolfinx-external-operator` supports both approaches. See examples for both cases in [`test_external_operators_evaluation.py`](https://github.com/a-latyshev/dolfinx-external-operator/blob/alatyshev/MixedFunctionSpace/test/test_external_operators_evaluation.py). 
 ```
