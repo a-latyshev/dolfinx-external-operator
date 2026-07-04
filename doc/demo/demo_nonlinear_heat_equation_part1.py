@@ -370,7 +370,7 @@ J_replaced, J_external_operators = replace_external_operators(J_expanded)
 # ```
 #
 # ```{note}
-# Starting from `v0.10.1`, the call of `ufl.algorithms.expand_derivatives(J)` is
+# Starting from `v0.10.1`, the call to `ufl.algorithms.expand_derivatives(J)` is
 # not required anymore since the derivative is expanded in
 # `replace_external_operators`.
 # ```
