@@ -304,3 +304,80 @@ def test_mixed_element_space():
     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_vector_matrix(F, F_explicit, u)
+
+
+def test_mixed_cg_dg_space():
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+    gdim = domain.geometry.dim
+
+    # Solution space (lower order)
+    Ve_u1 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=())
+    Ve_u2 = basix.ufl.element("DG", domain.topology.cell_name(), degree=1, shape=(gdim,))
+    V_u = fem.functionspace(domain, basix.ufl.mixed_element([Ve_u1, Ve_u2]))
+    u = fem.Function(V_u)
+    u.sub(0).interpolate(lambda x: x[0] ** 2 + x[1])
+    u.sub(1).interpolate(lambda x: (x[0] - x[1], x[0] + x[1]))
+    u1, u2 = split(u)
+
+    # External operator space (higher order, making expressions exactly representable)
+    Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=4, shape=())
+    Ve2 = basix.ufl.element("DG", domain.topology.cell_name(), degree=3, shape=(gdim,))
+    V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
+    v = TestFunction(V)
+
+    V1 = V.sub(0)
+    V2 = V.sub(1)
+
+    pts_V1 = V1.element.interpolation_points.shape[0]
+    pts_V2 = V2.element.interpolation_points.shape[0]
+    pts_total = pts_V1 + pts_V2
+
+    def N_tensor_impl(u1_, u2_):
+        n_cells = u1_.shape[0]
+        # output component size is 2 (since the maximum subspace value size is 2)
+        out = np.zeros((n_cells, pts_total, 2), dtype=u1_.dtype)
+        # N1 = u1**2 (continuous component stored in [:, :pts_V1, 0])
+        out[:, :pts_V1, 0] = u1_[:, :pts_V1] ** 2
+        # N2 = u1 * u2 (discontinuous vector component stored in [:, pts_V1:, 0:2])
+        out[:, pts_V1:, 0:2] = u1_[:, pts_V1:, np.newaxis] * u2_[:, pts_V1:, :]
+        return out.reshape(-1)
+
+    def dNdu1_impl(u1_, u2_):
+        n_cells = u1_.shape[0]
+        out = np.zeros((n_cells, pts_total, 2), dtype=u1_.dtype)
+        # dN1/du1 = 2*u1 (scalar)
+        out[:, :pts_V1, 0] = 2.0 * u1_[:, :pts_V1]
+        # dN2/du1 = u2 (vector)
+        out[:, pts_V1:, 0:2] = u2_[:, pts_V1:, :]
+        return out.reshape(-1)
+
+    def dNdu2_impl(u1_, u2_):
+        # Return component axis size 4 for the mixed (vector + matrix) derivative space.
+        n_cells = u1_.shape[0]
+        out = np.zeros((n_cells, pts_total, 4), dtype=u1_.dtype)
+        # dN1/du2 = 0 (vector, stored in out[:, :pts_V1, 0:2], remains zero)
+        # dN2/du2 = u1 * I (matrix, stored in out[:, pts_V1:, 0:4])
+        out[:, pts_V1:, 0] = u1_[:, pts_V1:]
+        out[:, pts_V1:, 3] = u1_[:, pts_V1:]
+        return out.reshape(-1)
+
+    def N_external(derivatives):
+        if derivatives == (0, 0):
+            return N_tensor_impl
+        elif derivatives == (1, 0):
+            return dNdu1_impl
+        elif derivatives == (0, 1):
+            return dNdu2_impl
+        else:
+            raise NotImplementedError
+
+    N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
+
+    N1, N2 = split(N)
+    v1, v2 = split(v)
+    F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
+    N1_explicit = u1**2
+    N2_explicit = u1 * u2
+    F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
+
+    check_vector_matrix(F, F_explicit, u)
