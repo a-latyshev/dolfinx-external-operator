@@ -379,7 +379,7 @@ def evaluate_operands(
         op_mesh = op_ref_fs.mesh
 
         for operand in external_operator.ufl_operands:
-            key = (id(op_ref_fs), operand)
+            key = (external_operator.eval_points.tobytes(), operand)
             if key not in evaluated_operands:
                 if isinstance(operand, ufl.ExternalOperator):
                     evaluated_operand = evaluate_operands([operand], entities)
@@ -407,13 +407,13 @@ def evaluate_operands(
 
 def evaluate_external_operators(
     external_operators: list[FEMExternalOperator],
-    evaluated_operands: dict[tuple[int, ufl.core.expr.Expr], np.ndarray],
+    evaluated_operands: dict[tuple[bytes, ufl.core.expr.Expr], np.ndarray],
 ) -> list[list[np.ndarray]]:
     """Evaluates external operators and updates the associated coefficient.
 
     Args:
         external_operators: A list with external operators to evaluate.
-        evaluated_operands: A dictionary mapping (id(ref_function_space), operand) to `ndarray`
+        evaluated_operands: A dictionary mapping (eval_points.tobytes(), operand) to `ndarray`
                             containing their evaluation.
 
     Returns:
@@ -425,7 +425,7 @@ def evaluate_external_operators(
     for external_operator in external_operators:
         ufl_operands_eval = []
         for operand in external_operator.ufl_operands:
-            key = (id(external_operator.ref_function_space), operand)
+            key = (external_operator.eval_points.tobytes(), operand)
             if isinstance(operand, ufl.ExternalOperator):
                 sub_eval_ops = evaluated_operands[key]
                 ufl_operands_eval.extend(evaluate_external_operators([operand], sub_eval_ops))

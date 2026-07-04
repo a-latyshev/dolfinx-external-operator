@@ -62,8 +62,8 @@ def test_operands_evaluation():
     _, J_external_operators = replace_external_operators(J)
     evaluated_operands = evaluate_operands(J_external_operators)
     I1_expanded = N.ufl_operands[0]
-    np.testing.assert_allclose(I1_values.reshape(-1), evaluated_operands[(id(Q), I1_expanded)].reshape(-1))
-    np.testing.assert_allclose(slope_values.reshape(-1), evaluated_operands[(id(Q), slope)].reshape(-1))
+    np.testing.assert_allclose(I1_values.reshape(-1), evaluated_operands[(Q.element.interpolation_points.tobytes(), I1_expanded)].reshape(-1))
+    np.testing.assert_allclose(slope_values.reshape(-1), evaluated_operands[(Q.element.interpolation_points.tobytes(), slope)].reshape(-1))
 
 
 def test_operands_evaluation_real_space():
@@ -133,5 +133,5 @@ def test_operands_evaluation_real_space():
     evaluated_operands = evaluate_operands(J_external_operators)
 
     I1_expanded = N.ufl_operands[0]
-    np.testing.assert_allclose(I1_values.reshape(-1), evaluated_operands[(id(Q), I1_expanded)].reshape(-1))
-    np.testing.assert_allclose(slope_values.reshape(-1), evaluated_operands[(id(Q), slope)].reshape(-1))
+    np.testing.assert_allclose(I1_values.reshape(-1), evaluated_operands[(Q.element.interpolation_points.tobytes(), I1_expanded)].reshape(-1))
+    np.testing.assert_allclose(slope_values.reshape(-1), evaluated_operands[(Q.element.interpolation_points.tobytes(), slope)].reshape(-1))
