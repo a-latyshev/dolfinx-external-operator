@@ -46,7 +46,7 @@
 # which we know an analytical solution in the case of the standard Mohr-Coulomb
 # model without smoothing under plane strain assumption for associative plastic law
 # {cite}`chenLimitAnalysisSoil1990`. Here we follow the same Mandel-Voigt notation
-# as in the [von Mises plasticity tutorial](demo_plasticity_von_mises.py).
+# as in the [von Mises plasticity tutorial](04_demo_plasticity_von_mises.py).
 #
 # If $V$ is a functional space of admissible displacement fields, then we can
 # write out a weak formulation of the problem:
