@@ -396,8 +396,8 @@ def test_mixed_function_space():
     u1.interpolate(lambda x: x[1] + 2.0)
     u2.interpolate(lambda x: x[1] + 1.0)
     
-    v1 = TestFunction(V1)
-    v2 = TestFunction(V2)
+    W = ufl.MixedFunctionSpace(V1, V2)
+    v1, v2 = ufl.TestFunctions(W)
 
     def N_impl(u2_):
         return u2_.reshape(-1)
@@ -416,9 +416,12 @@ def test_mixed_function_space():
     N1 = FEMExternalOperator(u2, function_space=V1, name="N1", external_function=N_external)
     N2 = FEMExternalOperator(u2, function_space=V2, name="N2", external_function=N_external)
     
-    # Residual equations for each block
-    F0 = N1 * v1 * ufl.dx
-    F1 = inner(grad(N2), grad(v2)) * ufl.dx
+    # Monolithic residual equation
+    F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
+
+    # Extract block equations
+    F0 = ufl.extract_blocks(F, 0)
+    F1 = ufl.extract_blocks(F, 1)
     
     # Jacobian blocks: derivative of F0 and F1 w.r.t u2
     J0 = derivative(F0, u2, TrialFunction(V2))
@@ -435,12 +438,7 @@ def test_mixed_function_space():
     J1_replaced, J1_ops = replace_external_operators(J1_expanded)
 
     all_ops = list(set(F0_ops + F1_ops + J0_ops + J1_ops))
-    print("DEBUG J0:", J0)
-    print("DEBUG expanded J0:", ufl.algorithms.expand_derivatives(J0))
-    print("DEBUG J0_replaced:", J0_replaced)
-    print("DEBUG J1:", J1)
-    print("DEBUG expanded J1:", ufl.algorithms.expand_derivatives(J1))
-    print("DEBUG J1_replaced:", J1_replaced)
+    
     evaluated = evaluate_operands(all_ops)
     evaluate_external_operators(all_ops, evaluated)
 
@@ -453,8 +451,9 @@ def test_mixed_function_space():
     # Explicit counterparts
     N1_explicit = u2
     N2_explicit = u2
-    F0_explicit = N1_explicit * v1 * ufl.dx
-    F1_explicit = inner(grad(N2_explicit), grad(v2)) * ufl.dx
+    F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
+    F0_explicit = ufl.extract_blocks(F_explicit, 0)
+    F1_explicit = ufl.extract_blocks(F_explicit, 1)
     J0_explicit = derivative(F0_explicit, u2, TrialFunction(V2))
     J1_explicit = derivative(F1_explicit, u2, TrialFunction(V2))
 
