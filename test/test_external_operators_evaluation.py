@@ -55,8 +55,8 @@ def check_block_vector_matrix(F, F_explicit, u_sol, W):
     num_blocks = W.num_sub_spaces()
     u_trial = ufl.TrialFunctions(W)
 
-    F_blocks = [ufl.extract_blocks(F, i) for i in range(num_blocks)]
-    F_explicit_blocks = [ufl.extract_blocks(F_explicit, i) for i in range(num_blocks)]
+    F_blocks = ufl.extract_blocks(F)
+    F_explicit_blocks = ufl.extract_blocks(F_explicit)
 
     J_blocks = derivative_block(F_blocks, u_sol, u_trial)
     J_explicit_blocks = derivative_block(F_explicit_blocks, u_sol, u_trial)
