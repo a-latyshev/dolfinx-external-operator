@@ -49,6 +49,7 @@ def check_block_vector_matrix(F, F_explicit, u_sol, W):
     """Check that the vector and matrix blocks assembled from the monolithic mixed form `F`
     match those assembled from the explicit mixed form `F_explicit`.
     """
+    from dolfinx.fem.forms import derivative_block
     from dolfinx.fem.petsc import assemble_matrix as assemble_matrix_petsc
 
     num_blocks = W.num_sub_spaces()
@@ -57,12 +58,8 @@ def check_block_vector_matrix(F, F_explicit, u_sol, W):
     F_blocks = [ufl.extract_blocks(F, i) for i in range(num_blocks)]
     F_explicit_blocks = [ufl.extract_blocks(F_explicit, i) for i in range(num_blocks)]
 
-    J_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
-    J_explicit_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
-    for i in range(num_blocks):
-        for j in range(num_blocks):
-            J_blocks[i][j] = derivative(F_blocks[i], u_sol[j], u_trial[j])
-            J_explicit_blocks[i][j] = derivative(F_explicit_blocks[i], u_sol[j], u_trial[j])
+    J_blocks = derivative_block(F_blocks, u_sol, u_trial)
+    J_explicit_blocks = derivative_block(F_explicit_blocks, u_sol, u_trial)
 
     F_replaced_blocks = []
     F_ops = []
@@ -75,8 +72,7 @@ def check_block_vector_matrix(F, F_explicit, u_sol, W):
     J_ops = []
     for i in range(num_blocks):
         for j in range(num_blocks):
-            J_expanded = ufl.algorithms.expand_derivatives(J_blocks[i][j])
-            J_rep, J_op = replace_external_operators(J_expanded)
+            J_rep, J_op = replace_external_operators(J_blocks[i][j])
             J_replaced_blocks[i][j] = J_rep
             J_ops.extend(J_op)
 
