@@ -388,10 +388,9 @@ sigma.external_function = sigma_external
 # %%
 u_hat = ufl.TrialFunction(V)
 J = ufl.derivative(F, Du, u_hat)
-J_expanded = ufl.algorithms.expand_derivatives(J)
 
 F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
+J_replaced, J_external_operators = replace_external_operators(J)
 
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)

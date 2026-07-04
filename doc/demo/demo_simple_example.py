@@ -20,9 +20,9 @@
 # the `ref_coefficient` attribute of the `femExternalOperator` object.
 #
 # Once a form containing the external operator is defined it can be
-# successfully differentiated using the UFL function `expand_derivatives`. The
-# latter recursively applies the automatic differentiation (AD) feature of UFL
-# to the form and calculates the Gateau derivative $\frac{d N}{d u}$ of the
+# successfully differentiated. UFL recursively applies the automatic
+# differentiation (AD) feature of UFL to the form and calculates the
+# Gateau derivative $\frac{d N}{d u}$ of the
 # external operator according to the chain rule. During this procedure, the
 # algorithm creates a new `femExternalOperator` object representing the
 # derivative $\frac{d N}{d u}$. It preserves an appropriate local shape of the
@@ -188,8 +188,7 @@ F_replaced, F_ex_ops_list = replace_external_operators(F)
 F_dolfinx = fem.form(F_replaced)
 
 # %%
-J_expanded = ufl.algorithms.expand_derivatives(J)
-J_replaced, J_ex_ops_list = replace_external_operators(J_expanded)
+J_replaced, J_ex_ops_list = replace_external_operators(J)
 J_dolfinx = fem.form(J_replaced)
 
 # %% [markdown]
@@ -198,8 +197,8 @@ J_dolfinx = fem.form(J_replaced)
 # objects and finite objects `fem.Function`, the user must be aware that once
 # the expansion of the derivatives is performed, the framework creates new
 # functional spaces for shapes of derivatives of external operators and
-# allocates memory for the appropriate coefficients. Thus, `expand_derivatives`
-# may lead to "hidden" memory allocations, which may not be exptected by UFL
+# allocates memory for the appropriate coefficients. Thus, this expansion
+# may lead to "hidden" memory allocations, which may not be expected by UFL
 # users.
 # ```
 #
