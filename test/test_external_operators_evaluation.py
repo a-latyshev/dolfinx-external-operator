@@ -45,6 +45,65 @@ def check_vector_matrix(F, F_explicit, u):
     assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 
 
+def check_block_vector_matrix(F, F_explicit, u_sol, W):
+    """Check that the vector and matrix blocks assembled from the monolithic mixed form `F`
+    match those assembled from the explicit mixed form `F_explicit`.
+    """
+    num_blocks = W.num_sub_spaces()
+    u_trial = ufl.TrialFunctions(W)
+    
+    F_blocks = [ufl.extract_blocks(F, i) for i in range(num_blocks)]
+    F_explicit_blocks = [ufl.extract_blocks(F_explicit, i) for i in range(num_blocks)]
+    
+    J_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
+    J_explicit_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
+    for i in range(num_blocks):
+        for j in range(num_blocks):
+            J_blocks[i][j] = derivative(F_blocks[i], u_sol[j], u_trial[j])
+            J_explicit_blocks[i][j] = derivative(F_explicit_blocks[i], u_sol[j], u_trial[j])
+            
+    F_replaced_blocks = []
+    F_ops = []
+    for i in range(num_blocks):
+        F_rep, F_op = replace_external_operators(F_blocks[i])
+        F_replaced_blocks.append(F_rep)
+        F_ops.extend(F_op)
+        
+    J_replaced_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
+    J_ops = []
+    for i in range(num_blocks):
+        for j in range(num_blocks):
+            J_expanded = ufl.algorithms.expand_derivatives(J_blocks[i][j])
+            J_rep, J_op = replace_external_operators(J_expanded)
+            J_replaced_blocks[i][j] = J_rep
+            J_ops.extend(J_op)
+            
+    all_ops = list(dict.fromkeys(F_ops + J_ops))
+    evaluated = evaluate_operands(all_ops)
+    evaluate_external_operators(all_ops, evaluated)
+    
+    def has_integrals(form_):
+        return hasattr(form_, "integrals") and len(form_.integrals()) > 0
+        
+    for i in range(num_blocks):
+        b = fem.assemble_vector(fem.form(F_replaced_blocks[i]))
+        b_explicit = fem.assemble_vector(fem.form(F_explicit_blocks[i]))
+        assert np.allclose(b_explicit.array, b.array)
+        
+    for i in range(num_blocks):
+        for j in range(num_blocks):
+            J_rep = J_replaced_blocks[i][j]
+            J_exp_expanded = ufl.algorithms.expand_derivatives(J_explicit_blocks[i][j])
+            
+            if has_integrals(J_rep):
+                A = fem.assemble_matrix(fem.form(J_rep))
+                A_explicit = fem.assemble_matrix(fem.form(J_exp_expanded))
+                assert np.allclose(A_explicit.to_dense(), A.to_dense())
+            else:
+                assert not has_integrals(J_rep)
+                assert not has_integrals(J_exp_expanded)
+
+
 def test_quadrature_space():
     # Test is based on the heat equation tutorial:
     # `nonlinear_heat_equation_part2.py`.
@@ -419,51 +478,9 @@ def test_mixed_function_space():
     # Monolithic residual equation
     F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
 
-    # Extract block equations
-    F0 = ufl.extract_blocks(F, 0)
-    F1 = ufl.extract_blocks(F, 1)
-    
-    # Jacobian blocks: derivative of F0 and F1 w.r.t u2
-    J0 = derivative(F0, u2, TrialFunction(V2))
-    J1 = derivative(F1, u2, TrialFunction(V2))
-
-    # Replace external operators
-    F0_replaced, F0_ops = replace_external_operators(F0)
-    F1_replaced, F1_ops = replace_external_operators(F1)
-
-    J0_expanded = ufl.algorithms.expand_derivatives(J0)
-    J0_replaced, J0_ops = replace_external_operators(J0_expanded)
-    
-    J1_expanded = ufl.algorithms.expand_derivatives(J1)
-    J1_replaced, J1_ops = replace_external_operators(J1_expanded)
-
-    all_ops = list(set(F0_ops + F1_ops + J0_ops + J1_ops))
-    
-    evaluated = evaluate_operands(all_ops)
-    evaluate_external_operators(all_ops, evaluated)
-
-    # Assemble replaced forms
-    b0 = fem.assemble_vector(fem.form(F0_replaced))
-    b1 = fem.assemble_vector(fem.form(F1_replaced))
-    A0 = fem.assemble_matrix(fem.form(J0_replaced))
-    A1 = fem.assemble_matrix(fem.form(J1_replaced))
-
     # Explicit counterparts
     N1_explicit = u2
     N2_explicit = u2
     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
-    F0_explicit = ufl.extract_blocks(F_explicit, 0)
-    F1_explicit = ufl.extract_blocks(F_explicit, 1)
-    J0_explicit = derivative(F0_explicit, u2, TrialFunction(V2))
-    J1_explicit = derivative(F1_explicit, u2, TrialFunction(V2))
 
-    b0_explicit = fem.assemble_vector(fem.form(F0_explicit))
-    b1_explicit = fem.assemble_vector(fem.form(F1_explicit))
-    A0_explicit = fem.assemble_matrix(fem.form(J0_explicit))
-    A1_explicit = fem.assemble_matrix(fem.form(J1_explicit))
-
-    # Verify
-    assert np.allclose(b0_explicit.array, b0.array)
-    assert np.allclose(b1_explicit.array, b1.array)
-    assert np.allclose(A0_explicit.to_dense(), A0.to_dense())
-    assert np.allclose(A1_explicit.to_dense(), A1.to_dense())
+    check_block_vector_matrix(F, F_explicit, [u1, u2], W)
