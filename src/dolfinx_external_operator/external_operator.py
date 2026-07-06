@@ -53,6 +53,15 @@ class FEMExternalOperator(ufl.ExternalOperator):
     The `FEMExternalOperator` class extends the functionality of the original
     `ufl.ExternalOperator` class, which symbolically represents operators that
     are not straightforwardly expressible in UFL.
+
+    Attributes:
+        original_function_space (fem.function.FunctionSpace): The original function space on which
+            the external operator is defined, representing the output shape of the operator prior
+            to any differentiation.
+        ref_function_space (fem.function.FunctionSpace): The reference function space of the
+            operator. When derivatives are taken, this space is updated to include the additional
+            tensor dimensions introduced by differentiation. Otherwise, it is identical to
+            original_function_space.
     """
 
     # Slots are disabled here because they cause trouble in PyDOLFIN
