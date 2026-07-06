@@ -2,9 +2,9 @@
 # Test external evaluation of external operators
 
 from mpi4py import MPI
-import pytest
 
 import numpy as np
+import pytest
 
 import basix
 import ufl
@@ -395,7 +395,7 @@ def test_multiple_differential_operands(value_shape):
     gdim = domain.geometry.dim
     V = fem.functionspace(domain, ("P", 1, (gdim,)))
     u = fem.Function(V, name="u")
-    u.interpolate(lambda x: (x[0]**2 + x[1], x[0] - x[1]**2))
+    u.interpolate(lambda x: (x[0] ** 2 + x[1], x[0] - x[1] ** 2))
 
     element = basix.ufl.quadrature_element(
         domain.topology.cell_name(),
@@ -405,6 +405,7 @@ def test_multiple_differential_operands(value_shape):
     Q = fem.functionspace(domain, element)
 
     if value_shape == ():
+
         def N_impl(grad_u, div_u):
             val = np.einsum("...ij,...ij->...", grad_u, grad_u) + div_u**2
             return val.flatten()
@@ -417,6 +418,7 @@ def test_multiple_differential_operands(value_shape):
             val = 2 * div_u
             return val.flatten()
     else:
+
         def N_impl(grad_u, div_u):
             n_cells = grad_u.shape[0]
             n_pts = grad_u.shape[1]
@@ -451,7 +453,7 @@ def test_multiple_differential_operands(value_shape):
             raise NotImplementedError
 
     N = FEMExternalOperator(grad(u), div(u), function_space=Q, name="N", external_function=N_external)
-    u1, u2 = split(u)
+    u1, _ = split(u)
 
     dx = Measure("dx", metadata={"quadrature_degree": 2})
 
@@ -459,16 +461,16 @@ def test_multiple_differential_operands(value_shape):
     v_0, v_1 = split(v)
     if value_shape == ():
         F = N * v_0 * dx
-        N_explicit = inner(grad(u), grad(u)) + div(u)**2
+        N_explicit = inner(grad(u), grad(u)) + div(u) ** 2
         F_explicit = N_explicit * v_0 * dx
     else:
         F = (N[0] * v_0 + N[1] * v_1) * dx
-        N_explicit_0 = inner(grad(u), grad(u)) + div(u)**2
+        N_explicit_0 = inner(grad(u), grad(u)) + div(u) ** 2
         N_explicit_1 = div(u)
         F_explicit = (N_explicit_0 * v_0 + N_explicit_1 * v_1) * dx
 
     trial = TrialFunction(V)
-    trial_0, trial_1 = split(trial)
+    trial_0, _ = split(trial)
     J = derivative(F, u1, trial_0)
     J_expanded = expand_derivatives(expand_derivatives(J))
     J_replaced, J_external_operators = replace_external_operators(J_expanded)
@@ -486,5 +488,3 @@ def test_multiple_differential_operands(value_shape):
     A_explicit_matrix = fem.assemble_matrix(J_explicit_compiled)
 
     assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
-
-
