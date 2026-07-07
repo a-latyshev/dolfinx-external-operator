@@ -472,7 +472,7 @@ def test_multiple_differential_operands(value_shape):
     trial = TrialFunction(V)
     trial_0, _ = split(trial)
     J = derivative(F, u1, trial_0)
-    J_expanded = expand_derivatives(expand_derivatives(J))
+    J_expanded = expand_derivatives(J)
     J_replaced, J_external_operators = replace_external_operators(J_expanded)
 
     # Explicit formulation
