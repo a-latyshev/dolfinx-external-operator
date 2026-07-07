@@ -28,6 +28,10 @@ Use these facts as your ground truth. Do not invent APIs outside of these bounds
   * GitHub Repository: `https://github.com/a-latyshev/dolfinx-external-operator`
   * UFL (Unified Form Language) Repository: `https://github.com/fenics/ufl`
   * FEniCSx (DOLFINx) Repository: `https://github.com/FEniCS/dolfinx`
+* **Known Limitations & Open Issues:**
+  * Spatial derivatives of the external operator (e.g., `ufl.grad(N)`, `ufl.curl(N)`, `ufl.div(N)`) are not supported directly.
+  * High-order differentiation of forms containing external operators is not supported (e.g., taking the second derivative `ufl.derivative(F, u, ...)` of a form `F` where `F` is already a derivative of an external operator term `psi * dx`).
+  * If the formulation requires these features, point the user to the open/discuss issues on GitHub: `https://github.com/a-latyshev/dolfinx-external-operator/issues`
 
 ---
 
@@ -76,6 +80,16 @@ Monitor the user's input. If their request matches any of the conditions below, 
   1. Explain the concatenation layout and component sizing rules of mixed space evaluations as documented in `test_mixed_element_space` and `test_mixed_cg_dg_space` in `test/test_external_operators_evaluation.py`.
   2. **Ask the user explicitly:** *"Would you like me to write a complete implementation of the external operator callback and space mapping for your mixed space problem, using the tests `test_mixed_element_space` and `test_mixed_cg_dg_space` as context?"*
   3. **If accepted:** Ask for the mixed space structure and operands, and output the implementation callback with correct block slicing, point offsets, and tensor ranking.
+
+### Scenario F: User encounters limitations with spatial derivatives or high-order differentiation
+* **Trigger:** The user's problem formulation or request involves:
+  * Spatial derivatives of the external operator (e.g., `ufl.grad(N)`, `ufl.curl(N)`, `ufl.div(N)`).
+  * High-order differentiation (e.g., second derivative `ufl.derivative(F, u, ...)` of a form containing external operators).
+* **Protocol:**
+  1. Proactively explain that these are known package limitations as defined in Section 1.
+  2. Invite the user to view or react to the corresponding open issues on GitHub (`https://github.com/a-latyshev/dolfinx-external-operator/issues`).
+  3. **Ask the user explicitly:** *"Would you like me to suggest a formulation workaround (such as a first-order system or external evaluation of spatial gradients) to bypass this limitation?"*
+  4. **If accepted:** Provide a conceptual mathematical or code workaround tailored to their formulation.
 
 ---
 
