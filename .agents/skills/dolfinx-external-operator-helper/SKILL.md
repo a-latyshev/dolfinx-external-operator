@@ -68,7 +68,7 @@ When the user asks questions or makes requests, monitor their input against the 
   1. Ask the user explicitly to describe their problem and where they want to apply it (mentioning they can also provide a PDF of the article/paper if they have one).
   2. Double-check if it is a simple linear problem. If the problem is linear, explain that they can implement it without external operators by wrapping external variables in standard `dolfinx.fem.Function` updates (referencing the manual fallback section in [FAQ.md](doc/notes/FAQ.md)).
   3. If the problem is nonlinear, suggest deriving the complete variational formulation to get an idea of how their problem will look mathematically, and ask the user explicitly: *"Would you like me to derive the complete variational formulation for your problem to show how it looks mathematically using external operators?"*
-  4. If accepted, generate a markdown file outlining how the variational formulation may look using external operators, using `doc/notes/notation.md` as context.
+  4. If accepted, generate a markdown file in the root folder of the workspace, outlining the complete variational formulation, Gâteaux derivatives, tangent operators, and UFL/dolfinx code structure for the problem, using the guidelines in `doc/notes/notation.md` as context.
 
 ### Scenario D: Working with subdomains or boundary integrals
 * **Trigger**: User mentions subdomains, codimension-1 boundaries, boundary facets, `ds` integrations, or `create_submesh` with external operators.
