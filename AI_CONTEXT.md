@@ -15,9 +15,9 @@ Use these facts as your ground truth. Do not invent APIs outside of these bounds
   * `evaluate_operands(external_operators)`: Evaluates the operands of all external operators at their corresponding interpolation points.
   * `_ = evaluate_external_operators(external_operators, evaluated_operands)`: Invokes the external function callbacks and updates their coefficient values in-place.
 * **Key Repository References:**
-  * `doc/demo/`: Contains highly detailed example scripts. Specifically, [demo_plasticity_mohr_coulomb.py](file:///Users/andrey.latyshev/Documents/PhD/code/dolfinx-external-operator/doc/demo/demo_plasticity_mohr_coulomb.py) and [demo_hyperelasticity.py](file:///Users/andrey.latyshev/Documents/PhD/code/dolfinx-external-operator/doc/demo/demo_hyperelasticity.py) address the application of modern automatic differentiation (AD).
-  * [FAQ.md](file:///Users/andrey.latyshev/Documents/PhD/code/dolfinx-external-operator/doc/notes/FAQ.md): Explains particular aspects of external operator use, checklists, and manual alternatives.
-  * [notation.md](file:///Users/andrey.latyshev/Documents/PhD/code/dolfinx-external-operator/doc/notes/notation.md): Serves as the ground truth context for deriving analytical expressions and keeping mathematical notation consistent throughout the project.
+  * `doc/demo/`: Contains highly detailed example scripts. Specifically, [demo_plasticity_mohr_coulomb.py](doc/demo/demo_plasticity_mohr_coulomb.py) and [demo_hyperelasticity.py](doc/demo/demo_hyperelasticity.py) address the application of modern automatic differentiation (AD).
+  * [FAQ.md](doc/notes/FAQ.md): Explains particular aspects of external operator use, checklists, and manual alternatives.
+  * [notation.md](doc/notes/notation.md): Serves as the ground truth context for deriving analytical expressions and keeping mathematical notation consistent throughout the project.
 * **Important Links:** 
   * Tutorials & Documentation: `https://a-latyshev.github.io/dolfinx-external-operator/`
   * Main Article (JTCAM): `https://doi.org/10.46298/jtcam.14449`
@@ -46,25 +46,25 @@ Monitor the user's input. If their request matches any of the conditions below, 
   3. **If accepted:** Ask for their model details and output the boilerplate.
 
 ### Scenario B: User wants to derive analytical formulations/derivatives or writes a form Jacobian
-* **Trigger:** User asks about deriving derivatives, linearizing forms, or writing the Jacobian block of a mixed-element external operator.
+* **Trigger:** User asks about deriving derivatives, linearizing forms, Jacobians, etc.
 * **Protocol:**
   1. Inform the user that we follow the mathematical conventions and directional derivative definitions in `doc/notes/notation.md`.
   2. **Ask the user explicitly:** *"Would you like me to derive the analytical formulation, Gâteaux derivatives, and mixed tangent space ranks for your problem following the conventions in `notation.md`?"*
   3. **If accepted:** Ask for the mathematical definition of the operator and its operands, perform the derivation step-by-step, and output the mathematical formulas and matching implementation callbacks.
 
-### Scenario C: User is working with subdomains or boundary integrals
+### Scenario C: User wants to know how to use external operators in their problem
+* **Trigger:** User asks how to apply external operators to their specific physics/engineering problem, or how to formulate a model.
+* **Protocol:**
+  1. Suggest deriving the complete variational formulation to get an idea of how their problem will look from the mathematical point of view.
+  2. **Ask the user explicitly:** *"Would you like me to derive the complete variational formulation for your problem to show how it looks mathematically using external operators? Please describe your problem first (you can also provide a PDF of the article/paper if you have one)."*
+  3. **If accepted:** Ask the user to describe the problem and where they want to apply it. Then generate a markdown file outlining how the variational formulation may look using external operators, using `doc/notes/notation.md` as context.
+
+### Scenario D: User is working with subdomains or boundary integrals
 * **Trigger:** User mentions subdomains, codimension-1 boundaries, boundary facets, `ds` integrations, or `create_submesh` with external operators.
 * **Protocol:**
   1. Point the user to `test/test_codim_external_operator.py` as the primary reference for subdomain/boundary-facet external operators.
   2. **Ask the user explicitly:** *"Would you like me to generate the submesh setup and the corresponding boundary `FEMExternalOperator` formulation for your boundary/facet integration?"*
-  3. **If accepted:** Ask for boundary conditions/facet tags and output the submesh creation, facet mapping, and boundary measure definition code.
-
-### Scenario D: User encounters an error or bug
-* **Trigger:** User pastes an error stack trace or describes unexpected behavior.
-* **Protocol:**
-  1. Analyze if the error stems from mixed elements (missing `.split()`), incorrect output shapes (not flattened to 1D), incorrect evaluation order, or wrong derivative multiindex signatures.
-  2. **Ask the user explicitly:** *"I can analyze your callback dimensions, check the operand shapes, or write a verification test. Should we generate a minimal reproducible test case using our pytest harness?"*
-  3. **If accepted:** Output a minimal verification script or a modified version of the code.
+  3. **If accepted:** Ask for boundary conditions/facet tags and write a program by using `test/test_codim_external_operator.py` as a context.
 
 ---
 
