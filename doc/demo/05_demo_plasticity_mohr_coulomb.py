@@ -46,7 +46,7 @@
 # which we know an analytical solution in the case of the standard Mohr-Coulomb
 # model without smoothing under plane strain assumption for associative plastic law
 # {cite}`chenLimitAnalysisSoil1990`. Here we follow the same Mandel-Voigt notation
-# as in the [von Mises plasticity tutorial](demo_plasticity_von_mises.py).
+# as in the [von Mises plasticity tutorial](04_demo_plasticity_von_mises.py).
 #
 # If $V$ is a functional space of admissible displacement fields, then we can
 # write out a weak formulation of the problem:
@@ -624,10 +624,9 @@ def F_ext(v):
 u_hat = ufl.TrialFunction(V)
 F = ufl.inner(epsilon(v), sigma) * dx - F_ext(v)
 J = ufl.derivative(F, Du, u_hat)
-J_expanded = ufl.algorithms.expand_derivatives(J)
 
 F_replaced, F_external_operators = replace_external_operators(F)
-J_replaced, J_external_operators = replace_external_operators(J_expanded)
+J_replaced, J_external_operators = replace_external_operators(J)
 
 F_form = fem.form(F_replaced)
 J_form = fem.form(J_replaced)

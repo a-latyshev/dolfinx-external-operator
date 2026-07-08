@@ -53,6 +53,15 @@ class FEMExternalOperator(ufl.ExternalOperator):
     The `FEMExternalOperator` class extends the functionality of the original
     `ufl.ExternalOperator` class, which symbolically represents operators that
     are not straightforwardly expressible in UFL.
+
+    Attributes:
+        original_function_space (fem.function.FunctionSpace): The original function space on which
+            the external operator is defined, representing the output shape of the operator prior
+            to any differentiation.
+        ref_function_space (fem.function.FunctionSpace): The reference function space of the
+            operator. When derivatives are taken, this space is updated to include the additional
+            tensor dimensions introduced by differentiation. Otherwise, it is identical to
+            original_function_space.
     """
 
     # Slots are disabled here because they cause trouble in PyDOLFIN
@@ -85,6 +94,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             `fem.Function` coefficient.
             dtype: Data type of the external operator.
         """
+        self.original_function_space = function_space
         self.ufl_operands = tuple(map(expand_derivatives, map(as_ufl, operands)))  # expend high-level operands
 
         for operand in self.ufl_operands:
@@ -93,9 +103,6 @@ class FEMExternalOperator(ufl.ExternalOperator):
                     "Mixed element coefficients are not supported as external-operator operands: "
                     f"operand {operand} is a mixed-space coefficient."
                 )
-
-        if coefficient is not None and coefficient.function_space != function_space:
-            raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
 
         super().__init__(
             *self.ufl_operands,
@@ -126,6 +133,12 @@ class FEMExternalOperator(ufl.ExternalOperator):
             self.ref_function_space = fem.functionspace(mesh, new_element)
         else:
             self.ref_function_space = function_space
+
+        if coefficient is not None and (
+            coefficient.function_space.mesh != self.ref_function_space.mesh
+            or coefficient.function_space.ufl_element() != self.ref_function_space.ufl_element()
+        ):
+            raise TypeError("The provided coefficient must be defined on the same function space as the operator.")
 
         # TODO: update ufl_shape; how this will change the replacement mechanism?
         # Currently: its equal to self.arguments()[0].ufl_element()
@@ -243,7 +256,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         ex_op_name = d + self.ref_coefficient.name + d_ops
         return type(self)(
             *operands,
-            function_space=function_space or self.ref_function_space,
+            function_space=function_space or self.original_function_space,
             external_function=self.external_function,
             derivatives=derivatives or self.derivatives,
             argument_slots=argument_slots or self.argument_slots(),

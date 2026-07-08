@@ -4,6 +4,7 @@
 from mpi4py import MPI
 
 import numpy as np
+import pytest
 
 import basix
 import ufl
@@ -15,6 +16,7 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 from ufl import Measure, TestFunction, TrialFunction, derivative, div, grad, inner, split
+from ufl.algorithms import expand_derivatives
 
 
 def check_vector_matrix(F, F_explicit, u):
@@ -448,6 +450,111 @@ def test_mixed_cg_dg_space():
     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_vector_matrix(F, F_explicit, u)
+
+
+@pytest.mark.parametrize("value_shape", [(), (2,)])
+def test_multiple_differential_operands(value_shape):
+    """Test external operators with grad(u) and div(u) as operands.
+    For value_shape=(), N = grad(u):grad(u) + div(u)**2.
+    For value_shape=(2,), N = [grad(u):grad(u) + div(u)**2, div(u)].
+    """
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+    gdim = domain.geometry.dim
+    V = fem.functionspace(domain, ("P", 1, (gdim,)))
+    u = fem.Function(V, name="u")
+    u.interpolate(lambda x: (x[0] ** 2 + x[1], x[0] - x[1] ** 2))
+
+    element = basix.ufl.quadrature_element(
+        domain.topology.cell_name(),
+        degree=1,
+        value_shape=value_shape,
+    )
+    Q = fem.functionspace(domain, element)
+
+    if value_shape == ():
+
+        def N_impl(grad_u, div_u):
+            val = np.einsum("...ij,...ij->...", grad_u, grad_u) + div_u**2
+            return val.flatten()
+
+        def dN_dgradu(grad_u, div_u):
+            val = 2 * grad_u
+            return val.flatten()
+
+        def dN_ddivu(grad_u, div_u):
+            val = 2 * div_u
+            return val.flatten()
+    else:
+
+        def N_impl(grad_u, div_u):
+            n_cells = grad_u.shape[0]
+            n_pts = grad_u.shape[1]
+            out = np.zeros((n_cells, n_pts, 2), dtype=grad_u.dtype)
+            out[:, :, 0] = np.einsum("...ij,...ij->...", grad_u, grad_u) + div_u**2
+            out[:, :, 1] = div_u
+            return out.flatten()
+
+        def dN_dgradu(grad_u, div_u):
+            n_cells = grad_u.shape[0]
+            n_pts = grad_u.shape[1]
+            out = np.zeros((n_cells, n_pts, 2, 2, 2), dtype=grad_u.dtype)
+            out[:, :, 0, :, :] = 2 * grad_u
+            return out.flatten()
+
+        def dN_ddivu(grad_u, div_u):
+            n_cells = grad_u.shape[0]
+            n_pts = grad_u.shape[1]
+            out = np.zeros((n_cells, n_pts, 2), dtype=grad_u.dtype)
+            out[:, :, 0] = 2 * div_u
+            out[:, :, 1] = 1.0
+            return out.flatten()
+
+    def N_external(derivatives):
+        if derivatives == (0, 0):
+            return N_impl
+        elif derivatives == (1, 0):
+            return dN_dgradu
+        elif derivatives == (0, 1):
+            return dN_ddivu
+        else:
+            raise NotImplementedError
+
+    N = FEMExternalOperator(grad(u), div(u), function_space=Q, name="N", external_function=N_external)
+    u1, _ = split(u)
+
+    dx = Measure("dx", metadata={"quadrature_degree": 2})
+
+    v = TestFunction(V)
+    v_0, v_1 = split(v)
+    if value_shape == ():
+        F = N * v_0 * dx
+        N_explicit = inner(grad(u), grad(u)) + div(u) ** 2
+        F_explicit = N_explicit * v_0 * dx
+    else:
+        F = (N[0] * v_0 + N[1] * v_1) * dx
+        N_explicit_0 = inner(grad(u), grad(u)) + div(u) ** 2
+        N_explicit_1 = div(u)
+        F_explicit = (N_explicit_0 * v_0 + N_explicit_1 * v_1) * dx
+
+    trial = TrialFunction(V)
+    trial_0, _ = split(trial)
+    J = derivative(F, u1, trial_0)
+    J_expanded = expand_derivatives(J)
+    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+    # Explicit formulation
+    J_explicit = derivative(F_explicit, u1, trial_0)
+
+    evaluated_operands = evaluate_operands(J_external_operators)
+    evaluate_external_operators(J_external_operators, evaluated_operands)
+
+    J_compiled = fem.form(J_replaced)
+    J_explicit_compiled = fem.form(J_explicit)
+
+    A_matrix = fem.assemble_matrix(J_compiled)
+    A_explicit_matrix = fem.assemble_matrix(J_explicit_compiled)
+
+    assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
 
 
 def test_mixed_function_space():
