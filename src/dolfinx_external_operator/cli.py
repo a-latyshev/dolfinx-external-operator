@@ -1,34 +1,31 @@
 import argparse
+import sys
 from importlib.resources import files
 from pathlib import Path
-import sys
+
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="CLI utilities for dolfinx-external-operator."
-    )
+    parser = argparse.ArgumentParser(description="CLI utilities for dolfinx-external-operator.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Subcommand: install-skill
     install_parser = subparsers.add_parser(
-        "install-skill",
-        help="Install the copilot / assistant skill to the local workspace."
+        "install-skill", help="Install the copilot / assistant skill to the local workspace."
     )
     install_parser.add_argument(
         "--claude",
         action="store_true",
-        help="Install the skill for Claude Code (.claude/skills/) instead of Gemini/Copilot/Codex (.agents/skills/)."
+        help="Install the skill for Claude Code (.claude/skills/) instead of Gemini/Copilot/Codex (.agents/skills/).",
     )
     install_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite the skill directory if it already exists."
+        "--force", action="store_true", help="Overwrite the skill directory if it already exists."
     )
 
     args = parser.parse_args()
 
     if args.command == "install-skill":
         install_skill(claude=args.claude, force=args.force)
+
 
 def copy_traversable(src, dst: Path):
     """Recursively copy a importlib.resources Traversable object to a pathlib.Path destination."""
@@ -39,6 +36,7 @@ def copy_traversable(src, dst: Path):
     elif src.is_file():
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(src.read_bytes())
+
 
 def install_skill(claude: bool, force: bool):
     try:
@@ -57,6 +55,7 @@ def install_skill(claude: bool, force: bool):
     if dst.exists():
         if force:
             import shutil
+
             try:
                 shutil.rmtree(dst)
             except Exception as e:
@@ -72,6 +71,7 @@ def install_skill(claude: bool, force: bool):
     except Exception as e:
         print(f"Error: Failed to install skill: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

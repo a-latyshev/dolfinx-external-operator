@@ -2,17 +2,17 @@
 # Copied from test/test_external_operators_evaluation.py
 
 from mpi4py import MPI
+
 import numpy as np
+
 import basix.ufl
-from dolfinx import fem, mesh
 import ufl
-from ufl import split, inner, grad, TestFunction, TrialFunction
+from dolfinx import fem, mesh
 from dolfinx_external_operator import (
     FEMExternalOperator,
-    replace_external_operators,
-    evaluate_operands,
-    evaluate_external_operators,
 )
+from ufl import TestFunction, grad, inner, split
+
 
 def test_mixed_element_space():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
@@ -54,8 +54,8 @@ def test_mixed_element_space():
 
     N_tensor = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
     N1, N2 = split(N_tensor)
-    v1, v2 = split(v)
-    F = N1 * v1 * ufl.dx + inner(grad(N2), v) * ufl.dx
+    v1, _ = split(v)
+    F = N1 * v1 * ufl.dx + inner(grad(N2), v) * ufl.dx  # noqa: F841
 
     # 2. More complex (scalar + vector) mixed case
     Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=4, shape=())
@@ -108,7 +108,7 @@ def test_mixed_element_space():
         else:
             raise NotImplementedError
 
-    N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_tensor_external)
+    N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_tensor_external)  # noqa: F841
 
 
 def test_mixed_cg_dg_space():
@@ -126,7 +126,7 @@ def test_mixed_cg_dg_space():
     Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=4, shape=())
     Ve2 = basix.ufl.element("DG", domain.topology.cell_name(), degree=3, shape=(gdim,))
     V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
-    v = TestFunction(V)
+    v = TestFunction(V)  # noqa: F841
 
     V1 = V.sub(0)
     V2 = V.sub(1)
@@ -165,4 +165,4 @@ def test_mixed_cg_dg_space():
         else:
             raise NotImplementedError
 
-    N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
+    N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)  # noqa: F841

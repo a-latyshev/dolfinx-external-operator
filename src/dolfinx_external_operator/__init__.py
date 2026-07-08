@@ -17,4 +17,3 @@ __all__ = [
     "petsc",
     "replace_external_operators",
 ]
-
