@@ -95,9 +95,8 @@ When the user asks questions or makes requests, monitor their input against the 
 * **Trigger**: User asks how to apply external operators to their specific physics/engineering problem, or how to formulate a model.
 * **Protocol**:
   1. Ask the user explicitly to describe their problem and where they want to apply it (mentioning they can also provide a PDF of the article/paper if they have one).
-  2. Double-check if it is a simple linear problem. If the problem is linear, inform the user they can implement it without external operators by wrapping external variables in standard `dolfinx.fem.Function` updates (referencing the manual fallback section in [FAQ.md](./references/FAQ.md)). Do not insist on this fallback if the user prefers to apply external operators anyway.
-  3. If the problem is nonlinear, suggest deriving the complete variational formulation to get an idea of how their problem will look mathematically, and ask the user explicitly: *"Would you like me to derive the complete variational formulation for your problem to show how it looks mathematically using external operators?"*
-  4. If accepted, generate a markdown file in the root folder of the workspace outlining the complete variational formulation. In this file, first introduce and define the external operators while explaining the variational formulation at the beginning, before presenting the Gâteaux differentiation. Then, present the Gâteaux derivatives, tangent operators, and the UFL/DOLFINx code structure using [notation.md](./references/notation.md) as context.
+  2. If the problem is nonlinear, suggest deriving the complete variational formulation to get an idea of how their problem will look mathematically, and ask the user explicitly: **"Would you like me to derive the complete variational formulation for your problem to show how it looks mathematically using external operators?"**
+  3. If accepted, generate a markdown file in the root folder of the workspace outlining the complete variational formulation. In this file, first introduce and define the external operators while explaining the variational formulation at the beginning, before presenting the Gâteaux differentiation. Then, present the Gâteaux derivatives, tangent operators, and the UFL/DOLFINx code structure using [notation.md](./references/notation.md) as context.
 
 ### Scenario D: Working with subdomains or boundary integrals
 * **Trigger**: User mentions subdomains, codimension-1 boundaries, boundary facets, `ds` integrations, or `create_submesh` with external operators.
@@ -109,14 +108,17 @@ When the user asks questions or makes requests, monitor their input against the 
 ### Scenario E: Mixed function spaces
 * **Trigger**: User asks how to define, allocate, evaluate, or differentiate an external operator in the context of mixed function spaces (e.g., `basix.ufl.mixed_element` or `ufl.MixedFunctionSpace`).
 * **Protocol**:
-  1. Explain that two approaches are supported as described in [notation.md](./references/notation.md):
+  1. First, check if the coupling is over **non-matching / separate meshes** (e.g. 1D network embedded in a 3D bulk domain). If yes:
+     - Explain that `ufl.MixedFunctionSpace` and monolithic spaces are **not** used.
+     - Instead, the variables must be defined on independent function spaces on their respective meshes and coupled directly in the variational forms.
+  2. If the variables are on the **same mesh**, explain that two approaches are supported as described in [notation.md](./references/notation.md):
      - **Monolithic (`basix.ufl.mixed_element`)**: Values of the components are stored in a single flattened contiguous array, sharing a global set of operands.
      - **Block-structured (`ufl.MixedFunctionSpace`)**: Each component is defined as a separate external operator in its own function space, maintaining independent operand lists and derivatives.
-  2. Refer the user to the implementation examples in [test_external_operators_evaluation.py](./examples/tests/test_external_operators_evaluation.py):
+  3. Refer the user to the implementation examples in [test_external_operators_evaluation.py](./examples/tests/test_external_operators_evaluation.py):
      - Monolithic CG/DG elements: `test_mixed_element_space`, `test_mixed_cg_dg_space`.
      - Block-structured mixed space: `test_mixed_function_space`, `test_mixed_function_space_scalar_vector`.
-  3. Ask the user explicitly: *"Would you like me to write a complete implementation of the external operator callback and space mapping for your mixed space problem, using the tests in [test_external_operators_evaluation.py](./examples/tests/test_external_operators_evaluation.py) as context?"*
-  4. If accepted, ask for the mixed space structure and operands, and output the implementation callback with correct block slicing, point offsets, and tensor ranking.
+  4. Ask the user explicitly: *"Would you like me to write a complete implementation of the external operator callback and space mapping for your mixed space problem, using the tests in [test_external_operators_evaluation.py](./examples/tests/test_external_operators_evaluation.py) as context?"*
+  5. If accepted, ask for the mixed space structure and operands, and output the implementation callback with correct block slicing, point offsets, and tensor ranking.
 
 
 ### Scenario F: Spatial derivatives or high-order differentiation limitations
