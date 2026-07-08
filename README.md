@@ -80,6 +80,21 @@ You can copy the skill directory from a local clone of the repository. To resolv
   mkdir -p .claude/skills/ && cp -rL src/dolfinx_external_operator/skills/dolfinx-external-operator-assistant .claude/skills/
   ```
 
+### How to Use the Skill
+
+Once the skill is installed in your workspace, your AI coding assistant (like Gemini, Claude, or GitHub Copilot) will automatically register it. You can start by asking it how to formulate your physical problem.
+
+**Example Prompt:**
+> "How to apply external operators to my problem?"
+
+The assistant will guide you through the process, check for linear/nonlinear suitability, outline the variational formulation (it may generate a Markdown file in the workspace root with the mathematical derivation), and generate Python code modeled after the packaged demos and tests.
+
+```{important}
+Please note that using this skill does not guarantee the generated code will be the most computationally efficient implementation. Its primary purpose is to restrict the agent's scope to focus on the curated APIs, workflows, and templates of the `dolfinx-external-operator` library, and to provide practical prompting examples internally. 
+
+Alternatively, if your agent has internet access and can retrieve website contents directly, simply providing it with the link to the [online documentation](https://a-latyshev.github.io/dolfinx-external-operator/) will often provide sufficient context on its own.
+```
+
 ## Documentation
 
 ### Tutorials 
