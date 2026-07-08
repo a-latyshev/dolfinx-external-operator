@@ -13,7 +13,6 @@ from dolfinx_external_operator import (
     evaluate_operands,
     replace_external_operators,
 )
-from ufl.algorithms import expand_derivatives
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.renumbering import renumber_indices
 
@@ -35,8 +34,7 @@ def compute_dimensions(operand, u, test_f):
     )
     F = ufl.inner(N, test_f) * dx
     J = ufl.derivative(F, u, u_hat)
-    J_expanded = expand_derivatives(J)
-    _J_replaced, J_ex_ops_list = replace_external_operators(J_expanded)
+    _J_replaced, J_ex_ops_list = replace_external_operators(J)
     dNdu = J_ex_ops_list[0]
 
     shape_dNdu = dNdu.ref_coefficient.ufl_shape
@@ -95,8 +93,7 @@ def check_replacement(form: ufl.Form, operators: list[FEMExternalOperator], oper
     assert len(form_replaced.base_form_operators()) == 0
 
     J = ufl.derivative(form, u, ufl.TrialFunction(V))
-    J_expanded = expand_derivatives(J)
-    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+    J_replaced, J_external_operators = replace_external_operators(J)
     assert len(J_external_operators) == operators_count_after_AD
     assert len(J_replaced.base_form_operators()) == 0
 
@@ -151,8 +148,7 @@ def check_operand_expansion(operand: ufl.core.expr.Expr, u: fem.Function):
     dx = ufl.Measure("dx", metadata={"quadrature_scheme": "default", "quadrature_degree": 1})
     F = ufl.inner(N, ufl.TestFunction(V)) * dx
     J = ufl.derivative(F, u, ufl.TrialFunction(V))
-    J_expanded = expand_derivatives(J)
-    _, J_external_operators = replace_external_operators(J_expanded)
+    _, J_external_operators = replace_external_operators(J)
     operand_expanded = renumber_indices(apply_algebra_lowering(operand))
     assert renumber_indices(N.ufl_operands[0]) == operand_expanded
     dN = J_external_operators[0]
@@ -190,13 +186,10 @@ def test_indexed_operands():
     N = FEMExternalOperator(operand, function_space=Q)
     F = ufl.inner(N * u1, v1) * ufl.dx
     J = ufl.derivative(F, u, ufl.TrialFunction(W))
-    J_expanded = expand_derivatives(J)
-    _, J_external_operators = replace_external_operators(J_expanded)
+    _, J_external_operators = replace_external_operators(J)
 
-    operand_expanded = renumber_indices(expand_derivatives(operand))
-    assert renumber_indices(N.ufl_operands[0]) == operand_expanded
     dN = J_external_operators[0]
-    assert renumber_indices(dN.ufl_operands[0]) == operand_expanded
+    assert renumber_indices(N.ufl_operands[0]) == renumber_indices(dN.ufl_operands[0])
 
 
 def test_no_operator():

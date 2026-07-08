@@ -16,7 +16,6 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 from ufl import Measure, TestFunction, TrialFunction, derivative, div, grad, inner, split
-from ufl.algorithms import expand_derivatives
 
 
 def check_vector_matrix(F, F_explicit, u):
@@ -97,14 +96,14 @@ def check_block_vector_matrix(F, F_explicit, u_sol, W):
     for i in range(num_blocks):
         for j in range(num_blocks):
             J_rep = J_replaced_blocks[i][j]
-            J_exp_expanded = ufl.algorithms.expand_derivatives(J_explicit_blocks[i][j])
+            J_explicit = J_explicit_blocks[i][j]
 
             A = None
             A_explicit = None
             if has_integrals(J_rep):
                 A = assemble_matrix_petsc(fem.form(J_rep))
-            if has_integrals(J_exp_expanded):
-                A_explicit = assemble_matrix_petsc(fem.form(J_exp_expanded))
+            if has_integrals(J_explicit):
+                A_explicit = assemble_matrix_petsc(fem.form(J_explicit))
 
             if A is not None and A_explicit is not None:
                 assert np.allclose(to_dense(A_explicit), to_dense(A))
@@ -539,8 +538,7 @@ def test_multiple_differential_operands(value_shape):
     trial = TrialFunction(V)
     trial_0, _ = split(trial)
     J = derivative(F, u1, trial_0)
-    J_expanded = expand_derivatives(J)
-    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+    J_replaced, J_external_operators = replace_external_operators(J)
 
     # Explicit formulation
     J_explicit = derivative(F_explicit, u1, trial_0)

@@ -100,7 +100,7 @@ def test_external_operator_codim_1(quadrature_degree):
         if derivative == 0:
             J = g * ds
         else:
-            J = ufl.algorithms.expand_derivatives(ufl.derivative(g, u) * ds)
+            J = ufl.derivative(g, u) * ds
 
         J_replaced, J_external_operators = replace_external_operators(J)
 
@@ -156,7 +156,7 @@ def test_external_operator_codim_0(quadrature_degree):
         if derivative == 0:
             J = f * dx
         else:
-            J = ufl.algorithms.expand_derivatives(ufl.derivative(f, u) * dx)
+            J = ufl.derivative(f, u) * dx
 
         J_replaced, J_external_operators = replace_external_operators(J)
         map_c = submesh.topology.index_map(submesh.topology.dim)

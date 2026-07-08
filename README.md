@@ -46,6 +46,55 @@ cd dolfinx-external-operator
 pip install -e .
 ```
 
+## AI Copilot Assistant / Agent Skill
+
+We bundle a customized coding assistant skill (`dolfinx-external-operator-assistant`) directly within the python package. This skill provides your LLM-based coding copilot (such as Gemini, Claude, GitHub Copilot, or Codex) with package workflows, mathematical Gâteaux derivative conventions, mixed-space rules, and local examples.
+
+After installing the package via `pip`, you can install the skill locally to your current workspace:
+
+* **For Gemini / Antigravity / GitHub Copilot / Codex** (installs to `.agents/skills/`):
+  ```Shell
+  dolfinx-external-operator install-skill
+  ```
+
+* **For Claude Code** (installs to `.claude/skills/`):
+  ```Shell
+  dolfinx-external-operator install-skill --claude
+  ```
+
+* **Upgrading / Overwriting** an existing installation:
+  ```Shell
+  dolfinx-external-operator install-skill --force
+  ```
+
+### Manual Installation
+You can copy the skill directory from a local clone of the repository. To resolve the internal symbolic links into real, self-contained files, use the `-L` (dereference) flag:
+
+* **For Gemini / Copilot / Codex** (copies to `.agents/skills/`):
+  ```Shell
+  mkdir -p .agents/skills/ && cp -rL src/dolfinx_external_operator/skills/dolfinx-external-operator-assistant .agents/skills/
+  ```
+
+* **For Claude Code** (copies to `.claude/skills/`):
+  ```Shell
+  mkdir -p .claude/skills/ && cp -rL src/dolfinx_external_operator/skills/dolfinx-external-operator-assistant .claude/skills/
+  ```
+
+### How to Use the Skill
+
+Once the skill is installed in your workspace, your AI coding assistant (like Gemini, Claude, or GitHub Copilot) will automatically register it. You can start by asking it how to formulate your physical problem.
+
+**Example Prompt:**
+> "How to apply external operators to my problem?"
+
+The assistant will guide you through the process, check for linear/nonlinear suitability, outline the variational formulation (it may generate a Markdown file in the workspace root with the mathematical derivation), and generate Python code modeled after the packaged demos and tests.
+
+```{important}
+Please note that using this skill does not guarantee the generated code will be the most computationally efficient implementation. Its primary purpose is to restrict the agent's scope to focus on the curated APIs, workflows, and templates of the `dolfinx-external-operator` library, and to provide practical prompting examples internally. 
+
+Alternatively, if your agent has internet access and can retrieve website contents directly, simply providing it with the link to the [online documentation](https://a-latyshev.github.io/dolfinx-external-operator/) will often provide sufficient context on its own.
+```
+
 ## Documentation
 
 ### Tutorials 
