@@ -67,8 +67,8 @@ After installing the package via `pip`, you can install the skill locally to you
   dolfinx-external-operator install-skill --force
   ```
 
-#### Power-User Manual Installation
-If you prefer not to install the python package, you can copy the skill directory from a local clone of the repository. To resolve the internal symbolic links into real, self-contained files, use the `-L` (dereference) flag:
+### Manual Installation
+You can copy the skill directory from a local clone of the repository. To resolve the internal symbolic links into real, self-contained files, use the `-L` (dereference) flag:
 
 * **For Gemini / Copilot / Codex** (copies to `.agents/skills/`):
   ```Shell

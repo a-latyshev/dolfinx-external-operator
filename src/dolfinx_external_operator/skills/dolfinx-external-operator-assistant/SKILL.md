@@ -19,6 +19,19 @@ python -c "import dolfinx_external_operator, os; print(os.path.dirname(dolfinx_e
 ## Dependencies
 - `dolfinx_external_operator` (the Python library)
 
+## Reference Demos & Test Templates
+When generating or assisting the user with writing Python scripts for their models, always use the packaged tests and demo scripts as your primary reference and code templates. They are located inside the skill under `examples/` and provide complete, verified implementations:
+* **Thermal & Heat Demos** (located in `examples/demos/`):
+  - `01_demo_nonlinear_heat_equation_part1.py` to `03_demo_nonlinear_heat_equation_part3.py`: Heat transfer with temperature-dependent conductivity (well-documented tutorials).
+* **Solid Mechanics Demos** (located in `examples/demos/`):
+  - `04_demo_plasticity_von_mises.py`: Complete implementation of von Mises plasticity using Numba callbacks.
+  - `05_demo_plasticity_mohr_coulomb.py`: Mohr-Coulomb plasticity utilizing JAX and automatic differentiation.
+  - `06_demo_hyperelasticity.py`: Hyperelasticity using PyTorch-based external operators.
+* **Verification & Feature Tests** (located in `examples/tests/`):
+  - `test_codim_external_operator.py`: Boundary integration and codimension-1 submesh setups.
+  - `test_external_operators_evaluation.py`: Mixed element space mapping, block-structured `ufl.MixedFunctionSpace`, and monolithic evaluations.
+
+
 ## References & External Links
 If you need to check official documentation or external references:
 * **Tutorials & Documentation:** `https://a-latyshev.github.io/dolfinx-external-operator/`
@@ -84,7 +97,7 @@ When the user asks questions or makes requests, monitor their input against the 
   1. Ask the user explicitly to describe their problem and where they want to apply it (mentioning they can also provide a PDF of the article/paper if they have one).
   2. Double-check if it is a simple linear problem. If the problem is linear, inform the user they can implement it without external operators by wrapping external variables in standard `dolfinx.fem.Function` updates (referencing the manual fallback section in [FAQ.md](./references/FAQ.md)). Do not insist on this fallback if the user prefers to apply external operators anyway.
   3. If the problem is nonlinear, suggest deriving the complete variational formulation to get an idea of how their problem will look mathematically, and ask the user explicitly: *"Would you like me to derive the complete variational formulation for your problem to show how it looks mathematically using external operators?"*
-  4. If accepted, generate a markdown file in the root folder of the workspace, outlining the complete variational formulation, Gâteaux derivatives, tangent operators, and UFL/dolfinx code structure for the problem, using the guidelines in [notation.md](./references/notation.md) as context.
+  4. If accepted, generate a markdown file in the root folder of the workspace outlining the complete variational formulation. In this file, first introduce and define the external operators while explaining the variational formulation at the beginning, before presenting the Gâteaux differentiation. Then, present the Gâteaux derivatives, tangent operators, and the UFL/DOLFINx code structure using [notation.md](./references/notation.md) as context.
 
 ### Scenario D: Working with subdomains or boundary integrals
 * **Trigger**: User mentions subdomains, codimension-1 boundaries, boundary facets, `ds` integrations, or `create_submesh` with external operators.
