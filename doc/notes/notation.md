@@ -120,7 +120,9 @@ Using the Einstein summation convention, let $\alpha_1 \dots \alpha_k$ denote th
 
 The components of the tangent tensor $\mathbb{C}$ are:
 
-$$\mathbb{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} = \frac{\partial \boldsymbol{N}_{\alpha_1 \dots \alpha_k}}{\partial \boldsymbol{o}_{\beta_1 \dots \beta_p}}$$
+$$
+\mathbb{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} = \frac{\partial \boldsymbol{N}_{\alpha_1 \dots \alpha_k}}{\partial \boldsymbol{o}_{\beta_1 \dots \beta_p}}
+$$
 
 The directional variation of the external operator is evaluated by contracting the tangent tensor $\mathbb{C}$ with the directional variation of operand $\bo$ over the $p$ indices of the latter:
 
@@ -128,64 +130,70 @@ $$
     \left(D_u[\boldsymbol{N}(\boldsymbol{o}(u))]\{ \hat{u} \}\right)_{\alpha_1 \dots \alpha_k} = \mathbb{C}_{\alpha_1 \dots \alpha_k \beta_1 \dots \beta_p} : (D_u [\boldsymbol{o}(u)] \{ \hat{u} \})_{\beta_1 \dots \beta_p}
 $$
 
-## Mixed-element external operators
+## Mixed Element Formulations
 
-Let's assume that the external operator $\boldsymbol{N}$ is from a mixed element
-space $V$ which consists of $m$ subspaces:
-
-$$
-    V = V_1 \times \cdots \times V_m,
-$$
-
-so the external operator is represented as a block object
+Suppose we are working with a multi-field or multi-component system. The mathematical space consists of $m$ subspaces:
 
 $$
-    \boldsymbol{N} = (\boldsymbol{N}_1, \dots, \boldsymbol{N}_m),
+    \bV = V_1 \times \cdots \times V_m,
 $$
 
-where each "sub" external operator is from the corresponding subspace:
-$\boldsymbol{N}_i \in V_i$. 
-
-```{note}
-Although there are independent "sub" external operators, their values are stored in a single flattened vector, preserving the order with respect to the component subspaces. See examples in `test_mixed_element_space`: https://github.com/a-latyshev/dolfinx-external-operator/blob/main/test/test_external_operators_evaluation.py#L185.
-```
-
-If the external operator has multiple operands $\boldsymbol{N} =
-\boldsymbol{N}(\boldsymbol{o}_1, \dots, \boldsymbol{o}_n)$, its
-derivative may require the allocation of new function spaces due to the change of the mathematical shape. For example, let's consider the partial derivative of $\bN$ with respect to a certain operand $\bo_j$:
+and we want to define external operators for each component:
 
 $$
-    \frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j} = \left( 
-        \frac{\partial \boldsymbol{N}_1}{\partial \boldsymbol{o}_j}, \dots, \frac{\partial \boldsymbol{N}_m}{\partial \boldsymbol{o}_j}
-    \right), \quad  j = 1, \dots,n.
+    N_i \in V_i, \quad i = 1, \dots, m,
 $$
 
-If $\boldsymbol{N}_i$ is a tensor of rank $k_i$ and the operand
-$\boldsymbol{o}_j$ has the rank $p_j$, then $\mathrm{rank}\left( \frac{\partial
-\boldsymbol{N}_i}{\partial \boldsymbol{o}_j}\right) = k_i + p_j$. These new
-derivatives $\frac{\partial
-\boldsymbol{N}_i}{\partial \boldsymbol{o}_j}$ must live in new function spaces $Q_{ij}$ with appropriate dimensions.
-`dolfinx-external-operator` is designed to automatically create the final mixed-element space $Q_{j}$ composed of 
-$Q_{ij}$, where the derivative $\frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j}$ lives:
+under a variational form:
 
 $$
-    \frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j} \in Q_j = Q_{1j} \times \cdots \times Q_{mj}, \quad  j = 1, \dots,n.
+    F(N_1, \dots, N_m; \boldsymbol{v}) = 0,
+$$
+
+where $\boldsymbol{v} = (v_1, \dots, v_m)$ is the block test function. To linearize this form in Newton-like methods, we compute the Gâteaux derivative with respect to a trial function direction $\hat{\boldsymbol{u}} = (\hat{u}_1, \dots, \hat{u}_m) \in V$:
+
+$$
+    D_{\boldsymbol{u}}[F]\{\hat{\boldsymbol{u}}\} = \sum_{i=1}^m \partial_{N_i}[F]\{ D_{\boldsymbol{u}}[N_i]\{\hat{\boldsymbol{u}}\} \}.
+$$
+
+For each external operator component $N_i$, its variation relies on partial derivatives with respect to its operands $\boldsymbol{o}$:
+
+$$
+    D_{\boldsymbol{u}}[N_i]\{\hat{\boldsymbol{u}}\} = \sum_{j} \frac{\partial N_i}{\partial \boldsymbol{o}_j} \cdot D_{\boldsymbol{u}}[\boldsymbol{o}_j]\{\hat{\boldsymbol{u}}\}.
+$$
+
+While the variations of the operands $D_{\boldsymbol{u}}[\boldsymbol{o}_j]\{\hat{\boldsymbol{u}}\}$ are handled automatically by UFL, the tangent operators (partial derivatives $\frac{\partial N_i}{\partial \boldsymbol{o}_j}$) must be explicitly provided by the user.
+
+If the external operator has multiple operands $\boldsymbol{N} = \boldsymbol{N}(\boldsymbol{o}_1, \dots, \boldsymbol{o}_n)$, its derivative may require the allocation of new function spaces due to the change of the mathematical shape. For example, let's consider the partial derivative of $\boldsymbol{N}$ with respect to a certain operand $\boldsymbol{o}_j$:
+
+$$
+\frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j} = \left( 
+    \frac{\partial \boldsymbol{N}_1}{\partial \boldsymbol{o}_j}, \dots, \frac{\partial \boldsymbol{N}_m}{\partial \boldsymbol{o}_j}
+\right), \quad  j = 1, \dots,n.
+$$
+
+If $\boldsymbol{N}_i$ is a tensor of rank $k_i$ and the operand $\boldsymbol{o}_j$ has the rank $p_j$, then $\mathrm{rank}\left(\frac{\partial \boldsymbol{N}_i}{\partial \boldsymbol{o}_j}\right) = k_i + p_j$. These new derivatives $\frac{\partial \boldsymbol{N}_i}{\partial \boldsymbol{o}_j}$ must live in new function spaces $Q_{ij}$ with appropriate dimensions.
+`dolfinx-external-operator` is designed to automatically create the final mixed-element space $\bQ_j$ composed of $Q_{ij}$, where the derivative $\frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j}$ lives:
+
+$$
+\frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j} \in \bQ_j = Q_{1j} \times \cdots \times Q_{mj}, \quad  j = 1, \dots,n.
 $$
 
 ```{important}
 The creation of a function space is an expensive operation. When external operators and their operands are higher-order tensors, substantial memory may be allocated automatically.
 ```
-
-**Example:**
+**Example**
 
 Let's suppose that the external operator $\bN$ is from the mixed function space $\bV = V_1 \times \bV_2$, consisting of two subspaces: a scalar space $V_1$ and a vector space $\bV_2$ in $\mathbb{R}^2$. Furthermore, $\bN$ depends on two operands $o_1(\cdot) \in V_1$ and $\bo_2(\cdot) \in \bV_2$:
 
-$$ \bN(o_1, \bo_2) = (N_1(o_1, \bo_2), \bN_2(o_1, \bo_2)) \in \bV = V_1 \times \bV_2$$
+$$
+\bN(o_1, \bo_2) = (N_1(o_1, \bo_2), \bN_2(o_1, \bo_2)) \in \bV = V_1 \times \bV_2
+$$
 
 Here for simplicity we consider the following operands:
 
 $$
-    o_1 = o_1(u_1), \quad \bo_2 = \bo_2(\bu_2)
+o_1 = o_1(u_1), \quad \bo_2 = \bo_2(\bu_2)
 $$
 
 For $\bu, \bv \in \bV$
@@ -213,30 +221,23 @@ $$
 And finally, we expand the directional derivatives of the component of the external operator $\bN$:
 
 $$
-    D_{u_1}[N_1]\{ \hat{u}_1 \} = \frac{\partial N_1}{\partial o_1}
-    D_{u_1} [o_1]\{ \hat{u}_1 \} + \frac{\partial N_1}{\partial \bo_2} \cdot
-    \underbrace{D_{u_1} [\bo_2]\{ \hat{u}_1 \}}_{=\bzero},
+D_{u_1}[N_1]\{ \hat{u}_1 \} = \frac{\partial N_1}{\partial o_1} D_{u_1} [o_1]\{ \hat{u}_1 \} + \frac{\partial N_1}{\partial \bo_2} \cdot \underbrace{D_{u_1} [\bo_2]\{ \hat{u}_1 \}}_{=\bzero},
 $$
 
 $$
-    D_{u_1}[\bN_2]\{ \hat{u}_1 \} = \frac{\partial \bN_2}{\partial o_1}
-    D_{u_1} [o_1]\{ \hat{u}_1 \} + \frac{\partial \bN_2}{\partial \bo_2} \cdot
-    \underbrace{D_{u_1} [\bo_2]\{ \hat{u}_1 \}}_{=\bzero},
+D_{u_1}[\bN_2]\{ \hat{u}_1 \} = \frac{\partial \bN_2}{\partial o_1} D_{u_1} [o_1]\{ \hat{u}_1 \} + \frac{\partial \bN_2}{\partial \bo_2} \cdot \underbrace{D_{u_1} [\bo_2]\{ \hat{u}_1 \}}_{=\bzero},
 $$
 
 $$
-    D_{\bu_2}[N_1]\{ \hat{\bu}_2 \} = \frac{\partial N_1}{\partial o_1}
-    \underbrace{D_{\bu_2} [o_1]\{ \hat{\bu}_2 \}}_{=0} + \frac{\partial N_1}{\partial \bo_2} \cdot
-    D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
+D_{\bu_2}[N_1]\{ \hat{\bu}_2 \} = \frac{\partial N_1}{\partial o_1} \underbrace{D_{\bu_2} [o_1]\{ \hat{\bu}_2 \}}_{=0} + \frac{\partial N_1}{\partial \bo_2} \cdot D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
 $$
 
 $$
-    D_{\bu_2}[\bN_2]\{ \hat{\bu}_2 \} = \frac{\partial \bN_2}{\partial o_1}
-    \underbrace{D_{\bu_2} [o_1]\{ \hat{\bu}_2 \}}_{=0} + \frac{\partial \bN_2}{\partial \bo_2} \cdot
-    D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
+D_{\bu_2}[\bN_2]\{ \hat{\bu}_2 \} = \frac{\partial \bN_2}{\partial o_1} \underbrace{D_{\bu_2} [o_1]\{ \hat{\bu}_2 \}}_{=0} + \frac{\partial \bN_2}{\partial \bo_2} \cdot D_{\bu_2} [\bo_2]\{ \hat{\bu}_2 \},
 $$
 
-While all directional derivatives of the operands $D_{\bu_i} [\bo_j]\{ \hat{\bu}_i  \}$ are handled automatically by UFL, the partial derivatives of $\bN$ with respect to its operands must be explicitly provided by the user. That is why, in practice, we just need to know the partial derivatives of the external operators:
+In practice, we just need to know the partial derivatives of the external
+operators:
 
 $$
 \frac{\partial \bN}{\partial o_1} = \left(\frac{\partial N_1}{\partial o_1}, \frac{\partial \bN_2}{\partial o_1} \right),
@@ -246,15 +247,104 @@ $$
 \frac{\partial \bN}{\partial \bo_2} = \left( \frac{\partial N_1}{\partial \bo_2}, \frac{\partial \bN_2}{\partial \bo_2} \right).
 $$
 
-As mentioned previously, in the context of mixed elements, we work with block objects, which means that the values of, e.g., $\frac{\partial N_1}{\partial o_1}$ and $\frac{\partial \bN_2}{\partial o_1}$ must be stored as a single contiguous flattened array preserving the order of the blocks. See examples in `test_mixed_element_space`: https://github.com/a-latyshev/dolfinx-external-operator/blob/main/test/test_external_operators_evaluation.py#L185.
-
 After UFL differentiation of the form $F$, a new mixed element space $\bQ_2 = \bQ_{12} \times \bQ_{22}$ will be allocated, with the following mathematical shapes:
 
 $$
-\mathrm{shape}(\bq_{12}) = (2), \quad \bq_{12} \in \bQ_{12},\\
-\mathrm{shape}(\bq_{22}) = (2,2), \quad \bq_{22} \in \bQ_{22}.\\
+\begin{aligned}
+\mathrm{shape}(\bq_{12}) &= (2), \quad \bq_{12} \in \bQ_{12}, \\
+\mathrm{shape}(\bq_{22}) &= (2,2), \quad \bq_{22} \in \bQ_{22}.
+\end{aligned}
 $$
 
 ```{important}
-Since the operand $o_1$ is a scalar, differentiation with respect to $o_1$ does not change the mathematical shape. Therefore, there is no need to allocate a new function space $\bQ_{1}$, and we can simply reuse $\bV$ for $\frac{\partial \bN}{\partial o_1}$. This behavior may change in future releases of `dolfinx-external-operator` when it becomes necessary to decrease the polynomial degree for the space where the derivative of the external operator lives.
+Since the operand $o_1$ is a scalar, differentiation with respect to $o_1$ does not change the mathematical shape. Therefore, there is no need to allocate a new function space $\bQ_{1}$, and we can simply reuse $\bV$ for $\frac{\partial \bN}{\partial o_1}$. 
+```
+
+In DOLFINx, there are two ways to represent and solve such mixed formulations. The main difference lies in whether the components are handled monolithically or independently, which directly impacts how operands and derivatives are structured:
+
+`````{grid}
+:gutter: 2
+
+````{grid-item-card} 
+:columns: 6
+
+`basix.ufl.mixed_element`
+
+In this monolithic approach, the mixed space is defined at the element level using a single function space $V$.
+
+```python
+V = fem.functionspace(domain, basix.ufl.mixed_element([Ve1, Ve2]))
+```
+
+**Operands**
+
+The external operator is represented as a single block vector-valued object:
+
+$$
+\boldsymbol{N} = (N_1, \dots, N_m) \in V.
+$$
+
+Because $\boldsymbol{N}$ is a single monolithic operator, it shares a global set of operands:
+
+$$
+\boldsymbol{N} = \boldsymbol{N}(\boldsymbol{o}_1, \dots, \boldsymbol{o}_n).
+$$
+
+Every component $N_i$ mathematically receives the exact same set of operands, regardless of whether a particular component actually depends on all of them.
+
+**Derivatives**
+
+The tangent operators are grouped globally:
+
+$$
+\frac{\partial \boldsymbol{N}}{\partial \boldsymbol{o}_j} = \left( \frac{\partial N_1}{\partial \boldsymbol{o}_j}, \dots, \frac{\partial N_m}{\partial \boldsymbol{o}_j} \right)  \in \bQ_{j}.
+$$
+
+Their values must be stored in a single contiguous flattened array preserving the block order of the component subspaces.
+````
+
+````{grid-item-card} 
+:columns: 6
+
+`ufl.MixedFunctionSpace`
+
+In this block-structured approach, each component space $V_i$ is defined separately, and coupled at the form level.
+
+```python
+V1 = fem.functionspace(domain, Ve1)
+V2 = fem.functionspace(domain, Ve2)
+W = ufl.MixedFunctionSpace(V1, V2)
+```
+
+**Operands**
+
+Each component external operator is defined as a separate, self-contained operator:
+
+$$
+N_i \in V_i.
+$$
+
+Each operator behaves as an independent variable and maintains its own localized, independent set of operands:
+
+$$
+N_i = N_i(\boldsymbol{o}_{i, 1}, \dots, \boldsymbol{o}_{i, n_i}).
+$$
+
+Components $N_i$ do not need to share or align their operands, allowing each to be defined only with the arguments it needs.
+
+**Derivatives**
+
+The partial derivatives are computed and provided separately for each operator, similar to how it's done in the case of normal function spaces:
+
+$$
+\frac{\partial N_i}{\partial \boldsymbol{o}_{i, j}} \in Q_{i, j}.
+$$
+
+No global vector concatenation or alignment of operand sets across components is required.
+
+````
+`````
+
+```{seealso}
+Although the `ufl.MixedFunctionSpace` approach is more straightforward and allocates less memory, `dolfinx-external-operator` supports both approaches. See examples for both cases in [`test_external_operators_evaluation.py`](https://github.com/a-latyshev/dolfinx-external-operator/blob/alatyshev/MixedFunctionSpace/test/test_external_operators_evaluation.py). 
 ```

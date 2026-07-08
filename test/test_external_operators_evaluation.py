@@ -4,6 +4,7 @@
 from mpi4py import MPI
 
 import numpy as np
+import pytest
 
 import basix
 import ufl
@@ -15,6 +16,7 @@ from dolfinx_external_operator import (
     replace_external_operators,
 )
 from ufl import Measure, TestFunction, TrialFunction, derivative, div, grad, inner, split
+from ufl.algorithms import expand_derivatives
 
 
 def check_vector_matrix(F, F_explicit, u):
@@ -43,6 +45,73 @@ def check_vector_matrix(F, F_explicit, u):
     J_explicit_compiled = fem.form(J_explicit)
     A_explicit_matrix = fem.assemble_matrix(J_explicit_compiled)
     assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
+
+
+def check_block_vector_matrix(F, F_explicit, u_sol, W):
+    """Check that the vector and matrix blocks assembled from the monolithic mixed form `F`
+    match those assembled from the explicit mixed form `F_explicit`.
+    """
+    from dolfinx.fem.forms import derivative_block
+    from dolfinx.fem.petsc import assemble_matrix as assemble_matrix_petsc
+
+    num_blocks = W.num_sub_spaces()
+    u_trial = ufl.TrialFunctions(W)
+
+    F_blocks = ufl.extract_blocks(F)
+    F_explicit_blocks = ufl.extract_blocks(F_explicit)
+
+    J_blocks = derivative_block(F_blocks, u_sol, u_trial)
+    J_explicit_blocks = derivative_block(F_explicit_blocks, u_sol, u_trial)
+
+    F_replaced_blocks = []
+    F_ops = []
+    for i in range(num_blocks):
+        F_rep, F_op = replace_external_operators(F_blocks[i])
+        F_replaced_blocks.append(F_rep)
+        F_ops.extend(F_op)
+
+    J_replaced_blocks = [[None for _ in range(num_blocks)] for _ in range(num_blocks)]
+    J_ops = []
+    for i in range(num_blocks):
+        for j in range(num_blocks):
+            J_rep, J_op = replace_external_operators(J_blocks[i][j])
+            J_replaced_blocks[i][j] = J_rep
+            J_ops.extend(J_op)
+
+    all_ops = list(dict.fromkeys(F_ops + J_ops))
+    evaluated = evaluate_operands(all_ops)
+    evaluate_external_operators(all_ops, evaluated)
+
+    def has_integrals(form_):
+        return hasattr(form_, "integrals") and len(form_.integrals()) > 0
+
+    for i in range(num_blocks):
+        b = fem.assemble_vector(fem.form(F_replaced_blocks[i]))
+        b_explicit = fem.assemble_vector(fem.form(F_explicit_blocks[i]))
+        assert np.allclose(b_explicit.array, b.array)
+
+    def to_dense(A):
+        A.assemble()
+        return A.convert("dense").getDenseArray()
+
+    for i in range(num_blocks):
+        for j in range(num_blocks):
+            J_rep = J_replaced_blocks[i][j]
+            J_exp_expanded = ufl.algorithms.expand_derivatives(J_explicit_blocks[i][j])
+
+            A = None
+            A_explicit = None
+            if has_integrals(J_rep):
+                A = assemble_matrix_petsc(fem.form(J_rep))
+            if has_integrals(J_exp_expanded):
+                A_explicit = assemble_matrix_petsc(fem.form(J_exp_expanded))
+
+            if A is not None and A_explicit is not None:
+                assert np.allclose(to_dense(A_explicit), to_dense(A))
+            elif A is not None:
+                assert np.allclose(to_dense(A), 0.0)
+            elif A_explicit is not None:
+                assert np.allclose(to_dense(A_explicit), 0.0)
 
 
 def test_quadrature_space():
@@ -381,3 +450,228 @@ def test_mixed_cg_dg_space():
     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_vector_matrix(F, F_explicit, u)
+
+
+@pytest.mark.parametrize("value_shape", [(), (2,)])
+def test_multiple_differential_operands(value_shape):
+    """Test external operators with grad(u) and div(u) as operands.
+    For value_shape=(), N = grad(u):grad(u) + div(u)**2.
+    For value_shape=(2,), N = [grad(u):grad(u) + div(u)**2, div(u)].
+    """
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+    gdim = domain.geometry.dim
+    V = fem.functionspace(domain, ("P", 1, (gdim,)))
+    u = fem.Function(V, name="u")
+    u.interpolate(lambda x: (x[0] ** 2 + x[1], x[0] - x[1] ** 2))
+
+    element = basix.ufl.quadrature_element(
+        domain.topology.cell_name(),
+        degree=1,
+        value_shape=value_shape,
+    )
+    Q = fem.functionspace(domain, element)
+
+    if value_shape == ():
+
+        def N_impl(grad_u, div_u):
+            val = np.einsum("...ij,...ij->...", grad_u, grad_u) + div_u**2
+            return val.flatten()
+
+        def dN_dgradu(grad_u, div_u):
+            val = 2 * grad_u
+            return val.flatten()
+
+        def dN_ddivu(grad_u, div_u):
+            val = 2 * div_u
+            return val.flatten()
+    else:
+
+        def N_impl(grad_u, div_u):
+            n_cells = grad_u.shape[0]
+            n_pts = grad_u.shape[1]
+            out = np.zeros((n_cells, n_pts, 2), dtype=grad_u.dtype)
+            out[:, :, 0] = np.einsum("...ij,...ij->...", grad_u, grad_u) + div_u**2
+            out[:, :, 1] = div_u
+            return out.flatten()
+
+        def dN_dgradu(grad_u, div_u):
+            n_cells = grad_u.shape[0]
+            n_pts = grad_u.shape[1]
+            out = np.zeros((n_cells, n_pts, 2, 2, 2), dtype=grad_u.dtype)
+            out[:, :, 0, :, :] = 2 * grad_u
+            return out.flatten()
+
+        def dN_ddivu(grad_u, div_u):
+            n_cells = grad_u.shape[0]
+            n_pts = grad_u.shape[1]
+            out = np.zeros((n_cells, n_pts, 2), dtype=grad_u.dtype)
+            out[:, :, 0] = 2 * div_u
+            out[:, :, 1] = 1.0
+            return out.flatten()
+
+    def N_external(derivatives):
+        if derivatives == (0, 0):
+            return N_impl
+        elif derivatives == (1, 0):
+            return dN_dgradu
+        elif derivatives == (0, 1):
+            return dN_ddivu
+        else:
+            raise NotImplementedError
+
+    N = FEMExternalOperator(grad(u), div(u), function_space=Q, name="N", external_function=N_external)
+    u1, _ = split(u)
+
+    dx = Measure("dx", metadata={"quadrature_degree": 2})
+
+    v = TestFunction(V)
+    v_0, v_1 = split(v)
+    if value_shape == ():
+        F = N * v_0 * dx
+        N_explicit = inner(grad(u), grad(u)) + div(u) ** 2
+        F_explicit = N_explicit * v_0 * dx
+    else:
+        F = (N[0] * v_0 + N[1] * v_1) * dx
+        N_explicit_0 = inner(grad(u), grad(u)) + div(u) ** 2
+        N_explicit_1 = div(u)
+        F_explicit = (N_explicit_0 * v_0 + N_explicit_1 * v_1) * dx
+
+    trial = TrialFunction(V)
+    trial_0, _ = split(trial)
+    J = derivative(F, u1, trial_0)
+    J_expanded = expand_derivatives(J)
+    J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+    # Explicit formulation
+    J_explicit = derivative(F_explicit, u1, trial_0)
+
+    evaluated_operands = evaluate_operands(J_external_operators)
+    evaluate_external_operators(J_external_operators, evaluated_operands)
+
+    J_compiled = fem.form(J_replaced)
+    J_explicit_compiled = fem.form(J_explicit)
+
+    A_matrix = fem.assemble_matrix(J_compiled)
+    A_explicit_matrix = fem.assemble_matrix(J_explicit_compiled)
+
+    assert np.allclose(A_explicit_matrix.to_dense(), A_matrix.to_dense())
+
+
+def test_mixed_function_space():
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+
+    Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=())
+    Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=())
+    V1 = fem.functionspace(domain, Ve1)
+    V2 = fem.functionspace(domain, Ve2)
+
+    u1 = fem.Function(V1)
+    u2 = fem.Function(V2)
+    u1.interpolate(lambda x: x[1] + 2.0)
+    u2.interpolate(lambda x: x[1] + 1.0)
+
+    W = ufl.MixedFunctionSpace(V1, V2)
+    v1, v2 = ufl.TestFunctions(W)
+
+    def N_impl(u2_):
+        return u2_.reshape(-1)
+
+    def dN_impl(u2_):
+        return np.ones_like(u2_).reshape(-1)
+
+    def N_external(derivatives):
+        if derivatives == (0,):
+            return N_impl
+        elif derivatives == (1,):
+            return dN_impl
+        else:
+            raise NotImplementedError
+
+    N1 = FEMExternalOperator(u2, function_space=V1, name="N1", external_function=N_external)
+    N2 = FEMExternalOperator(u2, function_space=V2, name="N2", external_function=N_external)
+
+    # Monolithic residual equation
+    F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
+
+    # Explicit counterparts
+    N1_explicit = u2
+    N2_explicit = u2
+    F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
+
+    check_block_vector_matrix(F, F_explicit, [u1, u2], W)
+
+
+def test_mixed_function_space_scalar_vector():
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
+    gdim = domain.geometry.dim
+
+    Ve1 = basix.ufl.element("P", domain.topology.cell_name(), degree=4, shape=())
+    Ve2 = basix.ufl.element("P", domain.topology.cell_name(), degree=2, shape=(gdim,))
+    V1 = fem.functionspace(domain, Ve1)
+    V2 = fem.functionspace(domain, Ve2)
+
+    u1 = fem.Function(V1)
+    u2 = fem.Function(V2)
+    u1.interpolate(lambda x: x[1] + 2.0)
+    u2.interpolate(lambda x: (x[0], x[1]))
+
+    W = ufl.MixedFunctionSpace(V1, V2)
+    v1, v2 = ufl.TestFunctions(W)
+
+    pts_V1 = V1.element.interpolation_points.shape[0]
+    pts_V2 = V2.element.interpolation_points.shape[0]
+
+    # N1 = u1 + inner(u2, u2) (scalar)
+    def N1_impl(u1_, u2_):
+        n_cells = u2_.shape[0]
+        u1_vals = u1_.reshape(n_cells, -1)
+        return (u1_vals + np.einsum("...i,...i->...", u2_, u2_)).reshape(-1)
+
+    def dN1du1_impl(u1_, u2_):
+        n_cells = u2_.shape[0]
+        return np.ones((n_cells, pts_V1)).reshape(-1)
+
+    def dN1du2_impl(u1_, u2_):
+        return (2.0 * u2_).reshape(-1)
+
+    def N1_external(derivatives):
+        if derivatives == (0, 0):
+            return N1_impl
+        elif derivatives == (1, 0):
+            return dN1du1_impl
+        elif derivatives == (0, 1):
+            return dN1du2_impl
+        else:
+            raise NotImplementedError
+
+    # N2 = u2 (vector)
+    def N2_impl(u2_):
+        return u2_.reshape(-1)
+
+    def dN2du2_impl(u2_):
+        n_cells = u2_.shape[0]
+        out = np.zeros((n_cells, pts_V2, gdim, gdim), dtype=u2_.dtype)
+        for i in range(gdim):
+            out[:, :, i, i] = 1.0
+        return out.reshape(-1)
+
+    def N2_external(derivatives):
+        if derivatives == (0,):
+            return N2_impl
+        elif derivatives == (1,):
+            return dN2du2_impl
+        else:
+            raise NotImplementedError
+
+    N1 = FEMExternalOperator(u1, u2, function_space=V1, name="N1", external_function=N1_external)
+    N2 = FEMExternalOperator(u2, function_space=V2, name="N2", external_function=N2_external)
+
+    # Monolithic residual equation
+    F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
+
+    # Explicit counterparts
+    N1_explicit = u1 + inner(u2, u2)
+    N2_explicit = u2
+    F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
+
+    check_block_vector_matrix(F, F_explicit, [u1, u2], W)
