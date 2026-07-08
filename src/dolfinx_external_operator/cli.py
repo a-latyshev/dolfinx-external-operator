@@ -40,8 +40,7 @@ def copy_traversable(src, dst: Path):
 
 def install_skill(claude: bool, force: bool):
     try:
-        # Get path to packaged skills
-        src = files("dolfinx_external_operator.skills")
+        src = files("dolfinx_external_operator.skills").joinpath("dolfinx-external-operator-assistant")
     except ModuleNotFoundError:
         print("Error: Could not locate packaged skill files. Is dolfinx-external-operator installed?")
         sys.exit(1)

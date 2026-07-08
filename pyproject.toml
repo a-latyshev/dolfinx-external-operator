@@ -21,11 +21,12 @@ dolfinx-external-operator = "dolfinx_external_operator.cli:main"
 
 [tool.setuptools.package-data]
 dolfinx_external_operator = [
-    "skills/SKILL.md",
-    "skills/references/*.md",
-    "skills/examples/*.py",
-    "skills/examples/*.md"
+    "skills/dolfinx-external-operator-assistant/SKILL.md",
+    "skills/dolfinx-external-operator-assistant/references/*.md",
+    "skills/dolfinx-external-operator-assistant/examples/*.py",
+    "skills/dolfinx-external-operator-assistant/examples/*.md"
 ]
+
 
 
 [project.optional-dependencies]
