@@ -46,7 +46,7 @@ cd dolfinx-external-operator
 pip install -e .
 ```
 
-### AI Copilot Assistant / Agent Skill
+## AI Copilot Assistant / Agent Skill
 
 We bundle a customized coding assistant skill (`dolfinx-external-operator-assistant`) directly within the python package. This skill provides your LLM-based coding copilot (such as Gemini, Claude, GitHub Copilot, or Codex) with package workflows, mathematical Gâteaux derivative conventions, mixed-space rules, and local examples.
 
@@ -72,17 +72,13 @@ If you prefer not to install the python package, you can copy the skill director
 
 * **For Gemini / Copilot / Codex** (copies to `.agents/skills/`):
   ```Shell
-  cp -rL src/dolfinx_external_operator/skills/dolfinx-external-operator-assistant .agents/skills/
+  mkdir -p .agents/skills/ && cp -rL src/dolfinx_external_operator/skills/dolfinx-external-operator-assistant .agents/skills/
   ```
 
 * **For Claude Code** (copies to `.claude/skills/`):
   ```Shell
-  cp -rL src/dolfinx_external_operator/skills/dolfinx-external-operator-assistant .claude/skills/
+  mkdir -p .claude/skills/ && cp -rL src/dolfinx_external_operator/skills/dolfinx-external-operator-assistant .claude/skills/
   ```
-
-
-
-
 
 ## Documentation
 
