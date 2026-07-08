@@ -62,7 +62,7 @@ sphinx:
 
 
 html:
-  favicon: "favicon.ico"
+  favicon: "img/favicon.ico"
 #   use_issues_button: true
 #   use_repository_button: true
 #   use_edit_page_button: true
