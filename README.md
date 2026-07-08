@@ -68,7 +68,7 @@ After installing the package via `pip`, you can install the skill locally to you
   ```
 
 #### Power-User Manual Installation
-If you prefer not to install the python package, you can clone or copy the skill directory directly from [src/dolfinx_external_operator/skills/](file:///Users/andrey.latyshev/Documents/PhD/code/dolfinx-external-operator/src/dolfinx_external_operator/skills) to:
+If you prefer not to install the python package, you can clone or copy the skill directory directly from [src/dolfinx_external_operator/skills/](./src/dolfinx_external_operator/skills) to:
 - `.agents/skills/dolfinx-external-operator-assistant` (Gemini/Copilot/Codex)
 - `.claude/skills/dolfinx-external-operator-assistant` (Claude Code)
 
