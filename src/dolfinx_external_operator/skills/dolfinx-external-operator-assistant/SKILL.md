@@ -94,11 +94,17 @@ When the user asks questions or makes requests, monitor their input against the 
   3. If accepted, ask for boundary conditions/facet tags and write a program using [test_codim_external_operator.py](./examples/test_codim_external_operator.py) as a context.
 
 ### Scenario E: Mixed function spaces
-* **Trigger**: User asks how to define, allocate, evaluate, or differentiate an external operator where the output space is a mixed element space (e.g. `basix.ufl.mixed_element`).
+* **Trigger**: User asks how to define, allocate, evaluate, or differentiate an external operator in the context of mixed function spaces (e.g., `basix.ufl.mixed_element` or `ufl.MixedFunctionSpace`).
 * **Protocol**:
-  1. Explain the concatenation layout and component sizing rules of mixed space evaluations as documented in `test_mixed_element_space` and `test_mixed_cg_dg_space` in [test_mixed_element_spaces.py](./examples/test_mixed_element_spaces.py).
-  2. Ask the user explicitly: *"Would you like me to write a complete implementation of the external operator callback and space mapping for your mixed space problem, using the tests in [test_mixed_element_spaces.py](./examples/test_mixed_element_spaces.py) as context?"*
-  3. If accepted, ask for the mixed space structure and operands, and output the implementation callback with correct block slicing, point offsets, and tensor ranking.
+  1. Explain that two approaches are supported as described in [notation.md](./references/notation.md):
+     - **Monolithic (`basix.ufl.mixed_element`)**: Values of the components are stored in a single flattened contiguous array, sharing a global set of operands.
+     - **Block-structured (`ufl.MixedFunctionSpace`)**: Each component is defined as a separate external operator in its own function space, maintaining independent operand lists and derivatives.
+  2. Refer the user to the implementation examples in [test_external_operators_evaluation.py](./examples/test_external_operators_evaluation.py):
+     - Monolithic CG/DG elements: `test_mixed_element_space`, `test_mixed_cg_dg_space`.
+     - Block-structured mixed space: `test_mixed_function_space`, `test_mixed_function_space_scalar_vector`.
+  3. Ask the user explicitly: *"Would you like me to write a complete implementation of the external operator callback and space mapping for your mixed space problem, using the tests in [test_external_operators_evaluation.py](./examples/test_external_operators_evaluation.py) as context?"*
+  4. If accepted, ask for the mixed space structure and operands, and output the implementation callback with correct block slicing, point offsets, and tensor ranking.
+
 
 ### Scenario F: Spatial derivatives or high-order differentiation limitations
 * **Trigger**: User request involves spatial derivatives of the external operator (e.g. `ufl.grad(N)`, `ufl.curl(N)`, `ufl.div(N)`) or high-order differentiation (e.g. second derivative `ufl.derivative(F, u, ...)` of a form containing external operators).
