@@ -258,3 +258,7 @@ $$
 ```{important}
 Since the operand $o_1$ is a scalar, differentiation with respect to $o_1$ does not change the mathematical shape. Therefore, there is no need to allocate a new function space $\bQ_{1}$, and we can simply reuse $\bV$ for $\frac{\partial \bN}{\partial o_1}$. This behavior may change in future releases of `dolfinx-external-operator` when it becomes necessary to decrease the polynomial degree for the space where the derivative of the external operator lives.
 ```
+
+## New section
+
+smth
