@@ -89,9 +89,9 @@ When the user asks questions or makes requests, monitor their input against the 
 ### Scenario D: Working with subdomains or boundary integrals
 * **Trigger**: User mentions subdomains, codimension-1 boundaries, boundary facets, `ds` integrations, or `create_submesh` with external operators.
 * **Protocol**:
-  1. Point the user to [test_codim_external_operator.py](./examples/test_codim_external_operator.py) as the primary reference for subdomain/boundary-facet external operators.
+  1. Point the user to [test_codim_external_operator.py](./examples/tests/test_codim_external_operator.py) as the primary reference for subdomain/boundary-facet external operators.
   2. Ask the user explicitly: *"Would you like me to generate the submesh setup and the corresponding boundary `FEMExternalOperator` formulation for your boundary/facet integration?"*
-  3. If accepted, ask for boundary conditions/facet tags and write a program using [test_codim_external_operator.py](./examples/test_codim_external_operator.py) as a context.
+  3. If accepted, ask for boundary conditions/facet tags and write a program using [test_codim_external_operator.py](./examples/tests/test_codim_external_operator.py) as a context.
 
 ### Scenario E: Mixed function spaces
 * **Trigger**: User asks how to define, allocate, evaluate, or differentiate an external operator in the context of mixed function spaces (e.g., `basix.ufl.mixed_element` or `ufl.MixedFunctionSpace`).
@@ -99,10 +99,10 @@ When the user asks questions or makes requests, monitor their input against the 
   1. Explain that two approaches are supported as described in [notation.md](./references/notation.md):
      - **Monolithic (`basix.ufl.mixed_element`)**: Values of the components are stored in a single flattened contiguous array, sharing a global set of operands.
      - **Block-structured (`ufl.MixedFunctionSpace`)**: Each component is defined as a separate external operator in its own function space, maintaining independent operand lists and derivatives.
-  2. Refer the user to the implementation examples in [test_external_operators_evaluation.py](./examples/test_external_operators_evaluation.py):
+  2. Refer the user to the implementation examples in [test_external_operators_evaluation.py](./examples/tests/test_external_operators_evaluation.py):
      - Monolithic CG/DG elements: `test_mixed_element_space`, `test_mixed_cg_dg_space`.
      - Block-structured mixed space: `test_mixed_function_space`, `test_mixed_function_space_scalar_vector`.
-  3. Ask the user explicitly: *"Would you like me to write a complete implementation of the external operator callback and space mapping for your mixed space problem, using the tests in [test_external_operators_evaluation.py](./examples/test_external_operators_evaluation.py) as context?"*
+  3. Ask the user explicitly: *"Would you like me to write a complete implementation of the external operator callback and space mapping for your mixed space problem, using the tests in [test_external_operators_evaluation.py](./examples/tests/test_external_operators_evaluation.py) as context?"*
   4. If accepted, ask for the mixed space structure and operands, and output the implementation callback with correct block slicing, point offsets, and tensor ranking.
 
 

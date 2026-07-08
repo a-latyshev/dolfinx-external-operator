@@ -23,8 +23,8 @@ dolfinx-external-operator = "dolfinx_external_operator.cli:main"
 dolfinx_external_operator = [
     "skills/dolfinx-external-operator-assistant/SKILL.md",
     "skills/dolfinx-external-operator-assistant/references/*.md",
-    "skills/dolfinx-external-operator-assistant/examples/*.py",
-    "skills/dolfinx-external-operator-assistant/examples/*.md"
+    "skills/dolfinx-external-operator-assistant/examples/tests/*.py",
+    "skills/dolfinx-external-operator-assistant/examples/demos/*.py"
 ]
 
 
