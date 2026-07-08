@@ -69,4 +69,3 @@ def test_operands_evaluation():
     np.testing.assert_allclose(
         slope_values.reshape(-1), evaluated_operands[(Q.element.interpolation_points.tobytes(), slope)].reshape(-1)
     )
-
