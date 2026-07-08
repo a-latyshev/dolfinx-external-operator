@@ -16,6 +16,18 @@ dependencies = [
     "fenics-ufl>=2025.2.0,<2026.2.0",
 ]
 
+[project.scripts]
+dolfinx-external-operator = "dolfinx_external_operator.cli:main"
+
+[tool.setuptools.package-data]
+dolfinx_external_operator = [
+    "skills/SKILL.md",
+    "skills/references/*.md",
+    "skills/examples/*.py",
+    "skills/examples/*.md"
+]
+
+
 [project.optional-dependencies]
 doc = ["jupyter-book<2.0", "jupytext"]
 demo = ["gmsh", "numba", "jax[cpu]", "pyvista", "mpltools", "torch>=2.0"]
