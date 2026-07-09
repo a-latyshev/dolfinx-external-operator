@@ -422,13 +422,7 @@ def evaluate_operands(
                         else:
                             raise ValueError("Entities array has too many dimensions.")
                         evaluated_operand_at_entity = expr.eval(operand_mesh, entity)
-                        c_size = evaluated_operand_at_entity.shape[-1]
-                        evaluated_operand = np.lib.stride_tricks.as_strided(
-                            evaluated_operand_at_entity,
-                            shape=(len(entities), external_operator.eval_points.shape[0], c_size),  # type: ignore
-                            strides=(0, 0, evaluated_operand_at_entity.itemsize),
-                            writeable=False,
-                        )
+                        evaluated_operand = evaluated_operand_at_entity[0, 0]
                     else:
                         evaluated_operand = expr.eval(operand_mesh, entities)
 

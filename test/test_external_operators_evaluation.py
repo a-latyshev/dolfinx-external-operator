@@ -716,17 +716,17 @@ def test_external_operator_real_space():
     def psi_external(derivatives):
         if derivatives == (0, 0):
             def eval_op(I1_vals, slope_vals):
-                # Verify that the program receives the strided array for the real function element
-                assert slope_vals.strides[0] == 0
-                assert slope_vals.strides[1] == 0
-                res = I1_vals + slope_vals[:, :, 0] + slope_vals[:, :, 1] + slope_vals[:, :, 2]
+                # Verify that the program receives the 1D array for the real function element
+                assert slope_vals.ndim == 1
+                assert slope_vals.shape == (3,)
+                res = I1_vals + slope_vals[0] + slope_vals[1] + slope_vals[2]
                 return res.reshape(-1)
             return eval_op
         elif derivatives == (1, 0):
             def eval_deriv(I1_vals, slope_vals):
-                # Verify that the program receives the strided array for the real function element
-                assert slope_vals.strides[0] == 0
-                assert slope_vals.strides[1] == 0
+                # Verify that the program receives the 1D array for the real function element
+                assert slope_vals.ndim == 1
+                assert slope_vals.shape == (3,)
                 return np.ones_like(I1_vals).reshape(-1)
             return eval_deriv
         else:
