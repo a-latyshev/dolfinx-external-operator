@@ -676,6 +676,8 @@ def test_mixed_function_space_scalar_vector():
 
 
 def test_external_operator_real_space():
+    # N(I1, s) = I1 + s[0] + s[1] + s[2]
+    # dN/dI1 = 1.0
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 4, 4)
     V = fem.functionspace(domain, ("P", 1, (domain.geometry.dim,)))
 
@@ -715,19 +717,23 @@ def test_external_operator_real_space():
 
     def psi_external(derivatives):
         if derivatives == (0, 0):
+
             def eval_op(I1_vals, slope_vals):
                 # Verify that the program receives the 1D array for the real function element
                 assert slope_vals.ndim == 1
                 assert slope_vals.shape == (3,)
                 res = I1_vals + slope_vals[0] + slope_vals[1] + slope_vals[2]
                 return res.reshape(-1)
+
             return eval_op
         elif derivatives == (1, 0):
+
             def eval_deriv(I1_vals, slope_vals):
                 # Verify that the program receives the 1D array for the real function element
                 assert slope_vals.ndim == 1
                 assert slope_vals.shape == (3,)
                 return np.ones_like(I1_vals).reshape(-1)
+
             return eval_deriv
         else:
             raise NotImplementedError(f"No implementation for derivatives={derivatives}")
@@ -743,5 +749,3 @@ def test_external_operator_real_space():
     Res_explicit = ufl.inner(P_explicit, ufl.grad(v)) * dx
 
     check_vector_matrix(Res, Res_explicit, u)
-
-
