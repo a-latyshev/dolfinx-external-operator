@@ -427,7 +427,8 @@ def evaluate_operands(
                         evaluated_operand_at_entity,
                         shape=(len(entities), external_operator.eval_points.shape[0], c_size),  # type: ignore
                         strides=(0, 0, evaluated_operand_at_entity.itemsize),
-                    writeable=False)
+                        writeable=False,
+                    )
                 else:
                     evaluated_operand = expr.eval(operand_mesh, entities)
                 evaluated_operands[key] = evaluated_operand
