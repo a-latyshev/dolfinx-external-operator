@@ -230,6 +230,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
         else:
             self.ref_coefficient = fem.Function(self.ref_function_space, name=name, dtype=dtype)
         self.external_function = external_function
+        self._eval_points_bytes = self.eval_points.tobytes()
 
     def _ufl_expr_reconstruct_(
         self,
@@ -392,7 +393,7 @@ def evaluate_operands(
         op_mesh = op_ref_fs.mesh
 
         for operand in external_operator.ufl_operands:
-            key = (external_operator.eval_points.tobytes(), operand)
+            key = (external_operator._eval_points_bytes, operand)
             if key not in evaluated_operands:
                 if isinstance(operand, ufl.ExternalOperator):
                     evaluated_operand = evaluate_operands([operand], entities)
@@ -413,24 +414,24 @@ def evaluate_operands(
                         external_operator._compiled_operands[operand] = cached
 
                     expr, operand_mesh = cached
-                if isinstance(operand, fem.Function) and operand.ufl_element().is_real:
-                    # Optimize tabulation for real spaces by avoiding unnecessary memory allocation
-                    if entities.ndim == 1:
-                        entity = entities[:1]
-                    elif entities.ndim == 2:
-                        entity = entities[:1, :]
+                    if isinstance(operand, fem.Function) and operand.ufl_element().is_real:
+                        # Optimize tabulation for real spaces by avoiding unnecessary memory allocation
+                        if entities.ndim == 1:
+                            entity = entities[:1]
+                        elif entities.ndim == 2:
+                            entity = entities[:1, :]
+                        else:
+                            raise ValueError("Entities array has too many dimensions.")
+                        evaluated_operand_at_entity = expr.eval(operand_mesh, entity)
+                        c_size = evaluated_operand_at_entity.shape[-1]
+                        evaluated_operand = np.lib.stride_tricks.as_strided(
+                            evaluated_operand_at_entity,
+                            shape=(len(entities), external_operator.eval_points.shape[0], c_size),  # type: ignore
+                            strides=(0, 0, evaluated_operand_at_entity.itemsize),
+                            writeable=False,
+                        )
                     else:
-                        raise ValueError("Entities array has too many dimensions.")
-                    evaluated_operand_at_entity = expr.eval(operand_mesh, entity)
-                    c_size = evaluated_operand_at_entity.shape[-1]
-                    evaluated_operand = np.lib.stride_tricks.as_strided(
-                        evaluated_operand_at_entity,
-                        shape=(len(entities), external_operator.eval_points.shape[0], c_size),  # type: ignore
-                        strides=(0, 0, evaluated_operand_at_entity.itemsize),
-                        writeable=False,
-                    )
-                else:
-                    evaluated_operand = expr.eval(operand_mesh, entities)
+                        evaluated_operand = expr.eval(operand_mesh, entities)
                 evaluated_operands[key] = evaluated_operand
     return evaluated_operands
 
@@ -455,7 +456,7 @@ def evaluate_external_operators(
     for external_operator in external_operators:
         ufl_operands_eval = []
         for operand in external_operator.ufl_operands:
-            key = (external_operator.eval_points.tobytes(), operand)
+            key = (external_operator._eval_points_bytes, operand)
             if isinstance(operand, ufl.ExternalOperator):
                 sub_eval_ops = evaluated_operands[key]
                 ufl_operands_eval.extend(evaluate_external_operators([operand], sub_eval_ops))
