@@ -413,7 +413,25 @@ def evaluate_operands(
                         external_operator._compiled_operands[operand] = cached
 
                     expr, operand_mesh = cached
-                    evaluated_operand = expr.eval(operand_mesh, entities)
+                    if isinstance(operand, fem.Function) and operand.ufl_element().is_real:
+                        # Optimize tabulation for real spaces by avoiding unnecessary memory allocation
+                        if entities.ndim == 1:
+                            entity = entities[:1]
+                        elif entities.ndim == 2:
+                            entity = entities[:1, :]
+                        else:
+                            raise ValueError("Entities array has too many dimensions.")
+                        evaluated_operand_at_entity = expr.eval(operand_mesh, entity)
+                        c_size = evaluated_operand_at_entity.shape[-1]
+                        evaluated_operand = np.lib.stride_tricks.as_strided(
+                            evaluated_operand_at_entity,
+                            shape=(len(entities), external_operator.eval_points.shape[0], c_size),  # type: ignore
+                            strides=(0, 0, evaluated_operand_at_entity.itemsize),
+                            writeable=False,
+                        )
+                    else:
+                        evaluated_operand = expr.eval(operand_mesh, entities)
+
                 evaluated_operands[key] = evaluated_operand
     return evaluated_operands
 

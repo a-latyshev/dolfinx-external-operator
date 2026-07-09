@@ -5,7 +5,7 @@ on: [push, pull_request]
 jobs:
   dist:
     runs-on: ubuntu-latest
-    container: ghcr.io/fenics/dolfinx/dolfinx:v0.10.0
+    container: ghcr.io/fenics/dolfinx/dolfinx:v0.11.0
     env:
       DEB_PYTHON_INSTALL_LAYOUT: deb_system
 
