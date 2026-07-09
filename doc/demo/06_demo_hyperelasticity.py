@@ -9,7 +9,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.3
 #   kernelspec:
-#     display_name: fenicsx-0.10.0
+#     display_name: fenicsx-0.11.0
 #     language: python
 #     name: python3
 # ---

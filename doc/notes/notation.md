@@ -346,5 +346,5 @@ No global vector concatenation or alignment of operand sets across components is
 `````
 
 ```{seealso}
-Although the `ufl.MixedFunctionSpace` approach is more straightforward and allocates less memory, `dolfinx-external-operator` supports both approaches. See examples for both cases in [`test_external_operators_evaluation.py`](https://github.com/a-latyshev/dolfinx-external-operator/blob/alatyshev/MixedFunctionSpace/test/test_external_operators_evaluation.py). 
+Although the `ufl.MixedFunctionSpace` approach is more straightforward and allocates less memory, `dolfinx-external-operator` supports both approaches. See examples for both cases in [`test_external_operators_evaluation.py`](https://github.com/a-latyshev/dolfinx-external-operator/blob/main/test/test_external_operators_evaluation.py#L254-L677). 
 ```
