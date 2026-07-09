@@ -141,6 +141,12 @@ def test_operands_evaluation_real_space():
     np.testing.assert_allclose(
         I1_values.reshape(-1), evaluated_operands[(Q.element.interpolation_points.tobytes(), I1_operand)].reshape(-1)
     )
-    np.testing.assert_allclose(
-        slope_values.reshape(-1), evaluated_operands[(Q.element.interpolation_points.tobytes(), slope)].reshape(-1)
-    )
+    
+    slope_operand_value = evaluated_operands[(Q.element.interpolation_points.tobytes(), slope)]
+    # Verify correct evaluation
+    np.testing.assert_allclose(slope_values, slope_operand_value)
+
+    # Verify that the resulting array doesn't allocate memory for all cells/points (0 strides for cells and points)
+    assert slope_operand_value.strides[0] == 0
+    assert slope_operand_value.strides[1] == 0
+

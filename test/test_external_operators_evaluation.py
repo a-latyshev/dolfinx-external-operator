@@ -673,3 +673,75 @@ def test_mixed_function_space_scalar_vector():
     F_explicit = N1_explicit * v1 * ufl.dx + inner(N2_explicit, v2) * ufl.dx
 
     check_block_vector_matrix(F, F_explicit, [u1, u2], W)
+
+
+def test_external_operator_real_space():
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 4, 4)
+    V = fem.functionspace(domain, ("P", 1, (domain.geometry.dim,)))
+
+    u = fem.Function(V, name="u")
+    u.interpolate(lambda x: (x[0] * 0.1, x[1] * 0.3))
+    v = ufl.TestFunction(V)
+
+    # Measure
+    quadrature_degree = 2
+    dx = ufl.Measure(
+        "dx",
+        domain=domain,
+        metadata={"quadrature_scheme": "default", "quadrature_degree": quadrature_degree},
+    )
+
+    d = domain.geometry.dim
+    F_tensor = ufl.variable(ufl.Identity(d) + ufl.grad(u))
+    C = F_tensor.T * F_tensor
+    I1 = ufl.tr(C)
+
+    # Real function space (introduced in DOLFINx v0.11)
+    el_real = basix.ufl.real_element(domain.basix_cell(), dtype=np.float64, value_shape=(3,))
+    R = fem.functionspace(domain, el_real)
+
+    slope = fem.Function(R, name="slope")
+    slope.x.array[:] = [1.0, 2.0, 3.0]
+
+    Qe = basix.ufl.quadrature_element(
+        domain.topology.cell_name(),
+        degree=quadrature_degree,
+        value_shape=(),
+    )
+    Q = fem.functionspace(domain, Qe)
+
+    # External operator depending on I1 (scalar) and slope (real space vector)
+    N = FEMExternalOperator(I1, slope, function_space=Q, name="N")
+
+    def psi_external(derivatives):
+        if derivatives == (0, 0):
+            def eval_op(I1_vals, slope_vals):
+                # Verify that the program receives the strided array for the real function element
+                assert slope_vals.strides[0] == 0
+                assert slope_vals.strides[1] == 0
+                res = I1_vals + slope_vals[:, :, 0] + slope_vals[:, :, 1] + slope_vals[:, :, 2]
+                return res.reshape(-1)
+            return eval_op
+        elif derivatives == (1, 0):
+            def eval_deriv(I1_vals, slope_vals):
+                # Verify that the program receives the strided array for the real function element
+                assert slope_vals.strides[0] == 0
+                assert slope_vals.strides[1] == 0
+                return np.ones_like(I1_vals).reshape(-1)
+            return eval_deriv
+        else:
+            raise NotImplementedError(f"No implementation for derivatives={derivatives}")
+
+    N.external_function = psi_external
+
+    P = ufl.diff(I1, F_tensor) * N
+    Res = ufl.inner(P, ufl.grad(v)) * dx
+
+    # Explicit counterpart
+    N_explicit = I1 + slope[0] + slope[1] + slope[2]
+    P_explicit = ufl.diff(I1, F_tensor) * N_explicit
+    Res_explicit = ufl.inner(P_explicit, ufl.grad(v)) * dx
+
+    check_vector_matrix(Res, Res_explicit, u)
+
+
