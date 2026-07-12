@@ -204,6 +204,7 @@ def test_no_operator():
     assert data == {}
     evaluate_external_operators(external_operators, data)
 
+
 def test_scheme_after_differentiation():
     """Tests that new_element_from_new_shape propagates custom quadrature schemes to derivative spaces."""
     from dolfinx.mesh import CellType
