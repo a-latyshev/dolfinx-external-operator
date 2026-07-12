@@ -203,3 +203,24 @@ def test_no_operator():
     data = evaluate_operands(external_operators)
     assert data == {}
     evaluate_external_operators(external_operators, data)
+
+def test_scheme_after_differentiation():
+    """Tests that new_element_from_new_shape propagates custom quadrature schemes to derivative spaces."""
+    from dolfinx.mesh import CellType
+    from dolfinx_external_operator.external_operator import new_element_from_new_shape
+
+    # Use CellType.quadrilateral to support the GLL scheme
+    domain = create_unit_square(MPI.COMM_WORLD, 1, 1, cell_type=CellType.quadrilateral)
+
+    orig_el = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1, scheme="GLL")
+
+    diff_shape = (1,)
+    new_el = new_element_from_new_shape(orig_el, diff_shape, domain)
+
+    Q_orig = fem.functionspace(domain, orig_el)
+    Q_deriv = fem.functionspace(domain, new_el)
+
+    pts_orig = sorted(Q_orig.element.interpolation_points.tolist())
+    pts_deriv = sorted(Q_deriv.element.interpolation_points.tolist())
+
+    assert pts_orig == pts_deriv
