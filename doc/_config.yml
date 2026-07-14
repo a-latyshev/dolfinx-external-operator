@@ -51,9 +51,8 @@ sphinx:
     html_theme_options:
       # navigation_with_keys: false
       # pygment_light_style: "friendly"
-      show_navbar_depth: 1
       home_page_in_toc: true
-      show_toc_level: 2
+      show_toc_level: 3
       repository_url: https://github.com/a-latyshev/dolfinx-external-operator/
       use_edit_page_button: true
       use_repository_button: true
