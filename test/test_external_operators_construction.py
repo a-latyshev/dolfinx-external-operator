@@ -4,10 +4,11 @@
 from mpi4py import MPI
 
 import pytest
+
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.mesh import create_unit_square, create_unit_cube, CellType
+from dolfinx.mesh import CellType, create_unit_cube, create_unit_square
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
