@@ -33,6 +33,7 @@ def new_element_from_new_shape(element: _ElementBase, diff_shape: tuple[int, ...
         pts, wts = element.custom_quadrature()
         element = basix.ufl.quadrature_element(
             mesh.topology.cell_name(),
+            degree=element.degree,
             points=pts,
             weights=wts,
             value_shape=new_shape,
