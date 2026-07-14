@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # [Preview] Hyperelasticity via Input-Convex Neural Networks (ICNN) (PyTorch)
+# # Hyperelasticity via Input-Convex Neural Networks (ICNN) (PyTorch)
 #
 # This tutorial demonstrates how to define a complex hyperelastic constitutive
 # model using [PyTorch](https://pytorch.org/) automatic differentiation (AD) and
@@ -31,8 +31,8 @@
 # hyperelasticity without stress data (NN-EUCLID):
 # https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN.
 #
-# To get familiarized with hyperelasticity problems, we advise to take a look
-# first at the following basic tutorials:
+# To get familiarized with hyperelasticity problems, we recommend first taking a look
+# at the following basic tutorials:
 # * [Numerical Tours of Computational Mechanics with
 #   FEniCSx](https://bleyerj.github.io/comet-fenicsx/intro/hyperelasticity/hyperelasticity.html)
 #   by Jérémy Bleyer.
@@ -250,7 +250,7 @@ class ICNN(torch.nn.Module):
         self.p_dropout = dropout[1]
 
         self.layers[str(0)] = torch.nn.Linear(n_input, n_hidden[0]).float()
-        # Create create NN with number of elements in n_hidden as depth
+        # Create NN with number of elements in n_hidden as depth
         for i in range(1, self.depth):
             self.layers[str(i)] = convexLinear(n_hidden[i - 1], n_hidden[i]).float()
             self.skip_layers[str(i)] = torch.nn.Linear(n_input, n_hidden[i]).float()
@@ -318,15 +318,13 @@ model.eval()
 # :class: hint, dropdown
 # Here we are not studying how to train the ICNN model. Instead, we load the pretrained one `Isihara_noise=high.pth`.
 # If you wish to explore other hyperelastic models
-# we encourage you to follow the instructions in the [original repository of EUCLID]
-# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run), which we outline here
+# we encourage you to follow the instructions in the [original repository of EUCLID][euclid-run], which we outline here
 #
 # In the folder with `demo_hyperelasticity.py`, clone `EUCLID-hyperelasticity-NN`
 # ```shell
 # git clone https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN
 # ```
-# Install `pandas` and [other dependencies]
-# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation), if needed
+# Install `pandas` and [other dependencies][euclid-install], if needed
 # ```shell
 # pip install pandas
 # ```
@@ -335,19 +333,26 @@ model.eval()
 # cd drivers/
 # python main.py Isihara high
 # ```
-# **Note**: Although we rely here on the CPU-based PyTorch installation, it is motivated
+# ```{note}
+# Although we rely here on the CPU-based PyTorch installation, it is motivated
 # by keeping the external operators demos light. For training of new models, we suggest
 # to install the normal GPU-based PyTorch package.
+# ```
 #
 # Then in the code above try
 # ```python
 # model.load_state_dict(torch.load("Isihara_noise=high.pth"))
 # model.eval()
 # ```
-# **Note**: there is a [bug]
-# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2) related to NumPy>=2.0.
-# If the error persists, try [this fork]
-# (https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main) with a fix.
+# ```{note}
+# There is a [bug][euclid-bug] related to NumPy>=2.0 in `EUCLID-hyperelasticity-NN`.
+# If the error persists, try [this fork][fork-fix] with a fix.
+# ```
+#
+# [euclid-run]: https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run
+# [euclid-install]: https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation
+# [euclid-bug]: https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2
+# [fork-fix]: https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main
 # ````
 
 # %% [markdown]
@@ -400,8 +405,8 @@ H = torch.tensor(
 # :class: warning
 # To be able to use `torch.func.jacfwd`, `torch.func.vmap` and `torch.compile`, make sure that you use `torch=>2.0`.
 #
-# Currently, there is an [issue]
-# (https://github.com/pytorch/pytorch/issues/160508) with combining all three together. Compile just `model` instead.
+# Currently, there is an [issue](https://github.com/pytorch/pytorch/issues/160508)
+# with combining all three together. Compile just `model` instead.
 # ```
 #
 # Since PyTorch compiler Inductor currently has tracing limitations when
@@ -476,7 +481,7 @@ def dP_dF_impl(Fvals):
 u = fem.Function(V)
 v = ufl.TestFunction(V)
 d = len(u)
-gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))  # \mathb{F} tensor
+gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))  # F tensor
 
 # Create a quadrature element and function space for tensor-valued P
 quadrature_degree = 2
@@ -505,10 +510,10 @@ P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 #
 # ```{note}
 # We don't need to cover the case `if derivatives == (0,)` for just
-# calling evaluation of `P` because, as it was previously mentioned, thanks to
+# calling evaluation of `P` because, as previously mentioned, thanks to
 # AD we can compute the values of `P` while computing its derivative. Yet, we
 # still need to properly update the values of `P`, which will be done in
-# `constitutive_update`, a function defined later below while defining a
+# `constitutive_update`, a function defined below when setting up the
 # nonlinear solver.
 # ```
 
@@ -517,7 +522,7 @@ P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 #
 # We define the weak form using UFL as usual, compute its directional
 # derivative, and replace it with the `replace_external_operators` function to
-# let DOLFINx assembling the forms.
+# allow DOLFINx to assemble the forms.
 
 # %%
 metadata = {"quadrature_degree": 2}
@@ -552,7 +557,7 @@ def constitutive_update(
     evaluated_operands = evaluate_operands(F_external_operators)
     # `dP_dF_impl` will be called here
     ((_, P_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # manual update the values of the external operator
+    # manually update the values of the external operator
     P.ref_coefficient.x.array[:] = P_new
 
 
@@ -589,13 +594,15 @@ problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
 # %% tags=["scroll-output"]
 # Apply a tensile load by incrementally increasing displacement on the top edge
-n_steps = 100
-max_displacement = 0.5
+n_steps = 5
+max_displacement = 1.0
 u.name = "displacement"
 u.x.array[:] = 0
 for step in range(1, n_steps + 1):
     u_D_top.value = step * max_displacement / n_steps  # moving the top boundary
-    num_its, converged = problem.solve()
+    problem.solve()
+    converged = problem.solver.getConvergedReason()
+    num_its = problem.solver.getIterationNumber()
     assert converged, f"Newton solver did not converge at step {step}"
     u.x.scatter_forward()
     if domain.comm.rank == 0:
@@ -647,10 +654,10 @@ except ImportError:
     print("pyvista required for this plot")
 
 # %% [markdown]
-# ## Verification against Analytical UFL Baseline
+# ## Verification against UFL-based formulation
 #
 # To verify the results obtained with the ICNN model wrapped via external
-# operators, we implement the pure UFL implementation of the Isihara model.
+# operators, we implement a pure UFL version of the Isihara model.
 #
 # The variational formulation of the baseline problem is:
 #
@@ -679,7 +686,7 @@ except ImportError:
 # - $I_1 = \text{tr}(\mathbf{C}) = \text{tr}(\mathbf{F}^T\mathbf{F}) + 1.0$ and
 #   $I_2 = I_1 + J^2 - 1.0$ under the 2D plane strain assumption.
 #
-# The UFL formulation is very straightforward
+# The UFL formulation is very straightforward.
 
 # %%
 u_UFL = fem.Function(V)
@@ -710,7 +717,7 @@ F_UFL = ufl.inner(ufl.grad(v), P) * dx
 # under the hood.
 #
 # Now we simply define the nonlinear problem with the same `petsc_options` as
-# previously and solve the UFL-based problem.
+# before and solve the UFL-based problem.
 
 # %% tags=["scroll-output"]
 
@@ -723,7 +730,9 @@ u_UFL.name = "UFL_displacement"
 u_UFL.x.array[:] = 0
 for step in range(1, n_steps + 1):
     u_D_top.value = step * max_displacement / n_steps
-    num_its, converged = problem_UFL.solve()
+    problem_UFL.solve()
+    converged = problem_UFL.solver.getConvergedReason()
+    num_its = problem_UFL.solver.getIterationNumber()
     assert converged, f"Newton solver did not converge at step {step}"
     u_UFL.x.scatter_forward()
     if domain.comm.rank == 0:
@@ -783,7 +792,7 @@ except ImportError:
 # :img-top: displacement_nn.png
 # ```
 #
-# ```{grid-item-card} UFL Baseline (Analytical)
+# ```{grid-item-card} UFL-based formulation
 # :img-top: displacement_ufl.png
 # ```
 # ````

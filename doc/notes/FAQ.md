@@ -1,4 +1,4 @@
-# [Preview] External Operators in FEniCSx: FAQ
+# External Operators in FEniCSx: FAQ
 
 ## Checklist: When should I use external operators?
 
@@ -20,7 +20,7 @@ No. For simple problems, you can manually:
 2. Define a Python function that calls your external software to compute values.
 3. Interpolate/project the operands onto the target function space and update the function's values.
 
-For example, if you solve a linear problem where the residual $F$ depends on an external variable $N = N(u)$:
+For example, if you are solving a linear problem where the residual $F$ depends on an external variable $N = N(u)$:
 
 $$
 F(N(u); v) = \int_\Omega N(u) v \, \mathrm{d}x
@@ -69,7 +69,7 @@ def dN_eval(u: np.ndarray) -> np.ndarray:
 J = dN * u_hat * v * ufl.dx
 ```
 
-As the complexity grows — involving nested compositions, higher-order tensors, multiple fields, etc — managing function spaces, coefficients, Jacobians, and chain rule evaluations manually becomes tedious and error-prone. `dolfinx-external-operator` automates all of these steps.
+As the complexity grows — involving nested compositions, higher-order tensors, multiple fields, etc. — managing function spaces, coefficients, Jacobians, and chain rule evaluations manually becomes tedious and error-prone. `dolfinx-external-operator` automates all of these steps.
 
 ```{seealso}
 For a demonstration of this complexity, see the mixed-element example in [Some Notation for External Operators](./notation.md).
@@ -82,19 +82,19 @@ Not really.
 As mentioned in the main article {cite:p}`latyshevExpressing2025`:
 > For non-trivial constitutive models, the runtime of the user’s implementation of the external operator usually dominates the runtime of the other aspects of evaluating an external operator, in particular, the data transfer between DOLFINx and users implemented external operators. As discussed previously, this data transfer is performed by copying the values from one `ndarray` to another. Time spent on such a copy is only a small fraction with respect to the time taken to execute the user’s implementation of the operator. Notwithstanding this argument, to reach the highest level of performance we recommend users implemented external operators using just-in-time (JIT) compilation features available in libraries like Numba and JAX, or in a compiled language.
 
-Generally speaking, if one wants to use external software with FEniCSx framework without `dolfinx-external-operator` (see {ref}`the previous section <section-no-external-operators>`), they will have to copy data from external software to the FEniCSx environment via the [`ndarray`-interface](https://numpy.org/doc/stable/reference/arrays.interface.html) **in any case**.
+Generally speaking, if you want to use external software with the FEniCSx framework without `dolfinx-external-operator` (see {ref}`the previous section <section-no-external-operators>`), you will have to copy data from external software to the FEniCSx environment via the [`ndarray`-interface](https://numpy.org/doc/stable/reference/arrays.interface.html) **in any case**.
 
 ## I see that there are only tutorials on constitutive modelling in solid mechanics, so it cannot be applied to other branches of finite element simulations, right?
 
-No. The tutorials focus on constitutive modeling because of the authors backgrounds. The package just facilitates the use of the external software within FEniCSx in general and does not depend on types of applications. It has a potential to be applied to any kind of application envolving the use of external software.
+No. The tutorials focus on constitutive modeling because of the authors' backgrounds. The package just facilitates the use of the external software within FEniCSx in general and does not depend on the type of application. It has the potential to be applied to any kind of application involving the use of external software.
 
-## How to get an access to external operators created automatically after `ufl.derivative`?
+## How do I get access to external operators created automatically by `ufl.derivative`?
 
 All external operators contained by any form can be extracted via `replace_external_operators`:
 ```python
 J_replaced, J_external_operators = replace_external_operators(J_expanded)
 ```
-Then you can look for specific external operators with a specific multi-index.
+Then you can look for specific external operators with specific multi-indices.
 ```python
 for dex_op in J_external_operators:
     if dex_op.derivatives == (1,):
@@ -102,9 +102,9 @@ for dex_op in J_external_operators:
         ...
 ```
 
-## Access to external operator values
+## How do I access the values of an external operator?
 
-Every external operator is associated with a `dolfinx.fem.Function` coefficient. An access to the values of the external operator can be done through this coefficient via `ref_coefficient`:
+Every external operator is associated with a `dolfinx.fem.Function` coefficient. Access to the values of the external operator can be done through this coefficient via `ref_coefficient`:
 ```python
 ex_op_values_numpy = ex_op.ref_coefficient.x.array
 ```
