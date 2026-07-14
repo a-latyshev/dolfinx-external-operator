@@ -3,10 +3,12 @@
 
 from mpi4py import MPI
 
+import pytest
+
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.mesh import create_unit_square
+from dolfinx.mesh import CellType, create_unit_cube, create_unit_square
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
@@ -203,3 +205,43 @@ def test_no_operator():
     data = evaluate_operands(external_operators)
     assert data == {}
     evaluate_external_operators(external_operators, data)
+
+
+@pytest.mark.parametrize(
+    "cell_type, scheme",
+    [
+        (CellType.triangle, "default"),
+        (CellType.quadrilateral, "default"),
+        (CellType.tetrahedron, "default"),
+        (CellType.hexahedron, "default"),
+        (CellType.triangle, "gauss_jacobi"),
+        (CellType.quadrilateral, "gauss_jacobi"),
+        (CellType.tetrahedron, "gauss_jacobi"),
+        (CellType.hexahedron, "gauss_jacobi"),
+        (CellType.quadrilateral, "GLL"),
+        (CellType.hexahedron, "GLL"),
+        (CellType.triangle, "xiao_gimbutas"),
+        (CellType.tetrahedron, "xiao_gimbutas"),
+    ],
+)
+def test_scheme_after_differentiation(cell_type, scheme):
+    """Tests that new_element_from_new_shape propagates custom quadrature schemes to derivative spaces."""
+    from dolfinx_external_operator.external_operator import new_element_from_new_shape
+
+    if cell_type in [CellType.tetrahedron, CellType.hexahedron]:
+        domain = create_unit_cube(MPI.COMM_WORLD, 1, 1, 1, cell_type=cell_type)
+    else:
+        domain = create_unit_square(MPI.COMM_WORLD, 1, 1, cell_type=cell_type)
+
+    orig_el = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=2, scheme=scheme)
+
+    diff_shape = (1,)
+    new_el = new_element_from_new_shape(orig_el, diff_shape, domain)
+
+    Q_orig = fem.functionspace(domain, orig_el)
+    Q_deriv = fem.functionspace(domain, new_el)
+
+    pts_orig = sorted(Q_orig.element.interpolation_points.tolist())
+    pts_deriv = sorted(Q_deriv.element.interpolation_points.tolist())
+
+    assert pts_orig == pts_deriv
