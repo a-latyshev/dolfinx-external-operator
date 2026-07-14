@@ -595,7 +595,9 @@ u.name = "displacement"
 u.x.array[:] = 0
 for step in range(1, n_steps + 1):
     u_D_top.value = step * max_displacement / n_steps  # moving the top boundary
-    num_its, converged = problem.solve()
+    problem.solve()
+    converged = problem.solver.getConvergedReason()
+    num_its = problem.solver.getIterationNumber()
     assert converged, f"Newton solver did not converge at step {step}"
     u.x.scatter_forward()
     if domain.comm.rank == 0:
@@ -647,7 +649,7 @@ except ImportError:
     print("pyvista required for this plot")
 
 # %% [markdown]
-# ## Verification against Analytical UFL Baseline
+# ## Verification against UFL-based formulation
 #
 # To verify the results obtained with the ICNN model wrapped via external
 # operators, we implement the pure UFL implementation of the Isihara model.
@@ -723,7 +725,9 @@ u_UFL.name = "UFL_displacement"
 u_UFL.x.array[:] = 0
 for step in range(1, n_steps + 1):
     u_D_top.value = step * max_displacement / n_steps
-    num_its, converged = problem_UFL.solve()
+    problem_UFL.solve()
+    converged = problem.solver.getConvergedReason()
+    num_its = problem.solver.getIterationNumber()
     assert converged, f"Newton solver did not converge at step {step}"
     u_UFL.x.scatter_forward()
     if domain.comm.rank == 0:
@@ -783,7 +787,7 @@ except ImportError:
 # :img-top: displacement_nn.png
 # ```
 #
-# ```{grid-item-card} UFL Baseline (Analytical)
+# ```{grid-item-card} UFL-based formulation
 # :img-top: displacement_ufl.png
 # ```
 # ````
