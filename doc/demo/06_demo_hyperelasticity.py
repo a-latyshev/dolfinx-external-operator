@@ -31,8 +31,8 @@
 # hyperelasticity without stress data (NN-EUCLID):
 # https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN.
 #
-# To get familiarized with hyperelasticity problems, we advise to take a look
-# first at the following basic tutorials:
+# To get familiarized with hyperelasticity problems, we recommend first taking a look
+# at the following basic tutorials:
 # * [Numerical Tours of Computational Mechanics with
 #   FEniCSx](https://bleyerj.github.io/comet-fenicsx/intro/hyperelasticity/hyperelasticity.html)
 #   by Jérémy Bleyer.
@@ -250,7 +250,7 @@ class ICNN(torch.nn.Module):
         self.p_dropout = dropout[1]
 
         self.layers[str(0)] = torch.nn.Linear(n_input, n_hidden[0]).float()
-        # Create create NN with number of elements in n_hidden as depth
+        # Create NN with number of elements in n_hidden as depth
         for i in range(1, self.depth):
             self.layers[str(i)] = convexLinear(n_hidden[i - 1], n_hidden[i]).float()
             self.skip_layers[str(i)] = torch.nn.Linear(n_input, n_hidden[i]).float()
@@ -333,7 +333,7 @@ model.eval()
 # cd drivers/
 # python main.py Isihara high
 # ```
-# ```{note} 
+# ```{note}
 # Although we rely here on the CPU-based PyTorch installation, it is motivated
 # by keeping the external operators demos light. For training of new models, we suggest
 # to install the normal GPU-based PyTorch package.
@@ -510,10 +510,10 @@ P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 #
 # ```{note}
 # We don't need to cover the case `if derivatives == (0,)` for just
-# calling evaluation of `P` because, as it was previously mentioned, thanks to
+# calling evaluation of `P` because, as previously mentioned, thanks to
 # AD we can compute the values of `P` while computing its derivative. Yet, we
 # still need to properly update the values of `P`, which will be done in
-# `constitutive_update`, a function defined later below while defining a
+# `constitutive_update`, a function defined below when setting up the
 # nonlinear solver.
 # ```
 
@@ -522,7 +522,7 @@ P = FEMExternalOperator(gradU, function_space=Q, external_function=P_external)
 #
 # We define the weak form using UFL as usual, compute its directional
 # derivative, and replace it with the `replace_external_operators` function to
-# let DOLFINx assembling the forms.
+# allow DOLFINx to assemble the forms.
 
 # %%
 metadata = {"quadrature_degree": 2}
@@ -557,7 +557,7 @@ def constitutive_update(
     evaluated_operands = evaluate_operands(F_external_operators)
     # `dP_dF_impl` will be called here
     ((_, P_new),) = evaluate_external_operators(J_external_operators, evaluated_operands)
-    # manual update the values of the external operator
+    # manually update the values of the external operator
     P.ref_coefficient.x.array[:] = P_new
 
 
@@ -657,7 +657,7 @@ except ImportError:
 # ## Verification against UFL-based formulation
 #
 # To verify the results obtained with the ICNN model wrapped via external
-# operators, we implement the pure UFL implementation of the Isihara model.
+# operators, we implement a pure UFL version of the Isihara model.
 #
 # The variational formulation of the baseline problem is:
 #
@@ -686,7 +686,7 @@ except ImportError:
 # - $I_1 = \text{tr}(\mathbf{C}) = \text{tr}(\mathbf{F}^T\mathbf{F}) + 1.0$ and
 #   $I_2 = I_1 + J^2 - 1.0$ under the 2D plane strain assumption.
 #
-# The UFL formulation is very straightforward
+# The UFL formulation is very straightforward.
 
 # %%
 u_UFL = fem.Function(V)
@@ -717,7 +717,7 @@ F_UFL = ufl.inner(ufl.grad(v), P) * dx
 # under the hood.
 #
 # Now we simply define the nonlinear problem with the same `petsc_options` as
-# previously and solve the UFL-based problem.
+# before and solve the UFL-based problem.
 
 # %% tags=["scroll-output"]
 
@@ -731,8 +731,8 @@ u_UFL.x.array[:] = 0
 for step in range(1, n_steps + 1):
     u_D_top.value = step * max_displacement / n_steps
     problem_UFL.solve()
-    converged = problem.solver.getConvergedReason()
-    num_its = problem.solver.getIterationNumber()
+    converged = problem_UFL.solver.getConvergedReason()
+    num_its = problem_UFL.solver.getIterationNumber()
     assert converged, f"Newton solver did not converge at step {step}"
     u_UFL.x.scatter_forward()
     if domain.comm.rank == 0:
