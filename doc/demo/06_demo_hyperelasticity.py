@@ -333,17 +333,21 @@ model.eval()
 # cd drivers/
 # python main.py Isihara high
 # ```
-# **Note**: Although we rely here on the CPU-based PyTorch installation, it is motivated
+# ```{note} 
+# Although we rely here on the CPU-based PyTorch installation, it is motivated
 # by keeping the external operators demos light. For training of new models, we suggest
 # to install the normal GPU-based PyTorch package.
+# ```
 #
 # Then in the code above try
 # ```python
 # model.load_state_dict(torch.load("Isihara_noise=high.pth"))
 # model.eval()
 # ```
-# **Note**: there is a [bug][euclid-bug] related to NumPy>=2.0.
+# ```{note}
+# There is a [bug][euclid-bug] related to NumPy>=2.0 in `EUCLID-hyperelasticity-NN`.
 # If the error persists, try [this fork][fork-fix] with a fix.
+# ```
 #
 # [euclid-run]: https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run
 # [euclid-install]: https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation
@@ -477,7 +481,7 @@ def dP_dF_impl(Fvals):
 u = fem.Function(V)
 v = ufl.TestFunction(V)
 d = len(u)
-gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))  # \mathb{F} tensor
+gradU = ufl.variable(ufl.Identity(d) + ufl.grad(u))  # F tensor
 
 # Create a quadrature element and function space for tensor-valued P
 quadrature_degree = 2
