@@ -589,8 +589,8 @@ problem.solver.setFunction(assemble_residual_with_callback_, problem.b)
 
 # %% tags=["scroll-output"]
 # Apply a tensile load by incrementally increasing displacement on the top edge
-n_steps = 100
-max_displacement = 0.5
+n_steps = 5
+max_displacement = 1.0
 u.name = "displacement"
 u.x.array[:] = 0
 for step in range(1, n_steps + 1):
