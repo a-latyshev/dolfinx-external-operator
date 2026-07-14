@@ -719,19 +719,26 @@ def test_external_operator_real_space():
         if derivatives == (0, 0):
 
             def eval_op(I1_vals, slope_vals):
-                # Verify that the program receives the 1D array for the real function element
-                assert slope_vals.ndim == 1
-                assert slope_vals.shape == (3,)
-                res = I1_vals + slope_vals[0] + slope_vals[1] + slope_vals[2]
+                # Operands that are real functions are projected/broadcasted to the whole space
+                # (matching the shape of entities and evaluation points), but use zero-stride views
+                # to avoid any memory reallocation/copying. Slicing with [..., i] accesses components
+                # of this strided view directly.
+                # Note: Avoid operations like `slope_vals.reshape(-1)` or `slope_vals.ravel()`, as flattening/reshaping
+                # zero-stride dimensions cannot be represented as a view and will trigger a full memory copy/allocation.
+                assert slope_vals.ndim == 3
+                assert slope_vals.shape == (I1_vals.shape[0], I1_vals.shape[1], 3)
+                res = I1_vals + slope_vals[..., 0] + slope_vals[..., 1] + slope_vals[..., 2]
                 return res.reshape(-1)
 
             return eval_op
         elif derivatives == (1, 0):
 
             def eval_deriv(I1_vals, slope_vals):
-                # Verify that the program receives the 1D array for the real function element
-                assert slope_vals.ndim == 1
-                assert slope_vals.shape == (3,)
+                # Operands that are real functions are projected/broadcasted to the whole space
+                # (matching the shape of entities and evaluation points) using zero-stride views to
+                # avoid memory reallocation/copying.
+                assert slope_vals.ndim == 3
+                assert slope_vals.shape == (I1_vals.shape[0], I1_vals.shape[1], 3)
                 return np.ones_like(I1_vals).reshape(-1)
 
             return eval_deriv
