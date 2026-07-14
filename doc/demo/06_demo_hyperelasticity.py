@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # [Preview] Hyperelasticity via Input-Convex Neural Networks (ICNN) (PyTorch)
+# # Hyperelasticity via Input-Convex Neural Networks (ICNN) (PyTorch)
 #
 # This tutorial demonstrates how to define a complex hyperelastic constitutive
 # model using [PyTorch](https://pytorch.org/) automatic differentiation (AD) and
