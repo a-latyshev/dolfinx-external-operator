@@ -318,15 +318,13 @@ model.eval()
 # :class: hint, dropdown
 # Here we are not studying how to train the ICNN model. Instead, we load the pretrained one `Isihara_noise=high.pth`.
 # If you wish to explore other hyperelastic models
-# we encourage you to follow the instructions in the [original repository of EUCLID]
-# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run), which we outline here
+# we encourage you to follow the instructions in the [original repository of EUCLID][euclid-run], which we outline here
 #
 # In the folder with `demo_hyperelasticity.py`, clone `EUCLID-hyperelasticity-NN`
 # ```shell
 # git clone https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN
 # ```
-# Install `pandas` and [other dependencies]
-# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation), if needed
+# Install `pandas` and [other dependencies][euclid-install], if needed
 # ```shell
 # pip install pandas
 # ```
@@ -344,10 +342,13 @@ model.eval()
 # model.load_state_dict(torch.load("Isihara_noise=high.pth"))
 # model.eval()
 # ```
-# **Note**: there is a [bug]
-# (https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2) related to NumPy>=2.0.
-# If the error persists, try [this fork]
-# (https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main) with a fix.
+# **Note**: there is a [bug][euclid-bug] related to NumPy>=2.0.
+# If the error persists, try [this fork][fork-fix] with a fix.
+#
+# [euclid-run]: https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/tree/main#example-of-how-to-run
+# [euclid-install]: https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN#installation
+# [euclid-bug]: https://github.com/EUCLID-code/EUCLID-hyperelasticity-NN/pull/2
+# [fork-fix]: https://github.com/a-latyshev/EUCLID-hyperelasticity-NN/tree/main
 # ````
 
 # %% [markdown]
@@ -400,8 +401,8 @@ H = torch.tensor(
 # :class: warning
 # To be able to use `torch.func.jacfwd`, `torch.func.vmap` and `torch.compile`, make sure that you use `torch=>2.0`.
 #
-# Currently, there is an [issue]
-# (https://github.com/pytorch/pytorch/issues/160508) with combining all three together. Compile just `model` instead.
+# Currently, there is an [issue](https://github.com/pytorch/pytorch/issues/160508)
+# with combining all three together. Compile just `model` instead.
 # ```
 #
 # Since PyTorch compiler Inductor currently has tracing limitations when
