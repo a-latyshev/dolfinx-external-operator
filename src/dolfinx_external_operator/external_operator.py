@@ -555,19 +555,25 @@ def _replace_action(action: ufl.Action):
 
     # Extract the Argument associated with the (differentiated) ExternalOperator
     N_tilde = action.left().arguments()[-1]
-    external_operator_argument = action.right().argument_slots()[-1]
     coefficient = action.right().ref_coefficient
 
-    # Build a replacement expression with the same ufl_shape as N_tilde
+    # Contract over direction slots
     if coefficient.ufl_element().is_mixed:
         coef_components = ufl.split(coefficient)
-        applied_components = [_apply_derivative_tensor(c, external_operator_argument) for c in coef_components]
+        applied_components = []
+        for c in coef_components:
+            replacement_comp = c
+            for arg in reversed(action.right().argument_slots()[1:]):
+                replacement_comp = _apply_derivative_tensor(replacement_comp, arg)
+            applied_components.append(replacement_comp)
         entries: list[ufl.core.expr.Expr] = []
         for comp in applied_components:
             entries.extend(_flatten_to_entries(comp))
         replacement = ufl.as_vector(entries)
     else:
-        replacement = _apply_derivative_tensor(coefficient, external_operator_argument)
+        replacement = coefficient
+        for arg in reversed(action.right().argument_slots()[1:]):
+            replacement = _apply_derivative_tensor(replacement, arg)
 
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
     return form_replaced, action.right()
@@ -618,6 +624,8 @@ def map_integrands(function, form, only_integral_type=None):
 
     elif isinstance(form, ufl.Action):
         left = map_integrands(function, form._left, only_integral_type)
+        if (isinstance(left, ufl.Form) and left.empty()) or (isinstance(left, ufl.BaseForm) and not left.arguments()):
+            return left
         right = form._right
         if isinstance(right, FEMExternalOperator):
             assert right.derivatives != ()
