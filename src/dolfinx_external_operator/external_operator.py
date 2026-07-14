@@ -233,6 +233,54 @@ class FEMExternalOperator(ufl.ExternalOperator):
         else:
             self.ref_coefficient = fem.Function(self.ref_function_space, name=name, dtype=dtype)
         self.external_function = external_function
+        self._eval_points_bytes = self.eval_points.tobytes()
+
+        # Pre-compile operand expressions and bind their evaluation callables
+        self._compiled_operands = {}
+        op_ref_fs = self.ref_function_space
+        op_mesh = op_ref_fs.mesh
+        for operand in self.ufl_operands:
+            if isinstance(operand, ufl.ExternalOperator):
+                def make_nested_evaluator(op=operand):
+                    return lambda entities: evaluate_operands([op], entities)
+                eval_func = make_nested_evaluator()
+            else:
+                operand_domain = ufl.domain.extract_unique_domain(operand)
+                if operand_domain == op_ref_fs.ufl_domain():
+                    operand_mesh = op_mesh
+                else:
+                    operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
+                expr = fem.Expression(
+                    operand,
+                    self.eval_points,
+                    dtype=self.ref_coefficient.dtype,
+                )
+                
+                # Check for real element optimization
+                if isinstance(operand, fem.Function) and operand.ufl_element().is_real:
+                    def make_real_evaluator(e=expr, m=operand_mesh):
+                        def real_eval(entities):
+                            if entities.ndim == 1:
+                                entity = entities[:1]
+                            elif entities.ndim == 2:
+                                entity = entities[:1, :]
+                            else:
+                                raise ValueError("Entities array has too many dimensions.")
+                            evaluated_operand_at_entity = e.eval(m, entity)
+                            return evaluated_operand_at_entity[0, 0]
+                        return real_eval
+                    eval_func = make_real_evaluator()
+                else:
+                    def make_standard_evaluator(e=expr, m=operand_mesh):
+                        return lambda entities: e.eval(m, entities)
+                    eval_func = make_standard_evaluator()
+            
+            self._compiled_operands[operand] = eval_func
+
+        # Precompute the lookup keys for each operand
+        self._operand_keys = {
+            op: (self._eval_points_bytes, op) for op in self.ufl_operands
+        }
 
     def _ufl_expr_reconstruct_(
         self,
@@ -385,57 +433,14 @@ def evaluate_operands(
             entities = np.arange(0, num_cells, dtype=np.int32)
             mesh._full_cells = entities
 
-    # Evaluate unique operands in external operators using lazily cached expressions
+    # Evaluate unique operands in external operators using pre-compiled callables
     evaluated_operands = {}
     for external_operator in external_operators:
-        if not hasattr(external_operator, "_compiled_operands"):
-            external_operator._compiled_operands = {}
-
-        op_ref_fs = external_operator.ref_function_space
-        op_mesh = op_ref_fs.mesh
-
         for operand in external_operator.ufl_operands:
-            key = (external_operator.eval_points.tobytes(), operand)
+            key = external_operator._operand_keys[operand]
             if key not in evaluated_operands:
-                if isinstance(operand, ufl.ExternalOperator):
-                    evaluated_operand = evaluate_operands([operand], entities)
-                else:
-                    cached = external_operator._compiled_operands.get(operand)
-                    if cached is None:
-                        operand_domain = ufl.domain.extract_unique_domain(operand)
-                        if operand_domain == op_ref_fs.ufl_domain():
-                            operand_mesh = op_mesh
-                        else:
-                            operand_mesh = _mesh.Mesh(operand_domain.ufl_cargo(), operand_domain)
-                        expr = fem.Expression(
-                            operand,
-                            external_operator.eval_points,
-                            dtype=external_operator.ref_coefficient.dtype,
-                        )
-                        cached = (expr, operand_mesh)
-                        external_operator._compiled_operands[operand] = cached
-
-                    expr, operand_mesh = cached
-                    if isinstance(operand, fem.Function) and operand.ufl_element().is_real:
-                        # Optimize tabulation for real spaces by avoiding unnecessary memory allocation
-                        if entities.ndim == 1:
-                            entity = entities[:1]
-                        elif entities.ndim == 2:
-                            entity = entities[:1, :]
-                        else:
-                            raise ValueError("Entities array has too many dimensions.")
-                        evaluated_operand_at_entity = expr.eval(operand_mesh, entity)
-                        c_size = evaluated_operand_at_entity.shape[-1]
-                        evaluated_operand = np.lib.stride_tricks.as_strided(
-                            evaluated_operand_at_entity,
-                            shape=(len(entities), external_operator.eval_points.shape[0], c_size),  # type: ignore
-                            strides=(0, 0, evaluated_operand_at_entity.itemsize),
-                            writeable=False,
-                        )
-                    else:
-                        evaluated_operand = expr.eval(operand_mesh, entities)
-
-                evaluated_operands[key] = evaluated_operand
+                eval_func = external_operator._compiled_operands[operand]
+                evaluated_operands[key] = eval_func(entities)
     return evaluated_operands
 
 
@@ -459,7 +464,7 @@ def evaluate_external_operators(
     for external_operator in external_operators:
         ufl_operands_eval = []
         for operand in external_operator.ufl_operands:
-            key = (external_operator.eval_points.tobytes(), operand)
+            key = external_operator._operand_keys[operand]
             if isinstance(operand, ufl.ExternalOperator):
                 sub_eval_ops = evaluated_operands[key]
                 ufl_operands_eval.extend(evaluate_external_operators([operand], sub_eval_ops))

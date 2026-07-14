@@ -172,10 +172,11 @@ def test_indexed_operands():
     operand = ufl.tr(C)
     check_operand_expansion(operand, u)
 
-    Qe = basix.ufl.quadrature_element(
+    Qe = basix.ufl.element(
+        "Lagrange",
         domain.topology.cell_name(),
         degree=1,
-        value_shape=(),
+        shape=(),
     )
     W = fem.functionspace(domain, basix.ufl.mixed_element([Qe, Qe]))
     u = fem.Function(W)
