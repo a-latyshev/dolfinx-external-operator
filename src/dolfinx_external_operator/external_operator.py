@@ -182,7 +182,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
             for i in range(self.ref_function_space.num_sub_spaces):
                 Vi = self.ref_function_space.sub(i)
                 n_pts = Vi.element.interpolation_points.shape[0]
-                dofs_per_cell = Vi.dofmap.list.shape[1]
+                dofs_per_cell = Vi.dofmap.list.shape[1] * Vi.dofmap.bs
                 val_shape = Vi.ufl_element().reference_value_shape
                 val_size = val_sizes[i]
 
@@ -193,7 +193,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                         f"The subspace value size cannot exceed the overall operator component size."
                     )
 
-                flat_dofs = Vi.dofmap.list.flatten()
+                flat_dofs = get_unrolled_dofmap(Vi)
 
                 self._mixed_subspace_info.append(
                     {

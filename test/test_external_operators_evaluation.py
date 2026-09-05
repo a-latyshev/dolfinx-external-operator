@@ -760,3 +760,54 @@ def test_external_operator_real_space():
     Res_explicit = ufl.inner(P_explicit, ufl.grad(v)) * dx
 
     check_vector_matrix(Res, Res_explicit, u)
+
+
+def test_mixed_solution_operands_on_quadrature_space():
+    """Regression test for issue #36: mixed-element solution fields as operands."""
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 4, 4)
+    gdim = domain.geometry.dim
+
+    Ve = basix.ufl.element("P", domain.topology.cell_name(), degree=1, shape=(gdim,))
+    Se = basix.ufl.element("P", domain.topology.cell_name(), degree=1)
+    M = fem.functionspace(domain, basix.ufl.mixed_element([Ve, Se]))
+    Q = fem.functionspace(
+        domain,
+        basix.ufl.quadrature_element(domain.topology.cell_name(), degree=2, value_shape=(gdim,)),
+    )
+
+    w = fem.Function(M)
+    w.sub(0).interpolate(lambda x: np.stack([x[0], x[1]], axis=0))
+    w.sub(1).interpolate(lambda x: x[0] + 1.0)
+    u, T = split(w)
+
+    def N_impl(grad_u, temp):
+        return grad_u.reshape(-1)
+
+    def dN_dgradu_impl(grad_u, temp):
+        n_cells = grad_u.shape[0]
+        n_pts = grad_u.shape[1]
+        out = np.zeros((n_cells, n_pts, gdim, gdim), dtype=grad_u.dtype)
+        for i in range(gdim):
+            out[:, :, i, i] = 1.0
+        return out.reshape(-1)
+
+    def dN_dtemp_impl(grad_u, temp):
+        return np.zeros_like(grad_u).reshape(-1)
+
+    def N_external(derivatives):
+        if derivatives == (0, 0):
+            return N_impl
+        elif derivatives == (1, 0):
+            return dN_dgradu_impl
+        elif derivatives == (0, 1):
+            return dN_dtemp_impl
+        else:
+            raise NotImplementedError
+
+    N = FEMExternalOperator(grad(u), T, function_space=Q, name="N", external_function=N_external)
+    vu, vT = split(TestFunction(M))
+    dx = Measure("dx", metadata={"quadrature_degree": 2})
+    F = inner(N, vu) * dx + T * vT * dx
+    F_explicit = inner(grad(u), vu) * dx + T * vT * dx
+
+    check_vector_matrix(F, F_explicit, w)
