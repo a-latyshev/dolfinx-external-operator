@@ -763,7 +763,7 @@ def test_external_operator_real_space():
 
 
 def test_mixed_solution_operands_on_quadrature_space():
-    """Regression test for issue #36: mixed-element solution fields as operands."""
+    """Check the assembled residual and Jacobian for N(grad(u), T) = tr(grad(u)) + T with mixed (u, T)."""
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 4, 4)
     gdim = domain.geometry.dim
 

@@ -196,7 +196,7 @@ def test_indexed_operands():
 
 
 def test_mixed_solution_operand_expansion():
-    """Regression test for issue #36: Jacobian operands must match residual operands."""
+    """Check that N(grad(u), T) and its derivatives share the same expanded operands for mixed (u, T)."""
     domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
     gdim = domain.geometry.dim
 
