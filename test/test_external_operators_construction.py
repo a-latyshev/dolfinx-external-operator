@@ -15,6 +15,7 @@ from dolfinx_external_operator import (
     evaluate_operands,
     replace_external_operators,
 )
+from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.renumbering import renumber_indices
 
@@ -192,6 +193,36 @@ def test_indexed_operands():
 
     dN = J_external_operators[0]
     assert renumber_indices(N.ufl_operands[0]) == renumber_indices(dN.ufl_operands[0])
+
+
+def test_mixed_solution_operand_expansion():
+    """Check that N(grad(u), T) and its derivatives share the same expanded operands for mixed (u, T)."""
+    domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
+    gdim = domain.geometry.dim
+
+    Ve = basix.ufl.element("P", domain.topology.cell_name(), 1, shape=(gdim,))
+    Se = basix.ufl.element("P", domain.topology.cell_name(), 1)
+    M = fem.functionspace(domain, basix.ufl.mixed_element([Ve, Se]))
+    Q = Q_gen(domain, (gdim,))
+
+    w = fem.Function(M)
+    u, T = ufl.split(w)
+    grad_u = ufl.grad(u)
+    temp = T
+
+    N = FEMExternalOperator(grad_u, temp, function_space=Q)
+    vu, _ = ufl.split(ufl.TestFunction(M))
+    F = ufl.inner(N, vu) * ufl.dx
+    J = ufl.derivative(F, w, ufl.TrialFunction(M))
+    _, J_external_operators = replace_external_operators(J)
+
+    grad_u_expanded = renumber_indices(expand_derivatives(grad_u))
+    temp_expanded = renumber_indices(expand_derivatives(temp))
+    assert renumber_indices(N.ufl_operands[0]) == grad_u_expanded
+    assert renumber_indices(N.ufl_operands[1]) == temp_expanded
+    for dN in J_external_operators:
+        assert renumber_indices(dN.ufl_operands[0]) == grad_u_expanded
+        assert renumber_indices(dN.ufl_operands[1]) == temp_expanded
 
 
 def test_no_operator():
