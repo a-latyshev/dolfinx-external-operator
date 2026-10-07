@@ -33,9 +33,11 @@ S_element = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=1)
 S = fem.functionspace(domain, S_element)
 N = fem.Function(S, name="external_variable")
 
+
 def N_eval(u: np.ndarray) -> np.ndarray:
     # Call external software...
     return N_values.reshape(-1)
+
 
 F = N * v * ufl.dx
 
@@ -62,9 +64,11 @@ This requires allocating another field for the derivative $N^\prime$ and impleme
 ```python
 dN = fem.Function(S, name="derivative_of_external_variable")
 
+
 def dN_eval(u: np.ndarray) -> np.ndarray:
     # Call external software to evaluate derivative...
     return dN_values.reshape(-1)
+
 
 J = dN * u_hat * v * ufl.dx
 ```

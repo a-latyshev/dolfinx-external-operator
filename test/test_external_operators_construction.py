@@ -3,16 +3,19 @@
 
 from mpi4py import MPI
 
+import pytest
+
 import basix
 import ufl
 from dolfinx import fem
-from dolfinx.mesh import create_unit_square
+from dolfinx.mesh import CellType, create_unit_cube, create_unit_square
 from dolfinx_external_operator import (
     FEMExternalOperator,
     evaluate_external_operators,
     evaluate_operands,
     replace_external_operators,
 )
+from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.renumbering import renumber_indices
 
@@ -192,6 +195,36 @@ def test_indexed_operands():
     assert renumber_indices(N.ufl_operands[0]) == renumber_indices(dN.ufl_operands[0])
 
 
+def test_mixed_solution_operand_expansion():
+    """Check that N(grad(u), T) and its derivatives share the same expanded operands for mixed (u, T)."""
+    domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
+    gdim = domain.geometry.dim
+
+    Ve = basix.ufl.element("P", domain.topology.cell_name(), 1, shape=(gdim,))
+    Se = basix.ufl.element("P", domain.topology.cell_name(), 1)
+    M = fem.functionspace(domain, basix.ufl.mixed_element([Ve, Se]))
+    Q = Q_gen(domain, (gdim,))
+
+    w = fem.Function(M)
+    u, T = ufl.split(w)
+    grad_u = ufl.grad(u)
+    temp = T
+
+    N = FEMExternalOperator(grad_u, temp, function_space=Q)
+    vu, _ = ufl.split(ufl.TestFunction(M))
+    F = ufl.inner(N, vu) * ufl.dx
+    J = ufl.derivative(F, w, ufl.TrialFunction(M))
+    _, J_external_operators = replace_external_operators(J)
+
+    grad_u_expanded = renumber_indices(expand_derivatives(grad_u))
+    temp_expanded = renumber_indices(expand_derivatives(temp))
+    assert renumber_indices(N.ufl_operands[0]) == grad_u_expanded
+    assert renumber_indices(N.ufl_operands[1]) == temp_expanded
+    for dN in J_external_operators:
+        assert renumber_indices(dN.ufl_operands[0]) == grad_u_expanded
+        assert renumber_indices(dN.ufl_operands[1]) == temp_expanded
+
+
 def test_no_operator():
     domain = create_unit_square(MPI.COMM_WORLD, 2, 2)
     V = fem.functionspace(domain, ("P", 1))
@@ -203,3 +236,43 @@ def test_no_operator():
     data = evaluate_operands(external_operators)
     assert data == {}
     evaluate_external_operators(external_operators, data)
+
+
+@pytest.mark.parametrize(
+    "cell_type, scheme",
+    [
+        (CellType.triangle, "default"),
+        (CellType.quadrilateral, "default"),
+        (CellType.tetrahedron, "default"),
+        (CellType.hexahedron, "default"),
+        (CellType.triangle, "gauss_jacobi"),
+        (CellType.quadrilateral, "gauss_jacobi"),
+        (CellType.tetrahedron, "gauss_jacobi"),
+        (CellType.hexahedron, "gauss_jacobi"),
+        (CellType.quadrilateral, "GLL"),
+        (CellType.hexahedron, "GLL"),
+        (CellType.triangle, "xiao_gimbutas"),
+        (CellType.tetrahedron, "xiao_gimbutas"),
+    ],
+)
+def test_scheme_after_differentiation(cell_type, scheme):
+    """Tests that new_element_from_new_shape propagates custom quadrature schemes to derivative spaces."""
+    from dolfinx_external_operator.external_operator import new_element_from_new_shape
+
+    if cell_type in [CellType.tetrahedron, CellType.hexahedron]:
+        domain = create_unit_cube(MPI.COMM_WORLD, 1, 1, 1, cell_type=cell_type)
+    else:
+        domain = create_unit_square(MPI.COMM_WORLD, 1, 1, cell_type=cell_type)
+
+    orig_el = basix.ufl.quadrature_element(domain.topology.cell_name(), degree=2, scheme=scheme)
+
+    diff_shape = (1,)
+    new_el = new_element_from_new_shape(orig_el, diff_shape, domain)
+
+    Q_orig = fem.functionspace(domain, orig_el)
+    Q_deriv = fem.functionspace(domain, new_el)
+
+    pts_orig = sorted(Q_orig.element.interpolation_points.tolist())
+    pts_deriv = sorted(Q_deriv.element.interpolation_points.tolist())
+
+    assert pts_orig == pts_deriv
