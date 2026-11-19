@@ -289,7 +289,7 @@ def test_mixed_element_space():
 
     # u2 from V2 will be projected onto both V1 and V2
     N_tensor = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
-    N1, N2 = split(N_tensor)
+    N1, N2 = N_tensor.split()
     v1, v2 = split(v)
     F = N1 * v1 * ufl.dx + inner(grad(N2), v) * ufl.dx
     F_explicit = inner(grad(u2), v) * ufl.dx
@@ -364,7 +364,7 @@ def test_mixed_element_space():
     # u2 from V2 will be projected onto both V1 and V2
     N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
 
-    N1, N2 = split(N)
+    N1, N2 = N.split()
     v1, v2 = split(v)
     F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
     N1_explicit = u1 + inner(u2, u2)
@@ -441,7 +441,7 @@ def test_mixed_cg_dg_space():
 
     N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
 
-    N1, N2 = split(N)
+    N1, N2 = N.split()
     v1, v2 = split(v)
     F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
     N1_explicit = u1**2

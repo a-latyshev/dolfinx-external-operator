@@ -180,12 +180,24 @@ Research Fund (FNR), grant reference PRIDE/21/16747448/MATHCODA.
 
 ## Developer notes
 
-### Docker container
+### DOLFINx nightly container
+
+From the repository root, start the nightly container with the checkout mounted
+at `/shared`:
 
 ```Shell
-docker run -ti -v $(pwd):/shared --entrypoint /bin/bash -w /shared docker.io/dolfinx/lab:nightly
-pip install .
+docker run --rm -it --pull=always -v "$PWD:/shared" -w /shared ghcr.io/fenics/dolfinx/dolfinx:nightly
 ```
+
+Inside the container, install the checkout and run the tests:
+
+```Shell
+python -m pip install -e '.[test]'
+python -m pytest test/
+```
+
+Use `N.split()` to get the symbolic components of a mixed `FEMExternalOperator`.
+The nightly UFL's `ufl.split(N)` can fail when `N` has multiple operands.
 
 ### Building Documentation
 
