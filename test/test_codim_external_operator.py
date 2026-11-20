@@ -42,7 +42,8 @@ def f_impl(uuh_square):
 
 
 def dfdu_impl(uuh_square):
-    aa = 3 * uuh_square  # NUMPY
+    # Derivative with respect to the operand s = u**2; the direction supplies 2 * u * v
+    aa = 1.5 * np.sqrt(uuh_square)  # NUMPY
     return aa.reshape(-1)  # The output must be returned flattened to one dimension
 
 
@@ -53,6 +54,16 @@ def f_external(derivatives):
         return dfdu_impl
     else:
         return NotImplementedError
+
+
+def assemble(form):
+    """Assemble a functional to a scalar, or a linear form to its owned entries."""
+    if form.rank == 0:
+        value = dolfinx.fem.assemble_scalar(form)
+        return form.mesh.comm.allreduce(value, op=MPI.SUM)
+    b = dolfinx.fem.assemble_vector(form)
+    b.scatter_reverse(dolfinx.la.InsertMode.add)
+    return b.array[: b.index_map.size_local * b.block_size]
 
 
 @pytest.mark.parametrize("quadrature_degree", range(1, 5))
@@ -109,19 +120,13 @@ def test_external_operator_codim_1(quadrature_degree):
         evaluated_operands = evaluate_operands(J_external_operators, entities=parent_to_sub)
         _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
-        Jh = dolfinx.fem.assemble_scalar(J_compiled)
-        Jh = mesh.comm.allreduce(Jh, op=MPI.SUM)
-
-        # Exact solution
+        # Exact solution: the derivative is contracted with the direction, the test function
         if derivative == 0:
             J_exact = ufl.cos(u) * ds
         else:
-            J_exact = ufl.sin(u) * ds
+            J_exact = ufl.sin(u) * ufl.TestFunction(V) * ds
 
-        J_exact_compiled = dolfinx.fem.form(J_exact)
-        J_ex = dolfinx.fem.assemble_scalar(J_exact_compiled)
-        J_ref = mesh.comm.allreduce(J_ex, op=MPI.SUM)
-        np.testing.assert_allclose(Jh, J_ref)
+        np.testing.assert_allclose(assemble(J_compiled), assemble(dolfinx.fem.form(J_exact)))
 
 
 @pytest.mark.parametrize("quadrature_degree", range(1, 5))
@@ -168,16 +173,11 @@ def test_external_operator_codim_0(quadrature_degree):
         _ = evaluate_external_operators(J_external_operators, evaluated_operands)
 
         J_compiled = dolfinx.fem.form(J_replaced, entity_maps=[entity_map])
-        Jh = dolfinx.fem.assemble_scalar(J_compiled)
-        Jh = mesh.comm.allreduce(Jh, op=MPI.SUM)
 
-        # Exact solution
+        # Exact solution: f'(u**2) contracted with the direction 2 * u * v
         if derivative == 0:
             J_exact = u**3 * dx
         else:
-            J_exact = 3 * u**2 * dx
+            J_exact = 3 * u**2 * ufl.TestFunction(V) * dx
 
-        J_exact_compiled = dolfinx.fem.form(J_exact)
-        J_ex = dolfinx.fem.assemble_scalar(J_exact_compiled)
-        J_ref = mesh.comm.allreduce(J_ex, op=MPI.SUM)
-        np.testing.assert_allclose(Jh, J_ref)
+        np.testing.assert_allclose(assemble(J_compiled), assemble(dolfinx.fem.form(J_exact)))

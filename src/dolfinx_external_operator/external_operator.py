@@ -133,7 +133,15 @@ class FEMExternalOperator(ufl.ExternalOperator):
             else:
                 new_element = new_element_from_new_shape(original_element, diff_shape, mesh)
 
-            self.ref_function_space = fem.functionspace(mesh, new_element)
+            if (
+                coefficient is not None
+                and coefficient.function_space.mesh == mesh
+                and coefficient.function_space.ufl_element() == new_element
+            ):
+                # Share the space of a coefficient cached for these derivatives
+                self.ref_function_space = coefficient.function_space
+            else:
+                self.ref_function_space = fem.functionspace(mesh, new_element)
         else:
             self.ref_function_space = function_space
 
@@ -234,6 +242,11 @@ class FEMExternalOperator(ufl.ExternalOperator):
             self.ref_coefficient = fem.Function(self.ref_function_space, name=name, dtype=dtype)
         self.external_function = external_function
 
+        # Coefficients shared by the operators reconstructed from this one, keyed by
+        # (operands, derivatives). Operators that differ only in their argument slots,
+        # e.g. the components of ufl.diff(N, F), then share one evaluation.
+        self._coefficient_cache = {(self.ufl_operands, self.derivatives): self.ref_coefficient}
+
     def _ufl_expr_reconstruct_(
         self,
         *operands,
@@ -248,16 +261,16 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 new_shape += self.ufl_operands[i].ufl_shape * e
             return Zero(self.ufl_shape)
         """Return a new object of the same type with new operands."""
-        coefficient = None
         d = "\N{PARTIAL DIFFERENTIAL}o"
         if derivatives is None:
             coefficient = self.ref_coefficient  # prevents additional allocations
             d_ops = ""
         else:
+            coefficient = self._coefficient_cache.get((tuple(operands), tuple(derivatives)))
             d_ops = "/" + "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
         dtype = self.ref_coefficient.dtype
         ex_op_name = d + self.ref_coefficient.name + d_ops
-        return type(self)(
+        reconstructed = type(self)(
             *operands,
             function_space=function_space or self.original_function_space,
             external_function=self.external_function,
@@ -268,6 +281,11 @@ class FEMExternalOperator(ufl.ExternalOperator):
             dtype=dtype,
             **add_kwargs,
         )
+        if isinstance(reconstructed, FEMExternalOperator):
+            key = (reconstructed.ufl_operands, reconstructed.derivatives)
+            self._coefficient_cache.setdefault(key, reconstructed.ref_coefficient)
+            reconstructed._coefficient_cache = self._coefficient_cache
+        return reconstructed
 
     def __hash__(self):
         """Hash code for UFL AD."""
@@ -523,6 +541,76 @@ def _apply_derivative_tensor(coef_expr: ufl.core.expr.Expr, arg_expr: ufl.core.e
     return ufl.as_tensor(coef_expr[indices] * arg_expr[arg_indices], out_indices)
 
 
+def _contract_directions(coefficient: ufl.core.expr.Expr, directions) -> ufl.core.expr.Expr:
+    """Contract the trailing axes of ``coefficient`` with ``directions``, in order."""
+    ranks = [len(direction.ufl_shape) for direction in directions]
+    out_rank = len(coefficient.ufl_shape) - sum(ranks)
+    if out_rank < 0:
+        raise ValueError(
+            f"Derivative coefficient of shape {coefficient.ufl_shape} cannot be contracted with directions "
+            f"of shapes {[direction.ufl_shape for direction in directions]}."
+        )
+    if sum(ranks) == 0:
+        result = coefficient
+        for direction in directions:
+            result = result * direction
+        return result
+    ii = ufl.indices(len(coefficient.ufl_shape))
+    result = coefficient[ii]
+    position = out_rank
+    for direction, rank in zip(directions, ranks):
+        result = result * (direction[ii[position : position + rank]] if rank else direction)
+        position += rank
+    return ufl.as_tensor(result, ii[:out_rank]) if out_rank else result
+
+
+def _ordered_directions(operator: "FEMExternalOperator") -> list[ufl.core.expr.Expr]:
+    """Return the directions in the argument slots of ``operator`` in the order of its coefficient axes.
+
+    The derivative axes of ``ref_coefficient`` follow the operands, while the argument slots
+    follow the order in which the derivatives were taken. Each axis block takes the first
+    unused direction of its operand's shape.
+    """
+    directions = list(operator.argument_slots()[1:])
+    blocks = [
+        (i, operator.ufl_operands[i].ufl_shape) for i, order in enumerate(operator.derivatives) for _ in range(order)
+    ]
+    if len(directions) != len(blocks):
+        raise ValueError(f"Expected {len(blocks)} directions in the argument slots, got {len(directions)}.")
+    operands_of_shape: dict[tuple[int, ...], set[int]] = {}
+    for i, shape in blocks:
+        operands_of_shape.setdefault(shape, set()).add(i)
+    if any(shape and len(operands) > 1 for shape, operands in operands_of_shape.items()):
+        raise NotImplementedError(
+            "Cannot match the directions of a mixed derivative with respect to distinct operands of the same "
+            "non-scalar shape: UFL does not record which operand each direction belongs to."
+        )
+    ordered = []
+    for _, shape in blocks:
+        for k, direction in enumerate(directions):
+            if direction is not None and direction.ufl_shape == shape:
+                ordered.append(direction)
+                directions[k] = None
+                break
+        else:
+            raise ValueError(f"No direction of shape {shape} in the argument slots of {operator}.")
+    return ordered
+
+
+def _apply_directions(operator: "FEMExternalOperator") -> ufl.core.expr.Expr:
+    """Return the coefficient of ``operator`` contracted with the directions in its argument slots."""
+    coefficient = operator.ref_coefficient
+    if len(operator.argument_slots()) == 1:
+        return coefficient
+    directions = _ordered_directions(operator)
+    if coefficient.ufl_element().is_mixed:
+        entries: list[ufl.core.expr.Expr] = []
+        for component in ufl.split(coefficient):
+            entries.extend(_flatten_to_entries(_contract_directions(component, directions)))
+        return ufl.as_vector(entries)
+    return _contract_directions(coefficient, directions)
+
+
 def _flatten_to_entries(expr: ufl.core.expr.Expr) -> list[ufl.core.expr.Expr]:
     """Flatten a tensor expression into scalar entries.
 
@@ -689,11 +777,14 @@ class ExternalOperatorReplacer(DAGTraverser):
     def _(self, o: ufl.ExternalOperator, *args) -> ufl.core.expr.Expr:
         for operand in o.ufl_operands:
             if isinstance(operand, ufl.ExternalOperator):
-                if operand not in self._ex_ops:
-                    self._ex_ops.append(operand)
-        if o not in self._ex_ops:
+                self._add(operand)
+        self._add(o)
+        return _apply_directions(o)
+
+    def _add(self, o: ufl.ExternalOperator) -> None:
+        """Record ``o`` unless an operator with the same coefficient is already recorded."""
+        if all(o.ref_coefficient is not other.ref_coefficient for other in self._ex_ops):
             self._ex_ops.append(o)
-        return o.ref_coefficient
 
     @process.register(ufl.core.expr.Expr)
     def _(
