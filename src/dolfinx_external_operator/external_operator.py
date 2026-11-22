@@ -14,6 +14,8 @@ from ufl.constantvalue import Zero, as_ufl
 from ufl.core.ufl_type import ufl_type
 from ufl.corealg.dag_traverser import DAGTraverser
 
+from .fem import DualSpace
+
 
 def get_unrolled_dofmap(function_space):
     dofmap_list = function_space.dofmap.list
@@ -91,8 +93,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 behaviour of the external operator and its derivatives.
             derivatives: A tuple specifiying the derivative multiindex with
                 respect to operands.
-            argument_slots: tuple composed containing expressions with
-                `ufl.Argument` or `ufl.Coefficient` objects.
+            argument_slots: The output slot followed by derivative directions in operand order.
             name: Name of the external operator and the associated
             `fem.Function` coefficient.
             dtype: Data type of the external operator.
@@ -106,6 +107,20 @@ class FEMExternalOperator(ufl.ExternalOperator):
                     "Mixed element coefficients are not supported as external-operator operands: "
                     f"operand {operand} is a mixed-space coefficient."
                 )
+
+        if hasattr(ufl.ExternalOperator, "_contracts_output"):
+            # UFL checks the primal space of the Coargument, including temporary slots made by AD.
+            native_dual = function_space.dual()
+            if native_dual.dual() != function_space:
+                dual_slot, *directions = argument_slots or (ufl.Coargument(native_dual, 0),)
+                if isinstance(dual_slot, ufl.Coargument) and dual_slot.ufl_function_space() == native_dual:
+                    dual_space = DualSpace(
+                        function_space.ufl_domain(),
+                        function_space.ufl_element(),
+                        label=function_space.label(),
+                        primal_space=function_space,
+                    )
+                    argument_slots = (dual_slot.reconstruct(function_space=dual_space), *directions)
 
         super().__init__(
             *self.ufl_operands,
@@ -255,6 +270,14 @@ class FEMExternalOperator(ufl.ExternalOperator):
             d_ops = ""
         else:
             d_ops = "/" + "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
+            slots = self.argument_slots()
+            if argument_slots and argument_slots[:-1] == slots:
+                increments = tuple(new - old for old, new in zip(self.derivatives, derivatives))
+                if increments.count(0) == len(increments) - 1 and sum(increments) == 1:
+                    # UFL appends the direction. Group it by operand to match the coefficient axes.
+                    operand = increments.index(1)
+                    position = 1 + sum(self.derivatives[: operand + 1])
+                    argument_slots = (*slots[:position], argument_slots[-1], *slots[position:])
         dtype = self.ref_coefficient.dtype
         ex_op_name = d + self.ref_coefficient.name + d_ops
         return type(self)(
@@ -298,6 +321,12 @@ class FEMExternalOperator(ufl.ExternalOperator):
     def is_cellwise_constant(self):
         """Return whether this expression is spatially constant over each cell."""
         return self.ufl_element().is_cellwise_constant()
+
+    def split(self) -> tuple[ufl.core.expr.Expr, ...]:
+        """Split the symbolic output into components of its original function space."""
+        # UFL's domain lookup for a BaseFormOperator may assume it has one operand.
+        output = ufl.Argument(self.original_function_space, 0)
+        return tuple(ufl.replace(component, {output: self}) for component in ufl.split(output))
 
     def _assign_non_mixed(self, values: np.ndarray) -> None:
         self.ref_coefficient.x.array[self.unrolled_dofmap] = values
@@ -497,30 +526,27 @@ def unique_external_operators(external_operators: list[FEMExternalOperator]):
     return unique_operators
 
 
-def _apply_derivative_tensor(coef_expr: ufl.core.expr.Expr, arg_expr: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
-    """Apply a derivative tensor ``coef_expr`` to a direction ``arg_expr``.
+def _apply_derivative_tensor(coef_expr: ufl.core.expr.Expr, *directions: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
+    """Contract each direction with its trailing axes in the derivative tensor."""
+    for direction in reversed(directions):
+        arg_rank = len(direction.ufl_shape)
+        if arg_rank == 0:
+            coef_expr = coef_expr * direction
+            continue
 
-    Interprets ``coef_expr`` as having shape ``out_shape + arg_shape`` and
-    contracts over the trailing ``arg_shape`` indices.
-    """
-    arg_shape = arg_expr.ufl_shape
-    if arg_shape == ():
-        return coef_expr * arg_expr
+        coef_rank = len(coef_expr.ufl_shape)
+        if coef_rank < arg_rank:
+            raise ValueError(
+                "Derivative coefficient has lower rank than direction argument: "
+                f"coef_shape={coef_expr.ufl_shape}, arg_shape={direction.ufl_shape}."
+            )
 
-    coef_shape = coef_expr.ufl_shape
-    arg_rank = len(arg_shape)
-    coef_rank = len(coef_shape)
-    if coef_rank < arg_rank:
-        raise ValueError(
-            "Derivative coefficient has lower rank than direction argument: "
-            f"coef_shape={coef_shape}, arg_shape={arg_shape}."
-        )
-
-    out_rank = coef_rank - arg_rank
-    indices = ufl.indices(coef_rank)
-    out_indices = indices[:out_rank]
-    arg_indices = indices[out_rank:]
-    return ufl.as_tensor(coef_expr[indices] * arg_expr[arg_indices], out_indices)
+        out_rank = coef_rank - arg_rank
+        indices = ufl.indices(coef_rank)
+        out_indices = indices[:out_rank]
+        arg_indices = indices[out_rank:]
+        coef_expr = ufl.as_tensor(coef_expr[indices] * direction[arg_indices], out_indices)
+    return coef_expr
 
 
 def _flatten_to_entries(expr: ufl.core.expr.Expr) -> list[ufl.core.expr.Expr]:
@@ -543,37 +569,24 @@ def _flatten_to_entries(expr: ufl.core.expr.Expr) -> list[ufl.core.expr.Expr]:
 def _replace_action(action: ufl.Action):
     """Rewrite an Action involving a differentiated FEMExternalOperator.
 
-    UFL differentiation of an ExternalOperator introduces an ``ufl.Action``.
-    The left form contains an Argument (typically the test function in the
-    operator's range space), and the right side provides:
-
-    - the differentiated operator coefficient (``ref_coefficient``)
-    - the direction/slot Argument (from ``argument_slots``)
-
-    For mixed spaces, UFL flattens component shapes into a single vector shape.
-    We therefore split the coefficient into components and apply the derivative
-    tensor to the direction component-wise, then re-flatten to match the mixed
-    Argument's shape.
+    Apply the right operator's derivative tensor to its directions and
+    substitute the result for the last argument of the left form.
     """
-
-    # Extract the Argument associated with the (differentiated) ExternalOperator
+    operator = action.right()
     N_tilde = action.left().arguments()[-1]
-    external_operator_argument = action.right().argument_slots()[-1]
-    coefficient = action.right().ref_coefficient
-
-    # Build a replacement expression with the same ufl_shape as N_tilde
-    if coefficient.ufl_element().is_mixed:
-        coef_components = ufl.split(coefficient)
-        applied_components = [_apply_derivative_tensor(c, external_operator_argument) for c in coef_components]
-        entries: list[ufl.core.expr.Expr] = []
-        for comp in applied_components:
-            entries.extend(_flatten_to_entries(comp))
-        replacement = ufl.as_vector(entries)
-    else:
-        replacement = _apply_derivative_tensor(coefficient, external_operator_argument)
-
+    replacement = _contract_operator_derivative(operator.ref_coefficient, *operator.argument_slots()[1:])
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
-    return form_replaced, action.right()
+    return form_replaced, operator
+
+
+def _contract_operator_derivative(coefficient: fem.Function, *directions: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
+    """Contract the derivative with its directions, retaining the operator's original shape."""
+    if coefficient.ufl_element().is_mixed:
+        entries: list[ufl.core.expr.Expr] = []
+        for component in ufl.split(coefficient):
+            entries.extend(_flatten_to_entries(_apply_derivative_tensor(component, *directions)))
+        return ufl.as_vector(entries)
+    return _apply_derivative_tensor(coefficient, *directions)
 
 
 def map_integrands(function, form, only_integral_type=None):
@@ -691,9 +704,14 @@ class ExternalOperatorReplacer(DAGTraverser):
             if isinstance(operand, ufl.ExternalOperator):
                 if operand not in self._ex_ops:
                     self._ex_ops.append(operand)
+        _, *directions = o.argument_slots()
+        if directions:
+            value = _contract_operator_derivative(o.ref_coefficient, *(self(direction) for direction in directions))
+        else:
+            value = o.ref_coefficient
         if o not in self._ex_ops:
             self._ex_ops.append(o)
-        return o.ref_coefficient
+        return value
 
     @process.register(ufl.core.expr.Expr)
     def _(

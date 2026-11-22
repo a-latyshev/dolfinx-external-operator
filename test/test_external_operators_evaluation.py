@@ -250,6 +250,137 @@ def test_continuous_space():
     check_vector_matrix(F, F_explicit, u)
 
 
+@pytest.mark.parametrize("value_shape", [(), (2,)], ids=["scalar", "vector"])
+def test_derivative_through_external_operator_gradient(value_shape):
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
+    U = fem.functionspace(domain, ("P", 1, value_shape))
+    V = fem.functionspace(domain, ("P", 2, value_shape))
+    u = fem.Function(U)
+    if value_shape:
+        u.interpolate(lambda x: (1 + x[0], 2 + x[1]))
+    else:
+        u.interpolate(lambda x: 1 + x[0] + 0.5 * x[1])
+    u.x.scatter_forward()
+    v = TestFunction(V)
+
+    # The componentwise square of a P1 field is represented exactly in P2.
+    num_components = value_shape[0] if value_shape else 1
+    identity = np.eye(num_components, dtype=u.dtype)
+
+    def N_external(derivatives):
+        return {
+            (0,): lambda values: (values**2).reshape(-1),
+            (1,): lambda values: (2 * values.reshape(-1, num_components, 1) * identity).reshape(-1),
+        }[derivatives]
+
+    N = FEMExternalOperator(u, function_space=V, external_function=N_external)
+    F = inner(grad(N), grad(v)) * ufl.dx
+    F_explicit = inner(grad(ufl.elem_mult(u, u)), grad(v)) * ufl.dx
+    check_vector_matrix(F, F_explicit, u)
+
+
+def test_second_derivative_of_external_energy():
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
+    V = fem.functionspace(domain, ("P", 1, (2,)))
+    u = fem.Function(V)
+    u.interpolate(lambda x: (1 + x[0], 2 + x[1]))
+    u.x.scatter_forward()
+
+    quadrature_degree = 4
+    Qe = basix.ufl.quadrature_element(domain.basix_cell(), degree=quadrature_degree)
+    Q = fem.functionspace(domain, Qe)
+    dx = Measure("dx", domain=domain, metadata={"quadrature_degree": quadrature_degree})
+    identity = np.eye(2, dtype=u.dtype)
+
+    # Energy density (u . u)^2 / 4, its gradient, and its Hessian.
+    def psi_impl(values):
+        norm_sq = np.sum(values**2, axis=-1)
+        return (norm_sq**2 / 4).reshape(-1)
+
+    def dpsi_impl(values):
+        norm_sq = np.sum(values**2, axis=-1, keepdims=True)
+        return (norm_sq * values).reshape(-1)
+
+    def d2psi_impl(values):
+        norm_sq = np.sum(values**2, axis=-1)[..., None, None]
+        outer = values[..., :, None] * values[..., None, :]
+        return (norm_sq * identity + 2 * outer).reshape(-1)
+
+    def psi_external(derivatives):
+        return {(0,): psi_impl, (1,): dpsi_impl, (2,): d2psi_impl}[derivatives]
+
+    psi = FEMExternalOperator(u, function_space=Q, external_function=psi_external)
+    v = TestFunction(V)
+    F = derivative(psi * dx, u, v)
+    F_explicit = derivative(ufl.dot(u, u) ** 2 / 4 * dx, u, v)
+    check_vector_matrix(F, F_explicit, u)
+
+
+@pytest.mark.parametrize("second_operand_size", [2, 3])
+@pytest.mark.parametrize("operand_order", [(0, 1), (1, 0), (0, 1, 0)], ids=["forward", "reverse", "third-order"])
+def test_mixed_derivatives_of_external_energy(second_operand_size, operand_order):
+    from dolfinx.fem.petsc import assemble_matrix
+
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
+    V = fem.functionspace(domain, ("P", 1, (2,)))
+    W = fem.functionspace(domain, ("P", 1, (second_operand_size,)))
+    u, w = fem.Function(V), fem.Function(W)
+    u.interpolate(lambda x: (1 + x[0], 2 + x[1]))
+    u.x.scatter_forward()
+
+    quadrature_degree = 3
+    Qe = basix.ufl.quadrature_element(domain.basix_cell(), degree=quadrature_degree)
+    Q = fem.functionspace(domain, Qe)
+    dx = Measure("dx", domain=domain, metadata={"quadrature_degree": quadrature_degree})
+
+    # Energy density (1 + u[0]) * (u . coupling . w).
+    coupling = np.arange(1, 2 * second_operand_size + 1, dtype=u.dtype).reshape(2, second_operand_size)
+    e0 = np.array([1, 0], dtype=u.dtype)
+    third_partial = e0[:, None, None] * coupling[None, :, :]
+    third_partial = third_partial + third_partial.swapaxes(0, 1)
+
+    def d2psi_impl(values, _):
+        partial = (1 + values[..., 0, None, None]) * coupling
+        partial += e0[:, None] * (values @ coupling)[..., None, :]
+        return partial.reshape(-1)
+
+    def d3psi_impl(values, _):
+        return np.broadcast_to(third_partial, (*values.shape[:-1], *third_partial.shape)).reshape(-1)
+
+    def psi_external(derivatives):
+        return {(1, 1): d2psi_impl, (2, 1): d3psi_impl}[derivatives]
+
+    psi = FEMExternalOperator(u, w, function_space=Q, external_function=psi_external)
+    psi_explicit = (1 + u[0]) * ufl.dot(u, ufl.dot(ufl.as_matrix(coupling.tolist()), w))
+    form, form_explicit = psi * dx, psi_explicit * dx
+    operands = (u, w)
+    for number, index in enumerate(operand_order):
+        operand = operands[index]
+        variation = ufl.Argument(operand.function_space, number)
+        form = derivative(form, operand, variation)
+        form_explicit = derivative(form_explicit, operand, variation)
+
+    if len(operand_order) == 3:
+        # Contract the third variation to obtain a matrix that DOLFINx can assemble.
+        direction = fem.Function(V)
+        direction.interpolate(lambda x: (2 + x[1], 1 + x[0]))
+        direction.x.scatter_forward()
+        form = ufl.action(form, direction)
+        form_explicit = ufl.action(form_explicit, direction)
+
+    replaced, operators = replace_external_operators(form)
+    evaluate_external_operators(operators, evaluate_operands(operators))
+    actual = assemble_matrix(fem.form(replaced))
+    expected = assemble_matrix(fem.form(form_explicit))
+    actual.assemble()
+    expected.assemble()
+    actual.axpy(-1, expected)
+    error = actual.norm()
+    actual.destroy()
+    expected.destroy()
+    assert np.isclose(error, 0.0)
+
+
 def test_mixed_element_space():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
     gdim = domain.geometry.dim
@@ -289,7 +420,7 @@ def test_mixed_element_space():
 
     # u2 from V2 will be projected onto both V1 and V2
     N_tensor = FEMExternalOperator(u2, function_space=V, name="N", external_function=N_external)
-    N1, N2 = split(N_tensor)
+    N1, N2 = N_tensor.split()
     v1, v2 = split(v)
     F = N1 * v1 * ufl.dx + inner(grad(N2), v) * ufl.dx
     F_explicit = inner(grad(u2), v) * ufl.dx
@@ -364,7 +495,7 @@ def test_mixed_element_space():
     # u2 from V2 will be projected onto both V1 and V2
     N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
 
-    N1, N2 = split(N)
+    N1, N2 = N.split()
     v1, v2 = split(v)
     F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
     N1_explicit = u1 + inner(u2, u2)
@@ -441,7 +572,7 @@ def test_mixed_cg_dg_space():
 
     N = FEMExternalOperator(u1, u2, function_space=V, name="N", external_function=N_external)
 
-    N1, N2 = split(N)
+    N1, N2 = N.split()
     v1, v2 = split(v)
     F = N1 * v1 * ufl.dx + inner(N2, v2) * ufl.dx
     N1_explicit = u1**2

@@ -23,7 +23,7 @@ def g_impl(uuh):
 
 
 def dgdu_impl(uuh):
-    aa = np.sin(uuh)  # NUMPY
+    aa = -np.sin(uuh)  # NUMPY
     return aa.reshape(-1)  # The output must be returned flattened to one dimension
 
 
@@ -42,7 +42,7 @@ def f_impl(uuh_square):
 
 
 def dfdu_impl(uuh_square):
-    aa = 3 * uuh_square  # NUMPY
+    aa = 1.5 * np.sqrt(uuh_square)  # NUMPY
     return aa.reshape(-1)  # The output must be returned flattened to one dimension
 
 
@@ -71,6 +71,8 @@ def test_external_operator_codim_1(quadrature_degree):
     V = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
     u = dolfinx.fem.Function(V)
     u.interpolate(lambda x: x[0] + x[1])
+    direction = dolfinx.fem.Function(V)
+    direction.x.array[:] = 1
 
     submesh, entity_map, _, _ = dolfinx.mesh.create_submesh(mesh, mesh.topology.dim - 1, ext_facets)
     parent_to_sub = np.empty((len(ext_facets), 2), dtype=np.int32)
@@ -100,7 +102,7 @@ def test_external_operator_codim_1(quadrature_degree):
         if derivative == 0:
             J = g * ds
         else:
-            J = ufl.derivative(g, u) * ds
+            J = ufl.action(ufl.derivative(g * ds, u), direction)
 
         J_replaced, J_external_operators = replace_external_operators(J)
 
@@ -116,7 +118,7 @@ def test_external_operator_codim_1(quadrature_degree):
         if derivative == 0:
             J_exact = ufl.cos(u) * ds
         else:
-            J_exact = ufl.sin(u) * ds
+            J_exact = -ufl.sin(u) * ds
 
         J_exact_compiled = dolfinx.fem.form(J_exact)
         J_ex = dolfinx.fem.assemble_scalar(J_exact_compiled)
@@ -133,6 +135,8 @@ def test_external_operator_codim_0(quadrature_degree):
     V = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
     u = dolfinx.fem.Function(V)
     u.interpolate(lambda x: x[0] + x[1])
+    direction = dolfinx.fem.Function(V)
+    direction.x.array[:] = 1
 
     def bottom(x):
         return x[0] <= 0.2 + 1e-10
@@ -156,7 +160,7 @@ def test_external_operator_codim_0(quadrature_degree):
         if derivative == 0:
             J = f * dx
         else:
-            J = ufl.derivative(f, u) * dx
+            J = ufl.action(ufl.derivative(f * dx, u), direction)
 
         J_replaced, J_external_operators = replace_external_operators(J)
         map_c = submesh.topology.index_map(submesh.topology.dim)

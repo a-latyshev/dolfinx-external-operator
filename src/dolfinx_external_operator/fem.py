@@ -8,9 +8,6 @@
 #
 # SPDX-License-Identifier:    LGPL-3.0-or-later
 
-import numpy as np
-
-import basix
 import dolfinx
 import ufl
 
@@ -19,7 +16,7 @@ __all__ = ["DualSpace", "FunctionSpace", "functionspace"]
 
 class FunctionSpace(dolfinx.fem.FunctionSpace):
     def dual(self):
-        return DualSpace(self.ufl_domain(), self.ufl_element(), label=self.label, primal_space=self)
+        return DualSpace(self.ufl_domain(), self.ufl_element(), label=self.label(), primal_space=self)
 
     def __hash__(self):
         return hash((self.ufl_domain(), self.ufl_element()))
@@ -54,35 +51,5 @@ def functionspace(
     Returns:
         A function space.
     """
-    # Create UFL element
-    dtype = mesh.geometry.x.dtype
-    try:
-        e = dolfinx.fem.ElementMetaData(*element)  # type: ignore
-        ufl_e = basix.ufl.element(
-            e.family,
-            mesh.basix_cell(),  # type: ignore
-            e.degree,
-            shape=e.shape,
-            symmetry=e.symmetry,
-            dtype=dtype,
-        )
-    except TypeError:
-        ufl_e = element  # type: ignore
-
-    # Check that element and mesh cell types match
-    if ((domain := mesh.ufl_domain()) is None) or ufl_e.cell != domain.ufl_cell():
-        raise ValueError("Non-matching UFL cell and mesh cell shapes.")
-    # Create DOLFINx objects
-    element = dolfinx.fem.finiteelement(mesh.topology.cell_type, ufl_e, dtype)  # type: ignore
-    cpp_dofmap = dolfinx.cpp.fem.create_dofmap(mesh.comm, mesh.topology._cpp_object, element._cpp_object)  # type: ignore
-    assert np.issubdtype(mesh.geometry.x.dtype, element.dtype), (  # type: ignore
-        "Mesh and element dtype are not compatible."
-    )
-
-    # Initialize the cpp.FunctionSpace
-    try:
-        cppV = dolfinx.cpp.fem.FunctionSpace_float64(mesh._cpp_object, element._cpp_object, cpp_dofmap)  # type: ignore
-    except TypeError:
-        cppV = dolfinx.cpp.fem.FunctionSpace_float32(mesh._cpp_object, element._cpp_object, cpp_dofmap)  # type: ignore
-
-    return FunctionSpace(mesh, ufl_e, cppV)
+    space = dolfinx.fem.functionspace(mesh, element)
+    return FunctionSpace(space.mesh, space.ufl_element(), space._cpp_object)
