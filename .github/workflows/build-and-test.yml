@@ -43,7 +43,7 @@ jobs:
 
       - name: Run tests (MPI)
         run: |
-          mpirun -n 3 python3 -m pytest test/
+          mpirun --oversubscribe -n 3 python3 -m pytest test/
       
       - name: Run demos (serial)
         run: |
