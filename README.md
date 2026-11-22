@@ -196,9 +196,6 @@ python -m pip install -e '.[test]'
 python -m pytest test/
 ```
 
-Use `N.split()` to get the symbolic components of a mixed `FEMExternalOperator`.
-The nightly UFL's `ufl.split(N)` can fail when `N` has multiple operands.
-
 ### Building Documentation
 
 Note: If you plan to run the demos during the documentation build, you will need the optional `demo` dependencies (which includes PyTorch). To avoid downloading the large CUDA-enabled version of PyTorch, you can optionally install the CPU-only version first:
