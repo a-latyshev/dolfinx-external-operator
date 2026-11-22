@@ -316,6 +316,71 @@ def test_second_derivative_of_external_energy():
     check_vector_matrix(F, F_explicit, u)
 
 
+@pytest.mark.parametrize("second_operand_size", [2, 3])
+@pytest.mark.parametrize("operand_order", [(0, 1), (1, 0), (0, 1, 0)], ids=["forward", "reverse", "third-order"])
+def test_mixed_derivatives_of_external_energy(second_operand_size, operand_order):
+    from dolfinx.fem.petsc import assemble_matrix
+
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
+    V = fem.functionspace(domain, ("P", 1, (2,)))
+    W = fem.functionspace(domain, ("P", 1, (second_operand_size,)))
+    u, w = fem.Function(V), fem.Function(W)
+    u.interpolate(lambda x: (1 + x[0], 2 + x[1]))
+    u.x.scatter_forward()
+
+    quadrature_degree = 3
+    Qe = basix.ufl.quadrature_element(domain.basix_cell(), degree=quadrature_degree)
+    Q = fem.functionspace(domain, Qe)
+    dx = Measure("dx", domain=domain, metadata={"quadrature_degree": quadrature_degree})
+
+    # Energy density (1 + u[0]) * (u . coupling . w).
+    coupling = np.arange(1, 2 * second_operand_size + 1, dtype=u.dtype).reshape(2, second_operand_size)
+    e0 = np.array([1, 0], dtype=u.dtype)
+    third_partial = e0[:, None, None] * coupling[None, :, :]
+    third_partial = third_partial + third_partial.swapaxes(0, 1)
+
+    def d2psi_impl(values, _):
+        partial = (1 + values[..., 0, None, None]) * coupling
+        partial += e0[:, None] * (values @ coupling)[..., None, :]
+        return partial.reshape(-1)
+
+    def d3psi_impl(values, _):
+        return np.broadcast_to(third_partial, (*values.shape[:-1], *third_partial.shape)).reshape(-1)
+
+    def psi_external(derivatives):
+        return {(1, 1): d2psi_impl, (2, 1): d3psi_impl}[derivatives]
+
+    psi = FEMExternalOperator(u, w, function_space=Q, external_function=psi_external)
+    psi_explicit = (1 + u[0]) * ufl.dot(u, ufl.dot(ufl.as_matrix(coupling.tolist()), w))
+    form, form_explicit = psi * dx, psi_explicit * dx
+    operands = (u, w)
+    for number, index in enumerate(operand_order):
+        operand = operands[index]
+        variation = ufl.Argument(operand.function_space, number)
+        form = derivative(form, operand, variation)
+        form_explicit = derivative(form_explicit, operand, variation)
+
+    if len(operand_order) == 3:
+        # Contract the third variation to obtain a matrix that DOLFINx can assemble.
+        direction = fem.Function(V)
+        direction.interpolate(lambda x: (2 + x[1], 1 + x[0]))
+        direction.x.scatter_forward()
+        form = ufl.action(form, direction)
+        form_explicit = ufl.action(form_explicit, direction)
+
+    replaced, operators = replace_external_operators(form)
+    evaluate_external_operators(operators, evaluate_operands(operators))
+    actual = assemble_matrix(fem.form(replaced))
+    expected = assemble_matrix(fem.form(form_explicit))
+    actual.assemble()
+    expected.assemble()
+    actual.axpy(-1, expected)
+    error = actual.norm()
+    actual.destroy()
+    expected.destroy()
+    assert np.isclose(error, 0.0)
+
+
 def test_mixed_element_space():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
     gdim = domain.geometry.dim

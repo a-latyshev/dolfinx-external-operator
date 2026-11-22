@@ -93,8 +93,7 @@ class FEMExternalOperator(ufl.ExternalOperator):
                 behaviour of the external operator and its derivatives.
             derivatives: A tuple specifiying the derivative multiindex with
                 respect to operands.
-            argument_slots: tuple composed containing expressions with
-                `ufl.Argument` or `ufl.Coefficient` objects.
+            argument_slots: The output slot followed by derivative directions in operand order.
             name: Name of the external operator and the associated
             `fem.Function` coefficient.
             dtype: Data type of the external operator.
@@ -271,6 +270,14 @@ class FEMExternalOperator(ufl.ExternalOperator):
             d_ops = ""
         else:
             d_ops = "/" + "".join(d + "o" + str(i + 1) for i, di in enumerate(derivatives) for j in range(di))
+            slots = self.argument_slots()
+            if argument_slots and argument_slots[:-1] == slots:
+                increments = tuple(new - old for old, new in zip(self.derivatives, derivatives))
+                if increments.count(0) == len(increments) - 1 and sum(increments) == 1:
+                    # UFL appends the direction. Group it by operand to match the coefficient axes.
+                    operand = increments.index(1)
+                    position = 1 + sum(self.derivatives[: operand + 1])
+                    argument_slots = (*slots[:position], argument_slots[-1], *slots[position:])
         dtype = self.ref_coefficient.dtype
         ex_op_name = d + self.ref_coefficient.name + d_ops
         return type(self)(
@@ -562,25 +569,14 @@ def _flatten_to_entries(expr: ufl.core.expr.Expr) -> list[ufl.core.expr.Expr]:
 def _replace_action(action: ufl.Action):
     """Rewrite an Action involving a differentiated FEMExternalOperator.
 
-    UFL differentiation of an ExternalOperator introduces an ``ufl.Action``.
-    The left form contains an Argument (typically the test function in the
-    operator's range space), and the right side provides:
-
-    - the differentiated operator coefficient (``ref_coefficient``)
-    - the direction/slot Argument (from ``argument_slots``)
-
-    For mixed spaces, UFL flattens component shapes into a single vector shape.
-    We therefore split the coefficient into components and apply the derivative
-    tensor to the direction component-wise, then re-flatten to match the mixed
-    Argument's shape.
+    Apply the right operator's derivative tensor to its directions and
+    substitute the result for the last argument of the left form.
     """
-
-    # Extract the Argument associated with the (differentiated) ExternalOperator
+    operator = action.right()
     N_tilde = action.left().arguments()[-1]
-    external_operator_argument = action.right().argument_slots()[-1]
-    replacement = _contract_operator_derivative(action.right().ref_coefficient, external_operator_argument)
+    replacement = _contract_operator_derivative(operator.ref_coefficient, *operator.argument_slots()[1:])
     form_replaced = ufl.algorithms.replace(action.left(), {N_tilde: replacement})
-    return form_replaced, action.right()
+    return form_replaced, operator
 
 
 def _contract_operator_derivative(coefficient: fem.Function, *directions: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
@@ -710,9 +706,6 @@ class ExternalOperatorReplacer(DAGTraverser):
                     self._ex_ops.append(operand)
         _, *directions = o.argument_slots()
         if directions:
-            # UFL appends directions in differentiation order. The coefficient groups axes by operand.
-            if len(directions) > 1 and sum(order > 0 for order in o.derivatives) > 1:
-                raise NotImplementedError("Cannot match derivative directions to tensor axes for distinct operands.")
             value = _contract_operator_derivative(o.ref_coefficient, *(self(direction) for direction in directions))
         else:
             value = o.ref_coefficient
