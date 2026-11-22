@@ -519,30 +519,27 @@ def unique_external_operators(external_operators: list[FEMExternalOperator]):
     return unique_operators
 
 
-def _apply_derivative_tensor(coef_expr: ufl.core.expr.Expr, arg_expr: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
-    """Apply a derivative tensor ``coef_expr`` to a direction ``arg_expr``.
+def _apply_derivative_tensor(coef_expr: ufl.core.expr.Expr, *directions: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
+    """Contract each direction with its trailing axes in the derivative tensor."""
+    for direction in reversed(directions):
+        arg_rank = len(direction.ufl_shape)
+        if arg_rank == 0:
+            coef_expr = coef_expr * direction
+            continue
 
-    Interprets ``coef_expr`` as having shape ``out_shape + arg_shape`` and
-    contracts over the trailing ``arg_shape`` indices.
-    """
-    arg_shape = arg_expr.ufl_shape
-    if arg_shape == ():
-        return coef_expr * arg_expr
+        coef_rank = len(coef_expr.ufl_shape)
+        if coef_rank < arg_rank:
+            raise ValueError(
+                "Derivative coefficient has lower rank than direction argument: "
+                f"coef_shape={coef_expr.ufl_shape}, arg_shape={direction.ufl_shape}."
+            )
 
-    coef_shape = coef_expr.ufl_shape
-    arg_rank = len(arg_shape)
-    coef_rank = len(coef_shape)
-    if coef_rank < arg_rank:
-        raise ValueError(
-            "Derivative coefficient has lower rank than direction argument: "
-            f"coef_shape={coef_shape}, arg_shape={arg_shape}."
-        )
-
-    out_rank = coef_rank - arg_rank
-    indices = ufl.indices(coef_rank)
-    out_indices = indices[:out_rank]
-    arg_indices = indices[out_rank:]
-    return ufl.as_tensor(coef_expr[indices] * arg_expr[arg_indices], out_indices)
+        out_rank = coef_rank - arg_rank
+        indices = ufl.indices(coef_rank)
+        out_indices = indices[:out_rank]
+        arg_indices = indices[out_rank:]
+        coef_expr = ufl.as_tensor(coef_expr[indices] * direction[arg_indices], out_indices)
+    return coef_expr
 
 
 def _flatten_to_entries(expr: ufl.core.expr.Expr) -> list[ufl.core.expr.Expr]:
@@ -586,14 +583,14 @@ def _replace_action(action: ufl.Action):
     return form_replaced, action.right()
 
 
-def _contract_operator_derivative(coefficient: fem.Function, direction: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
-    """Contract the derivative with its direction, retaining the operator's original shape."""
+def _contract_operator_derivative(coefficient: fem.Function, *directions: ufl.core.expr.Expr) -> ufl.core.expr.Expr:
+    """Contract the derivative with its directions, retaining the operator's original shape."""
     if coefficient.ufl_element().is_mixed:
         entries: list[ufl.core.expr.Expr] = []
         for component in ufl.split(coefficient):
-            entries.extend(_flatten_to_entries(_apply_derivative_tensor(component, direction)))
+            entries.extend(_flatten_to_entries(_apply_derivative_tensor(component, *directions)))
         return ufl.as_vector(entries)
-    return _apply_derivative_tensor(coefficient, direction)
+    return _apply_derivative_tensor(coefficient, *directions)
 
 
 def map_integrands(function, form, only_integral_type=None):
@@ -713,9 +710,10 @@ class ExternalOperatorReplacer(DAGTraverser):
                     self._ex_ops.append(operand)
         _, *directions = o.argument_slots()
         if directions:
-            # When UFL differentiates an integrand directly, it stores the direction on the operator.
-            (direction,) = directions
-            value = _contract_operator_derivative(o.ref_coefficient, self(direction))
+            # UFL appends directions in differentiation order. The coefficient groups axes by operand.
+            if len(directions) > 1 and sum(order > 0 for order in o.derivatives) > 1:
+                raise NotImplementedError("Cannot match derivative directions to tensor axes for distinct operands.")
+            value = _contract_operator_derivative(o.ref_coefficient, *(self(direction) for direction in directions))
         else:
             value = o.ref_coefficient
         if o not in self._ex_ops:

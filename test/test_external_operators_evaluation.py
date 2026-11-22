@@ -279,6 +279,43 @@ def test_derivative_through_external_operator_gradient(value_shape):
     check_vector_matrix(F, F_explicit, u)
 
 
+def test_second_derivative_of_external_energy():
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
+    V = fem.functionspace(domain, ("P", 1, (2,)))
+    u = fem.Function(V)
+    u.interpolate(lambda x: (1 + x[0], 2 + x[1]))
+    u.x.scatter_forward()
+
+    quadrature_degree = 4
+    Qe = basix.ufl.quadrature_element(domain.basix_cell(), degree=quadrature_degree)
+    Q = fem.functionspace(domain, Qe)
+    dx = Measure("dx", domain=domain, metadata={"quadrature_degree": quadrature_degree})
+    identity = np.eye(2, dtype=u.dtype)
+
+    # Energy density (u . u)^2 / 4, its gradient, and its Hessian.
+    def psi_impl(values):
+        norm_sq = np.sum(values**2, axis=-1)
+        return (norm_sq**2 / 4).reshape(-1)
+
+    def dpsi_impl(values):
+        norm_sq = np.sum(values**2, axis=-1, keepdims=True)
+        return (norm_sq * values).reshape(-1)
+
+    def d2psi_impl(values):
+        norm_sq = np.sum(values**2, axis=-1)[..., None, None]
+        outer = values[..., :, None] * values[..., None, :]
+        return (norm_sq * identity + 2 * outer).reshape(-1)
+
+    def psi_external(derivatives):
+        return {(0,): psi_impl, (1,): dpsi_impl, (2,): d2psi_impl}[derivatives]
+
+    psi = FEMExternalOperator(u, function_space=Q, external_function=psi_external)
+    v = TestFunction(V)
+    F = derivative(psi * dx, u, v)
+    F_explicit = derivative(ufl.dot(u, u) ** 2 / 4 * dx, u, v)
+    check_vector_matrix(F, F_explicit, u)
+
+
 def test_mixed_element_space():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
     gdim = domain.geometry.dim
