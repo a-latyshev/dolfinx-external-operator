@@ -250,6 +250,35 @@ def test_continuous_space():
     check_vector_matrix(F, F_explicit, u)
 
 
+@pytest.mark.parametrize("value_shape", [(), (2,)], ids=["scalar", "vector"])
+def test_derivative_through_external_operator_gradient(value_shape):
+    domain = mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
+    U = fem.functionspace(domain, ("P", 1, value_shape))
+    V = fem.functionspace(domain, ("P", 2, value_shape))
+    u = fem.Function(U)
+    if value_shape:
+        u.interpolate(lambda x: (1 + x[0], 2 + x[1]))
+    else:
+        u.interpolate(lambda x: 1 + x[0] + 0.5 * x[1])
+    u.x.scatter_forward()
+    v = TestFunction(V)
+
+    # The componentwise square of a P1 field is represented exactly in P2.
+    num_components = value_shape[0] if value_shape else 1
+    identity = np.eye(num_components, dtype=u.dtype)
+
+    def N_external(derivatives):
+        return {
+            (0,): lambda values: (values**2).reshape(-1),
+            (1,): lambda values: (2 * values.reshape(-1, num_components, 1) * identity).reshape(-1),
+        }[derivatives]
+
+    N = FEMExternalOperator(u, function_space=V, external_function=N_external)
+    F = inner(grad(N), grad(v)) * ufl.dx
+    F_explicit = inner(grad(ufl.elem_mult(u, u)), grad(v)) * ufl.dx
+    check_vector_matrix(F, F_explicit, u)
+
+
 def test_mixed_element_space():
     domain = mesh.create_unit_square(MPI.COMM_WORLD, 10, 10)
     gdim = domain.geometry.dim
